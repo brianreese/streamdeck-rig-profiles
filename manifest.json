@@ -1,0 +1,27 @@
+{
+  "Author": "Brian Reese",
+  "Category": "Rig Profiles",
+  "CodePath": "src/plugin.js",
+  "Description": "Switch between sim hardware rig profiles from your Stream Deck.",
+  "Icon": "assets/plugin-icon",
+  "Name": "Rig Profiles",
+  "Actions": [
+    {
+      "Icon": "assets/action-icon",
+      "Name": "Profile Toggle",
+      "States": [
+        {
+          "Image": "assets/action-icon"
+        }
+      ],
+      "SupportedInMultiActions": false,
+      "UUID": "com.rig.profiles.toggle"
+    }
+  ],
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "6.4"
+  },
+  "UUID": "com.rig.profiles",
+  "Version": "1.0.0"
+}
