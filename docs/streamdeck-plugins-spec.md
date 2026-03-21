@@ -1,8 +1,8 @@
 # Stream Deck Custom Plugins — Design Spec
-**Rig:** TRX V2 / Fanatec ClubSport DD+ / Moza AB9 + Active Pedals  
-**Device:** Stream Deck XL (32 keys, 4×8)  
-**Stack:** Node.js, Stream Deck Plugin SDK  
-**Version:** 0.3  
+**Rig:** TRX V2 / Fanatec ClubSport DD+ / Moza AB9 + Active Pedals
+**Device:** Stream Deck XL (32 keys, 4×8)
+**Stack:** Node.js, Stream Deck Plugin SDK
+**Version:** 0.5
 **Repo structure:** Polyrepo — two independent GitHub projects
 
 ---
@@ -286,7 +286,7 @@ OPTIONS PAGE  (format + track + car locked, all values overridable)
        → Stream Deck returns to calling profile
 ```
 
-**Profile-filtered navigation:** When the active rig profile has `track_filter_tag`, `car_filter_tag`, or `format_filter_tag` set, all pages filter accordingly. When `skip_options_step: true`, the Options page is skipped and GO fires immediately after car selection.
+**Profile-filtered navigation:** When the active rig profile has `content_filter_tags` set, all Race Launcher pages (tracks, cars, formats) filter to show only content whose tags include **at least one** of the listed tags (OR logic). The same tag list is applied to all three content dimensions simultaneously. A profile with no `content_filter_tags` sees all content. When `skip_options_step: true`, the Options page is skipped and GO fires immediately after car selection.
 
 **State persistence:** Navigation state is held in memory only. Switching away from the plugin (e.g. AC launches and triggers an in-game SD profile) resets the flow. This is intentional — you wouldn't want to be mid-config when you're already in a race. The running AC check at plugin entry handles re-entry gracefully.
 
@@ -365,44 +365,30 @@ Profiles replace the binary kid/adult model. Any number of named profiles can be
 # profiles.yaml — streamdeck-rig-profiles
 
 profiles:
-  - id: brian
-    name: Brian
+  - id: primary
+    name: Primary
     color: "#2255CC"          # Button background when this profile is active
     fanatec_preset_hotkey: "ctrl+alt+f1"
-    moza_profile: adult
+    moza_profile: default
     govee_scene: Racing
-    sd_profile: "Adult Desktop"
-    # No race filter tags = sees everything in the launcher
+    sd_profile: "Main Profile"
+    # No race filter tags = sees all content in the launcher
 
-  - id: kai
-    name: Kai
+  - id: secondary
+    name: Secondary
     color: "#22AA44"
     fanatec_preset_hotkey: "ctrl+alt+f2"
-    moza_profile: kid-soft
-    govee_scene: "Kid Mode"
-    sd_profile: "Kid Desktop"
-    track_filter_tag: kids
-    car_filter_tag: kids
-    format_filter_tag: kids
+    moza_profile: beginner
+    govee_scene: "Beginner Mode"
+    sd_profile: "Secondary Profile"
+    # Applied to tracks, cars, and formats simultaneously (OR logic)
+    content_filter_tags: [beginner, guest_profile]
     skip_options_step: true
     default_format: quick_blast
 
-  - id: riley
-    name: Riley
-    color: "#EE6622"
-    fanatec_preset_hotkey: "ctrl+alt+f3"
-    moza_profile: kid-medium
-    govee_scene: "Kid Mode"
-    sd_profile: "Kid Desktop"
-    track_filter_tag: kids
-    car_filter_tag: kids
-    format_filter_tag: kids
-    skip_options_step: true
-    default_format: sprint
-
 settings:
   # Profile to activate on plugin startup / rig boot
-  default_profile: brian
+  default_profile: primary
 ```
 
 ---
@@ -422,7 +408,7 @@ The toggle button always occupies **row 4, col 8 (bottom-right)** on every Strea
 On every profile switch:
 1. `fanatec.js` — send FanaLab hotkey
 2. `moza.js` — swap profile (method TBD, see below)
-3. `govee.js` — set scene for all 3 devices
+3. `govee.js` — activate scene on all auto-discovered devices
 4. `sdProfileSwitch` — send `switchToProfile` event to Stream Deck
 5. `state.js` — write persistent state
 
@@ -435,7 +421,7 @@ Each step is independently try/caught. Failures produce a brief red flash on the
 ```json
 // state.json (written to plugin data dir)
 {
-  "activeProfile": "brian",
+  "activeProfile": "primary",
   "lastSwitched": "2025-03-21T10:00:00Z"
 }
 ```
@@ -457,18 +443,61 @@ Mid-session handoff works correctly — wheel and pedal feel updates, SD profile
 
 ### Hardware Integration
 
-**Fanatec:** FanaLab hotkeys. Each profile maps to a `ctrl+alt+fN` combination configured in FanaLab. Fired via `robotjs`.
+The plugin uses a **driver model**: each hardware integration is an independent module. `profileSwitch.js` iterates registered drivers on every profile switch — drivers not configured for a given profile are silently skipped. To add new hardware support, add a driver file and register it in `profileSwitch.js`; no changes to the core orchestration needed. Pull requests for new drivers are welcome.
 
-**Moza (Pit House):** No documented CLI as of early 2025. Investigate in this order:
-1. Profile file swap on disk (locate files via Moza community Discord/GitHub)
-2. AHK window automation fallback
-3. Official CLI if released
+---
 
-**Govee:** REST API, developer key in hand. One `PUT` call per device.
+**Fanatec (FanaLab)**
+
+Method: global hotkey via `robotjs`
+Profile field: `fanatec_preset_hotkey: "ctrl+alt+f1"`
+Prerequisite: FanaLab must be running. Configure a matching hotkey for each FanaLab preset, matching the values in profiles.yaml.
+
+---
+
+**Moza (Pit House)**
+
+Method: TBD — no public CLI or API as of early 2026. Implementation is a no-op stub.
+Profile field: `moza_profile: "default"`
+
+Investigation paths in priority order:
+1. **USB serial protocol** — the Boxflat project (`Lawstorant/boxflat`) reverse-engineered Moza’s USB serial protocol and documents it in `moza-protocol.md`. A Windows Node.js client using `serialport` following the same protocol is the most robust option — it communicates directly with device firmware, bypassing Pit House entirely.
+2. **AHK window automation** — clicks through the Pit House UI to select a preset. Fragile but requires no protocol work.
+3. **Profile file swap** — community points to preset JSON files in `%APPDATA%\MOZA\PitHouse\`, but Pit House does not hot-reload from file changes; it writes parameters to firmware at load time.
+
+See *Moza Research Notes* in the impl plan.
+
+---
+
+**Govee**
+
+Method: Govee Developer REST API (`openapi.api.govee.com/router/api/v1`)
+Profile field: `govee_scene: "Racing"` — must match a scene name exactly as configured in the Govee app
+Config: `govee_api_key` in the `settings` block of profiles.yaml
+
+Design principle: **all lighting configuration lives in the Govee app.** The plugin never stores colors, brightness, or effect parameters.
+
+The `govee.js` driver auto-discovers all Govee devices linked to the API key (`GET /user/devices`) at plugin startup, then fetches each device’s scene catalog (`POST /device/scenes`) and caches scene name → API value mappings locally. Scene values are device-model-specific compound objects — users never interact with raw IDs. On profile switch, the driver looks up the scene name in each device’s cache and fires one control call per device.
+
+Optional property inspector setting: device allowlist (for users with many Govee devices who want to target only rig-area devices). Default: all discovered devices.
+
+> **Note:** The Govee LAN API does not support scene activation (only on/off, brightness, color). Cloud API is required for scene switching.
+
+---
+
+**Adding a new hardware driver**
+
+Implement the interface in a new source file:
+
 ```javascript
-PUT https://developer-api.govee.com/v1/devices/control
-{ device, model, cmd: { name: "scene", value: sceneName } }
+export const name = 'yourdevice';
+/** Return true if this driver has the config it needs to operate. */
+export function isAvailable(settings) { ... }
+/** Activate hardware state for this profile. Throw on failure. */
+export async function activate(profileConfig, settings) { ... }
 ```
+
+Register it in `profileSwitch.js` and document required profile field(s) and prerequisites.
 
 ---
 
@@ -490,20 +519,21 @@ streamdeck-rig-profiles/
 ├── manifest.json
 ├── package.json
 ├── README.md
-├── app.js
-├── config/
-│   profiles.yaml              # User config
-│   profiles.yaml.template
 ├── src/
-│   profileSwitch.js           # Orchestrates macro chain
-│   fanatec.js                 # robotjs hotkey bridge
-│   moza.js                    # Pit House integration (TBD)
-│   govee.js                   # Govee REST client
+│   plugin.js                  # Entry point: setup → config → streamDeck.connect()
+│   setup.js                   # First-run helper: copy template, create shared state dir
+│   setup.test.js              # Unit tests: first-run copy, shared state dir
+│   profileSwitch.js           # Orchestrates macro chain; iterates hardware drivers
+│   fanatec.js                 # Driver: FanaLab hotkey bridge (robotjs)
+│   moza.js                    # Driver: Pit House (stub — implementation TBD)
+│   govee.js                   # Driver: Govee scene client (auto-discovery + cache)
 │   state.js                   # Persistent state read/write
 │   buttonRenderer.js          # Button image/color/label per profile state
 │   pickerMode.js              # Long-press picker overlay logic
+│   configLoader.js            # Config loading, validation, hot-reload
+│   configLoader.test.js       # Unit tests: loading, validation, defaults, coercion
 ├── ui/
-│   property-inspector.html    # FanaLab hotkeys, Govee API key + device IDs
+│   property-inspector.html    # Govee API key; optional device allowlist; FanaLab setup notes
 └── assets/
     transitioning.png / error.png
 ```
@@ -518,7 +548,7 @@ The two plugins communicate via a **shared local state file**:
 { "activeProfile": "brian" }
 ```
 
-`streamdeck-rig-profiles` writes this on every profile switch.  
+`streamdeck-rig-profiles` writes this on every profile switch.
 `streamdeck-ac-launcher` reads this on plugin entry to apply the correct tag filters.
 
 No direct websocket coupling between plugins in Phase 1. The file-based approach is simpler, survives independent restarts, and is easy to debug.
@@ -529,8 +559,8 @@ No direct websocket coupling between plugins in Phase 1. The file-based approach
 
 - [ ] Confirm `acs.exe` path and `race.ini` format on target install
 - [ ] Configure FanaLab hotkeys for each profile (ctrl+alt+f1, f2, f3...)
-- [ ] Investigate Moza Pit House profile file location (Moza community Discord)
-- [ ] Confirm Govee device model numbers (3 devices) against API compatibility list
+- [ ] Investigate Moza: evaluate Boxflat serial protocol vs. AHK automation; confirm which is viable on Windows
+- [ ] Set up Govee API key; confirm scene names in Govee app match `govee_scene` values in profiles.yaml
 - [ ] Decide GitHub userhandle / org for public repos
 - [ ] Decide license (MIT recommended for maximum adoption)
 
