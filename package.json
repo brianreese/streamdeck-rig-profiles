@@ -1,0 +1,25 @@
+{
+  "name": "com.rig.profiles",
+  "version": "1.0.0",
+  "description": "Stream Deck plugin for switching between sim hardware rig profiles",
+  "main": "src/plugin.js",
+  "scripts": {
+    "link": "streamdeck link"
+  },
+  "keywords": [
+    "streamdeck",
+    "plugin",
+    "sim-racing",
+    "profiles"
+  ],
+  "author": "Brian Reese",
+  "license": "MIT AND Commons-Clause",
+  "dependencies": {
+    "@elgato/streamdeck": "^0.6.0",
+    "canvas": "^2.11.2",
+    "chokidar": "^3.6.0",
+    "js-yaml": "^4.1.0",
+    "node-fetch": "^3.3.2",
+    "robotjs": "^0.6.0"
+  }
+}
