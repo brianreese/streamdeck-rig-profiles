@@ -55,6 +55,7 @@ const PLUGIN_DATA_DIR = process.platform === 'win32'
  * - Creates the config directory if it doesn't exist.
  * - Copies profiles.yaml.template → profiles.yaml on first run.
  * - Creates the cross-plugin shared state directory.
+ * - Creates the plugin-private data directory (for caches, state.json, etc.).
  *
  * Returns true if the template was copied (first run), false otherwise.
  *
@@ -63,12 +64,14 @@ const PLUGIN_DATA_DIR = process.platform === 'win32'
  * @param {string} [options.templatePath]   - Override the template file path.
  * @param {string} [options.profilesPath]   - Override the profiles.yaml output path.
  * @param {string} [options.sharedStateDir] - Override the shared state directory path.
+ * @param {string} [options.pluginDataDir]  - Override the plugin-private data directory path.
  */
 export function ensureConfig({
   configDir    = _CONFIG_DIR,
   templatePath = _TEMPLATE_PATH,
   profilesPath = _PROFILES_PATH,
   sharedStateDir = SHARED_STATE_DIR,
+  pluginDataDir  = PLUGIN_DATA_DIR,
 } = {}) {
   // 1. Ensure config directory exists (should already be there in the repo,
   //    but guard against unusual install layouts).
@@ -102,6 +105,13 @@ export function ensureConfig({
     mkdirSync(sharedStateDir, { recursive: true });
   } catch (err) {
     console.warn(`[setup] Could not create shared state directory "${sharedStateDir}": ${err.message}`);
+  }
+
+  // 4. Ensure plugin-private data directory exists (govee cache, state.json, etc.).
+  try {
+    mkdirSync(pluginDataDir, { recursive: true });
+  } catch (err) {
+    console.warn(`[setup] Could not create plugin data directory "${pluginDataDir}": ${err.message}`);
   }
 
   return firstRun;

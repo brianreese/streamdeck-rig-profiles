@@ -63,7 +63,7 @@
 
 import fetch from 'node-fetch';
 import { randomUUID } from 'crypto';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { resolve } from 'path';
 import { PLUGIN_DATA_DIR } from './setup.js';
 
@@ -98,8 +98,8 @@ let deviceCache = new Map();
  * @param {string} apiKey
  * @returns {Promise<Array<{device: string, sku: string, deviceName: string}>>}
  */
-async function discoverDevices(apiKey) {
-  const res = await fetch(`${API_BASE}/user/devices`, {
+async function discoverDevices(apiKey, { _fetch = fetch } = {}) {
+  const res = await _fetch(`${API_BASE}/user/devices`, {
     headers: { 'Govee-API-Key': apiKey },
   });
   if (!res.ok) throw new Error(`[govee] Device discovery failed: ${res.status} ${res.statusText}`);
@@ -125,9 +125,9 @@ async function discoverDevices(apiKey) {
  * @param {string} endpoint  Path segment, e.g. 'device/scenes'
  * @returns {Promise<Record<string, {type: string, instance: string, value: *}>>}
  */
-async function fetchSceneCatalog(apiKey, device, sku, endpoint) {
+async function fetchSceneCatalog(apiKey, device, sku, endpoint, { _fetch = fetch } = {}) {
   try {
-    const res = await fetch(`${API_BASE}/${endpoint}`, {
+    const res = await _fetch(`${API_BASE}/${endpoint}`, {
       method: 'POST',
       headers: { 'Govee-API-Key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ requestId: randomUUID(), payload: { sku, device } }),
@@ -157,7 +157,7 @@ async function fetchSceneCatalog(apiKey, device, sku, endpoint) {
 // ---------------------------------------------------------------------------
 
 /** Returns the last 4 chars of the key — enough to detect a change, not enough to expose it. */
-function keyHint(apiKey) {
+export function keyHint(apiKey) {
   return apiKey.slice(-4);
 }
 
@@ -165,10 +165,10 @@ function keyHint(apiKey) {
  * Load device cache from disk into the in-memory Map.
  * Returns true if loaded successfully, false if absent, stale (key mismatch), or corrupt.
  */
-function loadCache(apiKey) {
-  if (!existsSync(CACHE_PATH)) return false;
+function loadCache(apiKey, { cachePath = CACHE_PATH } = {}) {
+  if (!existsSync(cachePath)) return false;
   try {
-    const data = JSON.parse(readFileSync(CACHE_PATH, 'utf8'));
+    const data = JSON.parse(readFileSync(cachePath, 'utf8'));
     if (data.apiKeyHint !== keyHint(apiKey)) {
       console.log('[govee] API key changed since last cache — refreshing from network.');
       return false;
@@ -189,9 +189,8 @@ function loadCache(apiKey) {
 }
 
 /** Persist the current in-memory cache to disk. */
-function saveCache(apiKey) {
+function saveCache(apiKey, { cachePath = CACHE_PATH } = {}) {
   try {
-    mkdirSync(PLUGIN_DATA_DIR, { recursive: true });
     const data = {
       cachedAt: new Date().toISOString(),
       apiKeyHint: keyHint(apiKey),
@@ -199,8 +198,8 @@ function saveCache(apiKey) {
         id, sku, deviceName, sceneMap,
       })),
     };
-    writeFileSync(CACHE_PATH, JSON.stringify(data, null, 2), 'utf8');
-    console.log(`[govee] Cache saved → ${CACHE_PATH}`);
+    writeFileSync(cachePath, JSON.stringify(data, null, 2), 'utf8');
+    console.log(`[govee] Cache saved → ${cachePath}`);
   } catch (err) {
     console.warn(`[govee] Could not save cache: ${err.message}`);
   }
@@ -226,24 +225,24 @@ function saveCache(apiKey) {
  * @param {string}  apiKey
  * @param {{ forceRefresh?: boolean }} opts
  */
-export async function init(apiKey, { forceRefresh = false } = {}) {
+export async function init(apiKey, { forceRefresh = false, _fetch = fetch, cachePath = CACHE_PATH } = {}) {
   if (!apiKey) {
     console.log('[govee] No API key configured — Govee integration disabled.');
     deviceCache.clear();
     return;
   }
 
-  if (!forceRefresh && loadCache(apiKey)) return;
+  if (!forceRefresh && loadCache(apiKey, { cachePath })) return;
 
   console.log('[govee] Fetching devices and scene catalogs from network...');
   deviceCache.clear();
-  const devices = await discoverDevices(apiKey);
+  const devices = await discoverDevices(apiKey, { _fetch });
 
   for (const d of devices) {
     // Fetch factory (dynamic) scenes and user DIY/Snapshot scenes in parallel.
     const [dynamicMap, diyMap] = await Promise.all([
-      fetchSceneCatalog(apiKey, d.device, d.sku, 'device/scenes'),
-      fetchSceneCatalog(apiKey, d.device, d.sku, 'device/diy-scenes'),
+      fetchSceneCatalog(apiKey, d.device, d.sku, 'device/scenes',     { _fetch }),
+      fetchSceneCatalog(apiKey, d.device, d.sku, 'device/diy-scenes', { _fetch }),
     ]);
     // Merge: DIY/Snapshot scenes take precedence over factory scenes on name collision.
     const sceneMap = { ...dynamicMap, ...diyMap };
@@ -254,7 +253,7 @@ export async function init(apiKey, { forceRefresh = false } = {}) {
     `[govee] Discovered ${deviceCache.size} device(s): ` +
     [...deviceCache.values()].map(d => d.deviceName).join(', ')
   );
-  saveCache(apiKey);
+  saveCache(apiKey, { cachePath });
 }
 
 /**
@@ -272,7 +271,7 @@ export async function init(apiKey, { forceRefresh = false } = {}) {
  * @param {string}        sceneName    Exact scene name as it appears in the Govee app.
  * @param {string[]|null} deviceNames  Optional device name allowlist. null = all devices.
  */
-export async function activateScene(apiKey, sceneName, deviceNames = null) {
+export async function activateScene(apiKey, sceneName, deviceNames = null, { _fetch = fetch } = {}) {
   if (deviceCache.size === 0) {
     console.warn('[govee] activateScene called but device cache is empty — was init() called?');
     return;
@@ -300,7 +299,7 @@ export async function activateScene(apiKey, sceneName, deviceNames = null) {
         console.warn(`[govee] Scene "${sceneName}" not found on ${deviceName} (${deviceId}) — skipping.`);
         return;
       }
-      const res = await fetch(`${API_BASE}/device/control`, {
+      const res = await _fetch(`${API_BASE}/device/control`, {
         method: 'POST',
         headers: { 'Govee-API-Key': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -332,8 +331,16 @@ export function getDiscoveredDevices() {
  * Clear the in-memory device cache and delete the on-disk cache file.
  * The next init() call will hit the network.
  */
-export function clearCache() {
+export function clearCache({ cachePath = CACHE_PATH } = {}) {
   deviceCache.clear();
-  rmSync(CACHE_PATH, { force: true });
+  rmSync(cachePath, { force: true });
   console.log('[govee] Cache cleared.');
+}
+
+/**
+ * Reset module-level state for unit tests.
+ * NOT for production use.
+ */
+export function _resetForTesting() {
+  deviceCache.clear();
 }

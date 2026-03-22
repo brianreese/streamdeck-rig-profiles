@@ -57,12 +57,14 @@ export function parseHotkey(str) {
  * checking whether Fanatec integration is configured for a given profile.
  *
  * @param {string|null|undefined} hotkeyStr  e.g. 'ctrl+alt+f1'
+ * @param {object} [options]
+ * @param {object} [options._robot]  robotjs instance override (for testing only).
  */
-export function activatePreset(hotkeyStr) {
+export function activatePreset(hotkeyStr, { _robot = robot } = {}) {
   if (!hotkeyStr) return;
 
   const { mods, key } = parseHotkey(hotkeyStr);
   // robotjs.keyTap(key, modifiers[])
   // Passing an empty array for modifiers is fine.
-  robot.keyTap(key, mods);
+  _robot.keyTap(key, mods);
 }

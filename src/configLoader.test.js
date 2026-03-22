@@ -341,6 +341,83 @@ profiles:
 });
 
 // ---------------------------------------------------------------------------
+// settings — govee_devices coercion
+// ---------------------------------------------------------------------------
+
+describe('settings — govee_devices coercion', () => {
+  it('defaults to null when govee_devices is absent', async () => {
+    configPath = writeYaml(tmpDir, MINIMAL_YAML);
+    await init(configPath);
+    expect(getSettings().govee_devices).toBeNull();
+  });
+
+  it('leaves null as null', async () => {
+    configPath = writeYaml(tmpDir, `
+profiles:
+  - id: p
+    name: P
+    color: "#000000"
+settings:
+  govee_devices: null
+`);
+    await init(configPath);
+    expect(getSettings().govee_devices).toBeNull();
+  });
+
+  it('coerces a bare string to a one-item array', async () => {
+    configPath = writeYaml(tmpDir, `
+profiles:
+  - id: p
+    name: P
+    color: "#000000"
+settings:
+  govee_devices: "Strip Light"
+`);
+    await init(configPath);
+    expect(getSettings().govee_devices).toEqual(['Strip Light']);
+  });
+
+  it('keeps an array of strings as-is', async () => {
+    configPath = writeYaml(tmpDir, `
+profiles:
+  - id: p
+    name: P
+    color: "#000000"
+settings:
+  govee_devices: ["Strip Light", "Monitor Lightbar"]
+`);
+    await init(configPath);
+    expect(getSettings().govee_devices).toEqual(['Strip Light', 'Monitor Lightbar']);
+  });
+
+  it('coerces a single-item YAML array to a one-item array', async () => {
+    configPath = writeYaml(tmpDir, `
+profiles:
+  - id: p
+    name: P
+    color: "#000000"
+settings:
+  govee_devices: ["Strip Light"]
+`);
+    await init(configPath);
+    expect(getSettings().govee_devices).toEqual(['Strip Light']);
+  });
+
+  it('normalises array items to strings', async () => {
+    configPath = writeYaml(tmpDir, `
+profiles:
+  - id: p
+    name: P
+    color: "#000000"
+settings:
+  govee_devices: [42, true]
+`);
+    await init(configPath);
+    expect(getSettings().govee_devices).toEqual(['42', 'true']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // getProfiles() — defensive copy
 // ---------------------------------------------------------------------------
 

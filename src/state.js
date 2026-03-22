@@ -1,7 +1,9 @@
 // state.js — Manages persistent active-profile state across two locations:
 //
-//   1. Plugin-local:  <repo-root>/data/state.json
+//   1. Plugin-local:  <platform app-support>/com.rig.profiles/state.json
 //      Canonical source; restores button appearance after Stream Deck restarts.
+//        macOS:   ~/Library/Application Support/com.rig.profiles/state.json
+//        Windows: %APPDATA%\com.rig.profiles\state.json
 //
 //   2. Shared:        %APPDATA%/streamdeck-rig-shared/active-profile.json  (Windows)
 //                     ~/Library/Application Support/streamdeck-rig-shared/active-profile.json  (macOS)
@@ -25,19 +27,15 @@
 // without arguments (matching the same path-override convention used in setup.js).
 
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { SHARED_STATE_DIR } from './setup.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { resolve } from 'path';
+import { SHARED_STATE_DIR, PLUGIN_DATA_DIR } from './setup.js';
 
 // ---------------------------------------------------------------------------
 // Path constants
 // ---------------------------------------------------------------------------
 
-/** Plugin-local data directory and state file. */
-const LOCAL_STATE_DIR  = resolve(__dirname, '..', 'data');
-const LOCAL_STATE_PATH = resolve(LOCAL_STATE_DIR, 'state.json');
+/** Plugin-local state file — lives in the OS app-support directory, not the repo. */
+const LOCAL_STATE_PATH = resolve(PLUGIN_DATA_DIR, 'state.json');
 
 /** Shared state written by this plugin and read by streamdeck-ac-launcher. */
 const SHARED_STATE_PATH = resolve(SHARED_STATE_DIR, 'active-profile.json');
@@ -46,21 +44,15 @@ const SHARED_STATE_PATH = resolve(SHARED_STATE_DIR, 'active-profile.json');
 // Directory bootstrap (runs once on module import)
 // ---------------------------------------------------------------------------
 
-// Ensure the plugin-local data/ directory exists.  This is safe to call
-// repeatedly; mkdirSync with recursive:true is a no-op when the dir exists.
-mkdirSync(LOCAL_STATE_DIR, { recursive: true });
-
-// Ensure the shared directory exists so writeState() never fails on a missing
-// parent.  setup.js / ensureConfig() also creates this directory, but state.js
-// may be used without having called ensureConfig() first (e.g. in tests).
+// Both directories are created by ensureConfig() at plugin startup.  The
+// mkdirSync calls below are a belt-and-suspenders fallback for callers that
+// use state.js without going through ensureConfig() first (e.g. isolated tests
+// that don't pass path overrides).
 try {
+  mkdirSync(PLUGIN_DATA_DIR,  { recursive: true });
   mkdirSync(SHARED_STATE_DIR, { recursive: true });
 } catch (err) {
-  // Non-fatal: warn and continue.  Writes to the shared file will fail later
-  // with a clear ENOENT error if the directory truly can't be created.
-  console.warn(
-    `[state] Could not create shared state directory "${SHARED_STATE_DIR}": ${err.message}`
-  );
+  console.warn(`[state] Could not create state directories: ${err.message}`);
 }
 
 // ---------------------------------------------------------------------------

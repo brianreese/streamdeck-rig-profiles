@@ -32,13 +32,15 @@ let configDir;
 let templatePath;
 let profilesPath;
 let sharedStateDir;
+let pluginDataDir;
 
 beforeEach(() => {
-  tmpDir       = makeTempDir();
-  configDir    = join(tmpDir, 'config');
-  templatePath = join(configDir, 'profiles.yaml.template');
-  profilesPath = join(configDir, 'profiles.yaml');
+  tmpDir         = makeTempDir();
+  configDir      = join(tmpDir, 'config');
+  templatePath   = join(configDir, 'profiles.yaml.template');
+  profilesPath   = join(configDir, 'profiles.yaml');
   sharedStateDir = join(tmpDir, 'shared');
+  pluginDataDir  = join(tmpDir, 'plugin-data');
 });
 
 afterEach(() => {
@@ -54,7 +56,7 @@ describe('first run — profiles.yaml absent', () => {
     mkdirSync(configDir, { recursive: true });
     writeFileSync(templatePath, '# template content\n');
 
-    const result = ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir });
+    const result = ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir });
 
     expect(result).toBe(true);
     expect(existsSync(profilesPath)).toBe(true);
@@ -65,7 +67,7 @@ describe('first run — profiles.yaml absent', () => {
     mkdirSync(configDir, { recursive: true });
     writeFileSync(templatePath, '# template\n');
 
-    expect(ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir })).toBe(true);
+    expect(ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir })).toBe(true);
   });
 
   it('creates configDir itself if it does not exist yet', () => {
@@ -74,7 +76,7 @@ describe('first run — profiles.yaml absent', () => {
     writeFileSync(templatePath, '# t\n');
     rmSync(configDir, { recursive: true });
 
-    ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir });
+    ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir });
 
     expect(existsSync(configDir)).toBe(true);
   });
@@ -90,7 +92,7 @@ describe('subsequent run — profiles.yaml already exists', () => {
     writeFileSync(templatePath, '# template\n');
     writeFileSync(profilesPath, '# user customisations\n');
 
-    ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir });
+    ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir });
 
     expect(readFileSync(profilesPath, 'utf8')).toBe('# user customisations\n');
   });
@@ -99,7 +101,7 @@ describe('subsequent run — profiles.yaml already exists', () => {
     mkdirSync(configDir, { recursive: true });
     writeFileSync(profilesPath, '# existing\n');
 
-    expect(ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir })).toBe(false);
+    expect(ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir })).toBe(false);
   });
 });
 
@@ -113,14 +115,14 @@ describe('missing template', () => {
     // templatePath does not exist, profilesPath does not exist
 
     expect(() =>
-      ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir })
+      ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir })
     ).not.toThrow();
   });
 
   it('returns false when template is missing (cannot copy)', () => {
     mkdirSync(configDir, { recursive: true });
 
-    const result = ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir });
+    const result = ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir });
 
     expect(result).toBe(false);
   });
@@ -128,7 +130,7 @@ describe('missing template', () => {
   it('does not create profiles.yaml when template is missing', () => {
     mkdirSync(configDir, { recursive: true });
 
-    ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir });
+    ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir });
 
     expect(existsSync(profilesPath)).toBe(false);
   });
@@ -143,7 +145,7 @@ describe('shared state directory', () => {
     mkdirSync(configDir, { recursive: true });
     writeFileSync(templatePath, '# t\n');
 
-    ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir });
+    ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir });
 
     expect(existsSync(sharedStateDir)).toBe(true);
   });
@@ -154,7 +156,32 @@ describe('shared state directory', () => {
     writeFileSync(templatePath, '# t\n');
 
     expect(() =>
-      ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir })
+      ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir })
+    ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin data directory
+// ---------------------------------------------------------------------------
+
+describe('plugin data directory', () => {
+  it('creates the plugin data directory', () => {
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(templatePath, '# t\n');
+
+    ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir });
+
+    expect(existsSync(pluginDataDir)).toBe(true);
+  });
+
+  it('is safe to call when plugin data dir already exists', () => {
+    mkdirSync(configDir, { recursive: true });
+    mkdirSync(pluginDataDir, { recursive: true });
+    writeFileSync(templatePath, '# t\n');
+
+    expect(() =>
+      ensureConfig({ configDir, templatePath, profilesPath, sharedStateDir, pluginDataDir })
     ).not.toThrow();
   });
 });

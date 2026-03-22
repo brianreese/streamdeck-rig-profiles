@@ -16,7 +16,7 @@ import { init as initConfig } from './configLoader.js';
 ensureConfig();
 
 // Step 2: load and watch config
-initConfig();
+await initConfig();
 
 // Step 3: connect to Stream Deck
 // TODO: register action handlers here before connect()
