@@ -32,6 +32,27 @@ Clone both locally.
 
 ---
 
+### Development environment — Mac + Windows sim rig
+
+You're coding on a Mac, but the Stream Deck, Fanatec hardware, Moza hardware, and Govee lights live on a separate Windows sim rig. Here's how to split the work:
+
+| Task | Machine |
+|---|---|
+| All source code development | Mac |
+| All automated unit tests (`npm test`, `node src/state.test.js`) | Mac |
+| Govee API testing (`test-govee.js`) — rig lights will actually respond | Mac |
+| Fanatec hotkey parsing + local keyfire verification | Mac |
+| `buttonRenderer.js` visual output (generates PNG locally) | Mac |
+| Verify FanaLab changes preset on hotkey | Windows sim rig |
+| Stream Deck button rendering and pressing | Windows sim rig |
+| Full plugin integration tests (T-01–T-12) | Windows sim rig |
+
+Three Windows checkpoints are marked in this guide (**W-1**, **W-2**, **W-3**). See `integration-testing.md` for the full schedule and what to run at each visit. Outside those checkpoints, stay on the Mac.
+
+> **Govee from Mac:** The Govee API (`openapi.api.govee.com`) is cloud-based. Running `test-govee.js` from your Mac with a valid API key will trigger real scene changes on the rig lights — no need to be at the Windows machine for Govee validation.
+
+---
+
 # Part 1: streamdeck-rig-profiles
 
 ---
@@ -163,11 +184,18 @@ key isn't hardcoded.
 ```
 
 ### Review checklist
-- [ ] `node test-govee.js --key YOUR_KEY --scene "Racing"` discovers devices and triggers the scene on all of them
-- [ ] Govee: `init()` logs the correct device count
-- [ ] Fanatec: hotkey fires (verify FanaLab changes preset)
-- [ ] Govee: one unreachable/missing-scene device doesn't crash the others (Promise.allSettled)
-- [ ] Moza stub: no crash, logs message
+- [ ] `node test-govee.js --key YOUR_KEY --scene "Racing"` discovers devices and triggers the scene on all of them *(Mac)*
+- [ ] Govee: `init()` logs the correct device count *(Mac)*
+- [ ] Fanatec: hotkey fires (verify FanaLab changes preset) *(Windows — W-1 below)*
+- [ ] Govee: one unreachable/missing-scene device doesn't crash the others (Promise.allSettled) *(Mac)*
+- [ ] Moza stub: no crash, logs message *(Mac)*
+
+> **🖥 Windows Checkpoint W-1** — Quick trip to the sim rig before building the orchestrator:
+> 1. `git pull && npm install` on the Windows machine (`npm install` is required on first pull — robotjs needs a native build)
+> 2. `node test-fanatec.js` — verify FanaLab changes preset on hotkey
+> 3. `npm run link`, open Stream Deck software — confirm the plugin loads without errors
+>
+> Expected time: ~30 min. Isolates hardware driver issues before you wire everything into `plugin.js`.
 
 ---
 
@@ -255,6 +283,13 @@ Add comments explaining each section.
 - [ ] Editing profiles.yaml while plugin runs: changes take effect
 - [ ] Stream Deck restart: button shows correct profile immediately
 
+> **🖥 Windows Checkpoint W-2** — Main integration session. `plugin.js` is now feature-complete:
+> 1. `git pull && npm run link` on the Windows machine
+> 2. Work through **T-01 through T-10** in `integration-testing.md`
+> 3. Fix issues on Mac → push → re-pull → re-test; iterate until all pass
+>
+> Expected time: ~1–2 hours. Don't proceed to Chunk 6 until T-01–T-10 all pass.
+
 ---
 
 ## Chunk 6 — Property inspector + README
@@ -326,6 +361,14 @@ In the streamdeck-rig-profiles plugin, do a final pass for robustness:
 - [ ] `.gitignore` excludes node_modules and user config
 - [ ] `npm run link` installs the plugin into Stream Deck successfully
 - [ ] Plugin appears in Stream Deck with correct name, icon, description
+
+> **🖥 Windows Checkpoint W-3** — Final sign-off before starting Part 2:
+> 1. `git pull` on the Windows machine
+> 2. Run **T-11** and **T-12** from `integration-testing.md`
+> 3. Run `git status` — confirm `data/`, `config/profiles.yaml`, and `node_modules/` are excluded
+> 4. Verify the plugin appears in Stream Deck with the correct name, icon, and description
+>
+> Once this passes, `streamdeck-rig-profiles` is shippable. Proceed to Part 2.
 
 ---
 
@@ -703,7 +746,9 @@ Once both plugins are installed and configured:
 1. Set profiles.yaml with your 3 profiles
 2. Set races.yaml with 3–4 tracks, 3–4 cars, 3 formats, 2–3 featured combos
 3. Configure FanaLab hotkeys matching your profiles.yaml entries
-4. Configure Govee device IDs in the property inspector
+4. Enter your Govee API key in the property inspector; click "Discover Devices" to confirm all rig lights are found
+
+> **Platform:** Windows sim rig — both plugins must be installed (`npm run link` in each repo).
 
 **Test sequence:**
 - [ ] Rig profiles: short press cycles Brian → Kai → Riley → Brian, colors change

@@ -22,10 +22,13 @@ npm run test:watch    # re-runs on every file save (recommended during developme
 
 ### Current test coverage
 
+All automated tests are platform-independent — run on Mac or Windows with no Stream Deck hardware required.
+
 | Test file | What it covers |
 |---|---|
 | `src/configLoader.test.js` | YAML loading, required-field validation, default hydration, `content_filter_tags` coercion, settings loading, defensive copies, `getProfileById`, `onUpdate` API, `close()` safety |
 | `src/setup.test.js` | First-run template copy, existing file preservation, missing template handling, shared state dir creation, `SHARED_STATE_DIR` value |
+| `src/state.test.js` | Round-trip write/read, `lastSwitched` validity, both files match, successive writes, graceful fallback (missing / malformed / empty / wrong shape), no leftover `.tmp` files — run with `node src/state.test.js` |
 
 ### Adding tests for new modules
 
@@ -37,9 +40,37 @@ Each new source file in `src/` should have a co-located `.test.js` file in the s
 
 ---
 
+## 1.5 — Platform split and Windows checkpoint schedule
+
+You're developing on a Mac; the Stream Deck, Fanatec, and Moza hardware, plus Govee lights, are on a separate Windows sim rig.
+
+### What can be validated on Mac
+
+| Activity | Command | Notes |
+|---|---|---|
+| All Vitest unit tests | `npm test` | Pure logic + file I/O, no hardware |
+| `state.js` integration test | `node src/state.test.js` | File I/O only |
+| Govee API discovery + scene activation | `node test-govee.js --key ... --scene ...` | Cloud API — rig lights will actually respond |
+| Fanatec hotkey parsing + local keyfire | `node test-fanatec.js` | Fires hotkeys on the Mac desktop; verifies logic. FanaLab response requires Windows. |
+| `buttonRenderer.js` visual output | `node -e "const r = ..."` | Generates a PNG locally — open to verify layout |
+
+> **Govee from Mac:** `test-govee.js` with a valid API key will trigger real scene changes on the rig lights from anywhere. You do not need to be at the Windows machine to validate Govee integration.
+
+### Windows checkpoint schedule
+
+| Checkpoint | After | What to test | Est. time |
+|---|---|---|---|
+| **W-1** | Chunk 3 | `test-fanatec.js` → FanaLab preset changes; plugin loads cleanly in SD software | ~30 min |
+| **W-2** | Chunk 5 | Full integration tests **T-01 through T-10** | ~1–2 hrs |
+| **W-3** | Chunk 7 | **T-11, T-12**; `.gitignore` clean; manifest review; `npm run link` | ~30 min |
+
+Each checkpoint is marked in `human-implementation-guide.md` at the relevant chunk.
+
+---
+
 ## 2. Manual Integration Tests
 
-These tests require the Stream Deck software, the physical hardware, and the plugin installed via `npm run link`. Work through the checklist below in order.
+These tests require the Stream Deck software, the physical hardware, and the plugin installed via `npm run link`. **All T-0x tests run on the Windows sim rig.** Work through the checklist below in order — use the checkpoint schedule above to know when to run each group.
 
 ### Environment
 
@@ -169,6 +200,8 @@ These tests require the Stream Deck software, the physical hardware, and the plu
 
 ### T-10 — Govee auto-discovery
 
+> **Pre-validate on Mac:** Run `node test-govee.js --key YOUR_KEY --scene "Racing"` before this Windows test. If discovery and scene activation succeed there, the API key and scene names are confirmed correct — this test then only verifies the plugin wiring.
+
 **Steps:**
 1. Set `govee_api_key` in `config/profiles.yaml` to a valid key
 2. Reload the plugin
@@ -212,12 +245,11 @@ These tests require the Stream Deck software, the physical hardware, and the plu
 
 Add integration tests here as new features are implemented:
 
-| Area | When to add |
-|---|---|
-| Moza serial protocol activation | When `moza.js` is fully implemented |
-| SD profile switch via `switchToProfile` event | When action handler is wired up in `plugin.js` |
-| Button canvas rendering | When `buttonRenderer.js` is implemented |
-| Picker position mapping to profiles | When `pickerMode.js` is implemented |
-| `state.js` read/write round-trip | When `state.js` is implemented |
-| Govee scene name mismatch handling | When `govee.js` is implemented |
-| AC mid-session handoff (T-04 while acs.exe running) | Phase 3 |
+| Area | When to add | Platform |
+|---|---|---|
+| Moza serial protocol activation | When `moza.js` is fully implemented | Windows |
+| SD profile switch via `switchToProfile` event | When action handler is wired up in `plugin.js` (Chunk 5) | Windows |
+| Button canvas rendering visual check | When `buttonRenderer.js` is implemented (Chunk 4) | Mac |
+| Picker position mapping to profiles | When `pickerMode.js` is implemented (Chunk 5) | Windows |
+| Govee scene name mismatch handling | When `govee.js` is implemented (Chunk 3) | Mac (API) |
+| AC mid-session handoff (T-04 while acs.exe running) | Phase 3 | Windows |
