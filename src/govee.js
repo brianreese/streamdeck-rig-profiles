@@ -238,8 +238,9 @@ export async function init(apiKey, { forceRefresh = false, _fetch = fetch, cache
   deviceCache.clear();
   const devices = await discoverDevices(apiKey, { _fetch });
 
-  for (const d of devices) {
-    // Fetch factory (dynamic) scenes and user DIY/Snapshot scenes in parallel.
+  // Fetch all devices' scene catalogs concurrently — no sequential waiting between devices.
+  await Promise.all(devices.map(async (d) => {
+    // Within each device, factory scenes and DIY scenes are also fetched in parallel.
     const [dynamicMap, diyMap] = await Promise.all([
       fetchSceneCatalog(apiKey, d.device, d.sku, 'device/scenes',     { _fetch }),
       fetchSceneCatalog(apiKey, d.device, d.sku, 'device/diy-scenes', { _fetch }),
@@ -247,7 +248,7 @@ export async function init(apiKey, { forceRefresh = false, _fetch = fetch, cache
     // Merge: DIY/Snapshot scenes take precedence over factory scenes on name collision.
     const sceneMap = { ...dynamicMap, ...diyMap };
     deviceCache.set(d.device, { sku: d.sku, deviceName: d.deviceName ?? d.device, sceneMap });
-  }
+  }));
 
   console.log(
     `[govee] Discovered ${deviceCache.size} device(s): ` +
