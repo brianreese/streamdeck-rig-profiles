@@ -518,6 +518,9 @@ Register it in `profileSwitch.js` and document required profile field(s) and pre
 streamdeck-rig-profiles/
 ├── manifest.json
 ├── package.json
+├── config/
+│   profiles.yaml.template     # Committed template bundled with plugin
+│   profiles.yaml              # User-generated; created/edited on first run
 ├── README.md
 ├── src/
 │   plugin.js                  # Entry point: setup → config → streamDeck.connect()
