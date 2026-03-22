@@ -212,9 +212,15 @@ async function startWatcher() {
     await watcher.close();
     watcher = null;
   }
-  watcher = chokidar.watch(resolvedConfigPath, { ignoreInitial: true });
-  watcher.on('change', () => {
-    console.log('[configLoader] profiles.yaml changed — reloading...');
+
+  // Shared reload-and-notify handler used for both 'change' and 'add' events.
+  // Subscribing to 'add' is necessary for two scenarios:
+  //   1. First-run creation: profiles.yaml is created after the plugin starts.
+  //   2. Atomic saves: some editors (e.g. vim, many IDEs) write a temp file and
+  //      rename it into place, which chokidar reports as 'unlink' + 'add' rather
+  //      than 'change'.
+  function reloadAndNotify(event) {
+    console.log(`[configLoader] profiles.yaml ${event} — reloading...`);
     load();
     // Notify all registered listeners with the fresh snapshot.
     for (const cb of updateCallbacks) {
@@ -224,8 +230,25 @@ async function startWatcher() {
         console.error('[configLoader] onUpdate callback threw:', err);
       }
     }
+  }
+
+  // Watch the parent directory so that chokidar can detect 'add' when the file
+  // is created for the first time (or re-created after an atomic rename), then
+  // filter events down to just the config file by comparing the resolved path.
+  const configDir = dirname(resolvedConfigPath);
+  watcher = chokidar.watch(configDir, { ignoreInitial: true });
+  watcher.on('add',    p => { if (p === resolvedConfigPath) reloadAndNotify('added'); });
+  watcher.on('change', p => { if (p === resolvedConfigPath) reloadAndNotify('changed'); });
+  watcher.on('unlink', p => {
+    if (p === resolvedConfigPath) {
+      console.log('[configLoader] profiles.yaml removed — watching for recreation.');
+    }
   });
-  watcher.on('error', err => console.error('[configLoader] File watcher error:', err));
+  watcher.on('error',  err => console.error('[configLoader] File watcher error:', err));
+
+  // Wait until chokidar has finished its initial scan so that callers (and
+  // tests) can be sure the watcher is active before making any filesystem changes.
+  await new Promise(resolve => watcher.once('ready', resolve));
 }
 
 // ---------------------------------------------------------------------------

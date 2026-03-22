@@ -10,7 +10,7 @@
 //            npm run test:watch   (re-run on save)
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { writeFileSync, mkdirSync, rmSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
@@ -427,5 +427,87 @@ describe('close()', () => {
     await init(configPath);
     await expect(close()).resolves.toBeUndefined();
     await expect(close()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hot-reload — file watcher events
+// ---------------------------------------------------------------------------
+
+/** Wait up to `ms` milliseconds for a condition to become true. */
+function waitFor(condition, ms = 5000) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const interval = setInterval(() => {
+      if (condition()) {
+        clearInterval(interval);
+        resolve();
+      } else if (Date.now() - start > ms) {
+        clearInterval(interval);
+        reject(new Error('waitFor timed out'));
+      }
+    }, 50);
+  });
+}
+
+describe('hot-reload — file watcher events', () => {
+  it('reloads and notifies callbacks on "change" event', async () => {
+    configPath = writeYaml(tmpDir, MINIMAL_YAML);
+    await init(configPath);
+
+    const TWO_PROFILES = `
+profiles:
+  - id: primary
+    name: Primary
+    color: "#2255CC"
+  - id: extra
+    name: Extra
+    color: "#AABBCC"
+settings:
+  default_profile: primary
+`;
+
+    let notified = false;
+    onUpdate(() => { notified = true; });
+
+    writeFileSync(configPath, TWO_PROFILES, 'utf8');
+    await waitFor(() => notified);
+
+    expect(getProfiles()).toHaveLength(2);
+    expect(getProfiles()[1].id).toBe('extra');
+  }, 10_000);
+
+  it('reloads and notifies callbacks on "add" event (atomic-save / first-run)', async () => {
+    // Start watching a path that does not yet exist (first-run scenario).
+    const newPath = join(tmpDir, 'profiles.yaml');
+    await init(newPath);
+    expect(getProfiles()).toHaveLength(0);
+
+    let notified = false;
+    onUpdate(() => { notified = true; });
+
+    // Creating the file triggers the 'add' event.
+    writeFileSync(newPath, MINIMAL_YAML, 'utf8');
+    await waitFor(() => notified);
+
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].id).toBe('primary');
+  }, 10_000);
+
+  it('does not reload on "unlink" — profiles remain available after deletion', async () => {
+    configPath = writeYaml(tmpDir, MINIMAL_YAML);
+    await init(configPath);
+    expect(getProfiles()).toHaveLength(1);
+
+    let notified = false;
+    onUpdate(() => { notified = true; });
+
+    unlinkSync(configPath);
+    // Give chokidar time to process the event; the callback must NOT fire.
+    await new Promise(r => setTimeout(r, 1000));
+
+    expect(notified).toBe(false);
+    // Profiles in memory are unchanged — last known good state is preserved.
+    expect(getProfiles()).toHaveLength(1);
   });
 });
