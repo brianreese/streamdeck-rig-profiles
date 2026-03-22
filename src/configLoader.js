@@ -156,15 +156,18 @@ function load() {
       continue; // skip profiles that fail required-field checks
     }
 
-    // Warn on unrecognised keys so typos surface early.
+    // Start with defaults; then overlay only known keys from the user profile.
+    const hydrated = { ...PROFILE_DEFAULTS };
+
+    // Warn on unrecognised keys so typos surface early, and ignore them in the hydrated profile.
     for (const key of Object.keys(p)) {
       if (!KNOWN_PROFILE_KEYS.has(key)) {
         console.warn(`[configLoader] profile "${p.id}" has unknown field "${key}" — ignored.`);
+        continue;
       }
+      // Explicit null in YAML still wins over a default.
+      hydrated[key] = p[key];
     }
-
-    // Merge defaults then overlay user values (explicit null in YAML wins over a default).
-    const hydrated = { ...PROFILE_DEFAULTS, ...p };
     hydrated.content_filter_tags = coerceFilterTags(hydrated.content_filter_tags, hydrated.id);
 
     loaded.push(hydrated);
