@@ -26,8 +26,14 @@ const _PROFILES_PATH = resolve(_CONFIG_DIR, 'profiles.yaml');
 
 // Shared state directory written by this plugin and read by streamdeck-ac-launcher.
 // On macOS the conventional equivalent of %APPDATA% is ~/Library/Application Support.
+const WINDOWS_APPDATA_BASE = process.platform === 'win32'
+  ? (process.env.APPDATA && process.env.APPDATA.trim() !== ''
+      ? process.env.APPDATA
+      : resolve(os.homedir(), 'AppData', 'Roaming'))
+  : null;
+
 const SHARED_STATE_DIR = process.platform === 'win32'
-  ? resolve(process.env.APPDATA ?? '', 'streamdeck-rig-shared')
+  ? resolve(WINDOWS_APPDATA_BASE, 'streamdeck-rig-shared')
   : resolve(os.homedir(), 'Library', 'Application Support', 'streamdeck-rig-shared');
 
 // ---------------------------------------------------------------------------
