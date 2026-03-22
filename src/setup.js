@@ -65,6 +65,10 @@ export function ensureConfig({
   //    but guard against unusual install layouts).
   mkdirSync(configDir, { recursive: true });
 
+  // Also ensure the directory for profilesPath exists, since it may point
+  // outside configDir when overridden (e.g. in tests).
+  const profilesDir = dirname(profilesPath);
+  mkdirSync(profilesDir, { recursive: true });
   // 2. Auto-copy template if profiles.yaml is absent.
   let firstRun = false;
   if (!existsSync(profilesPath)) {
