@@ -14,7 +14,7 @@ npm install
 npm test
 ```
 
-`npm test` runs `vitest run` — a single pass over all `tests/**/*.test.js` files.
+`npm test` runs `vitest run` — a single pass over all `src/**/*.test.js` files.
 
 ```bash
 npm run test:watch    # re-runs on every file save (recommended during development)
@@ -29,7 +29,7 @@ npm run test:watch    # re-runs on every file save (recommended during developme
 
 ### Adding tests for new modules
 
-Each new source file in `src/` should have a corresponding test file in `tests/`. Follow the same pattern:
+Each new source file in `src/` should have a co-located `.test.js` file in the same directory. Follow the same pattern:
 
 - Use real temp directories (avoid filesystem mocking where possible — it makes tests harder to read)
 - Clean up in `afterEach` with `rmSync(tmpDir, { recursive: true, force: true })`
