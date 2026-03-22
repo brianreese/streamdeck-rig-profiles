@@ -40,7 +40,7 @@ You're coding on a Mac, but the Stream Deck, Fanatec hardware, Moza hardware, an
 |---|---|
 | All source code development | Mac |
 | All automated unit tests (`npm test`, `node src/state.test.js`) | Mac |
-| Govee API testing (`test-govee.js`) — rig lights will actually respond | Mac |
+| Govee API testing (`scripts/test-govee.js`) — rig lights will actually respond | Mac |
 | Fanatec hotkey parsing + local keyfire verification | Mac |
 | `buttonRenderer.js` visual output (generates PNG locally) | Mac |
 | Verify FanaLab changes preset on hotkey | Windows sim rig |
@@ -49,7 +49,7 @@ You're coding on a Mac, but the Stream Deck, Fanatec hardware, Moza hardware, an
 
 Three Windows checkpoints are marked in this guide (**W-1**, **W-2**, **W-3**). See `integration-testing.md` for the full schedule and what to run at each visit. Outside those checkpoints, stay on the Mac.
 
-> **Govee from Mac:** The Govee API (`openapi.api.govee.com`) is cloud-based. Running `test-govee.js` from your Mac with a valid API key will trigger real scene changes on the rig lights — no need to be at the Windows machine for Govee validation.
+> **Govee from Mac:** The Govee API (`openapi.api.govee.com`) is cloud-based. Running `scripts/test-govee.js` from your Mac with a valid API key will trigger real scene changes on the rig lights — no need to be at the Windows machine for Govee validation.
 
 ---
 
@@ -167,7 +167,7 @@ In the streamdeck-rig-profiles plugin, create two hardware integration modules:
    API base: https://openapi.api.govee.com/router/api/v1
    Auth header: Govee-API-Key
 
-   Write a manual test script (test-govee.js) that accepts --key as a CLI arg
+   Write a manual test script (scripts/test-govee.js) that accepts --key as a CLI arg
    (never hardcode keys). It should call init(), log discovered devices, then
    call activateScene() with a scene name passed via --scene.
 
@@ -177,14 +177,18 @@ In the streamdeck-rig-profiles plugin, create two hardware integration modules:
      implemented once Pit House profile file location is confirmed.
    - Export: { activateProfile }
 
-No test framework — write simple manual test scripts (test-fanatec.js, test-govee.js)
+No test framework — write simple manual test scripts (scripts/test-fanatec.js, scripts/test-govee.js)
 that can be run with node to verify each module works against real hardware.
 For test-govee.js, accept API key and device info as command line args so the
 key isn't hardcoded.
 ```
 
 ### Review checklist
-- [ ] `node test-govee.js --key YOUR_KEY --scene "Racing"` discovers devices and triggers the scene on all of them *(Mac)*
+- [ ] `node scripts/test-govee.js --key YOUR_KEY --list-devices` prints your Govee device names *(Mac)*
+- [ ] `node scripts/test-govee.js --key YOUR_KEY --list-scenes` prints all available scene names per device *(Mac)*
+- [ ] `node scripts/test-govee.js --key YOUR_KEY --scene "Racing"` triggers the scene on all devices *(Mac)*
+- [ ] `node scripts/test-govee.js --key YOUR_KEY --scene "Racing" --devices "Device Name"` targets a specific device *(Mac)*
+- [ ] Second run uses the disk cache (no network calls) *(Mac)*
 - [ ] Govee: `init()` logs the correct device count *(Mac)*
 - [ ] Fanatec: hotkey fires (verify FanaLab changes preset) *(Windows — W-1 below)*
 - [ ] Govee: one unreachable/missing-scene device doesn't crash the others (Promise.allSettled) *(Mac)*
@@ -192,7 +196,7 @@ key isn't hardcoded.
 
 > **🖥 Windows Checkpoint W-1** — Quick trip to the sim rig before building the orchestrator:
 > 1. `git pull && npm install` on the Windows machine (`npm install` is required on first pull — robotjs needs a native build)
-> 2. `node test-fanatec.js` — verify FanaLab changes preset on hotkey
+> 2. `node scripts/test-fanatec.js --hotkey ctrl+alt+f1` — verify FanaLab changes preset on hotkey
 > 3. `npm run link`, open Stream Deck software — confirm the plugin loads without errors
 >
 > Expected time: ~30 min. Isolates hardware driver issues before you wire everything into `plugin.js`.

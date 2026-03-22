@@ -53,6 +53,10 @@ const PROFILE_DEFAULTS = {
 const SETTINGS_DEFAULTS = {
   default_profile: null,
   govee_api_key:   '',
+  // Optional allowlist of Govee device names to target on scene changes.
+  // null = all discovered devices.  Match names exactly as shown in the Govee app.
+  // A bare string is coerced to a one-item array (same convention as content_filter_tags).
+  govee_devices:   null,
 };
 
 /** All valid top-level keys for a profile entry. Anything else triggers a warning. */
@@ -176,6 +180,21 @@ function load() {
   // --- Hydrate settings ---
   const rawSettings = (raw.settings && typeof raw.settings === 'object') ? raw.settings : {};
   const mergedSettings = { ...SETTINGS_DEFAULTS, ...rawSettings };
+
+  // Coerce govee_devices: null → null, string → [string], string[] → string[].
+  if (mergedSettings.govee_devices != null) {
+    if (typeof mergedSettings.govee_devices === 'string') {
+      mergedSettings.govee_devices = [mergedSettings.govee_devices];
+    } else if (Array.isArray(mergedSettings.govee_devices)) {
+      mergedSettings.govee_devices = mergedSettings.govee_devices.map(String);
+    } else {
+      console.warn(
+        `[configLoader] settings.govee_devices has an unexpected type ` +
+        `(${typeof mergedSettings.govee_devices}) — setting to null.`
+      );
+      mergedSettings.govee_devices = null;
+    }
+  }
 
   // Fall back to the first profile id if default_profile is omitted.
   if (!mergedSettings.default_profile && loaded.length > 0) {

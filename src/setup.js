@@ -36,6 +36,15 @@ const SHARED_STATE_DIR = process.platform === 'win32'
   ? resolve(WINDOWS_APPDATA_BASE, 'streamdeck-rig-shared')
   : resolve(os.homedir(), 'Library', 'Application Support', 'streamdeck-rig-shared');
 
+// Plugin-private data directory for caches and runtime state that should
+// persist across deploys but not be committed to the repo.
+// Uses the plugin bundle ID (com.rig.profiles) as the directory name.
+//   macOS:   ~/Library/Application Support/com.rig.profiles/
+//   Windows: %APPDATA%\com.rig.profiles\
+const PLUGIN_DATA_DIR = process.platform === 'win32'
+  ? resolve(WINDOWS_APPDATA_BASE, 'com.rig.profiles')
+  : resolve(os.homedir(), 'Library', 'Application Support', 'com.rig.profiles');
+
 // ---------------------------------------------------------------------------
 // ensureConfig
 // ---------------------------------------------------------------------------
@@ -102,5 +111,5 @@ export function ensureConfig({
  * Exported path constants so other modules (e.g. state.js) can import them
  * without duplicating the platform logic.
  */
-export { SHARED_STATE_DIR };
+export { SHARED_STATE_DIR, PLUGIN_DATA_DIR };
 
