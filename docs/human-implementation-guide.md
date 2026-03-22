@@ -128,7 +128,7 @@ verifies the values. Use Node's built-in assert module, no test framework needed
 ```
 
 ### Review checklist
-- [ ] Test passes: `node state.test.js`
+- [ ] Test passes: `node src/state.integration.test.js`
 - [ ] Shared directory created automatically
 - [ ] Handles missing/corrupt files gracefully
 

@@ -1,10 +1,11 @@
-// state.test.js — Integration test for src/state.js.
+// state.integration.test.js — Integration test for src/state.js.
 //
 // Uses Node's built-in assert module.  No test framework required.
-// Run with:  node src/state.test.js
+// Excluded from `npm test` (vitest) by naming convention — only *.test.js
+// files are collected.  Run directly with:
 //
-// All I/O is performed in temporary directories — this test never touches
-// real state files.
+//   node src/state.integration.test.js
+//
 
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'fs';

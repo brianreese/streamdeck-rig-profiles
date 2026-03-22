@@ -28,7 +28,7 @@ All automated tests are platform-independent — run on Mac or Windows with no S
 |---|---|
 | `src/configLoader.test.js` | YAML loading, required-field validation, default hydration, `content_filter_tags` coercion, settings loading, defensive copies, `getProfileById`, `onUpdate` API, `close()` safety |
 | `src/setup.test.js` | First-run template copy, existing file preservation, missing template handling, shared state dir creation, `SHARED_STATE_DIR` value |
-| `src/state.test.js` | Round-trip write/read, `lastSwitched` validity, both files match, successive writes, graceful fallback (missing / malformed / empty / wrong shape), no leftover `.tmp` files — run with `node src/state.test.js` |
+| `src/state.integration.test.js` | Round-trip write/read, `lastSwitched` validity, both files match, successive writes, graceful fallback (missing / malformed / empty / wrong shape), no leftover `.tmp` files — run with `node src/state.integration.test.js` |
 
 ### Adding tests for new modules
 
@@ -49,7 +49,7 @@ You're developing on a Mac; the Stream Deck, Fanatec, and Moza hardware, plus Go
 | Activity | Command | Notes |
 |---|---|---|
 | All Vitest unit tests | `npm test` | Pure logic + file I/O, no hardware |
-| `state.js` integration test | `node src/state.test.js` | File I/O only |
+| `state.js` integration test | `node src/state.integration.test.js` | File I/O only |
 | Govee API discovery + scene activation | `node test-govee.js --key ... --scene ...` | Cloud API — rig lights will actually respond |
 | Fanatec hotkey parsing + local keyfire | `node test-fanatec.js` | Fires hotkeys on the Mac desktop; verifies logic. FanaLab response requires Windows. |
 | `buttonRenderer.js` visual output | `node -e "const r = ..."` | Generates a PNG locally — open to verify layout |
