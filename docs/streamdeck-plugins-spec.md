@@ -545,7 +545,7 @@ streamdeck-rig-profiles/
 The two plugins communicate via a **shared local state file**:
 ```
 %APPDATA%\streamdeck-rig-shared\active-profile.json
-{ "activeProfile": "brian" }
+{ "activeProfile": "primary" }
 ```
 
 `streamdeck-rig-profiles` writes this on every profile switch.
