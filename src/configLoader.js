@@ -207,10 +207,40 @@ function load() {
 // ---------------------------------------------------------------------------
 
 async function startWatcher() {
+  const createNewWatcher = () => {
+    watcher = chokidar.watch(resolvedConfigPath, { ignoreInitial: true });
+    watcher.on('change', () => {
+      console.log('[configLoader] profiles.yaml changed — reloading...');
+      load();
+      // Notify all registered listeners with the fresh snapshot.
+      for (const cb of updateCallbacks) {
+        try {
+          cb(getProfiles(), getSettings());
+        } catch (err) {
+          console.error('[configLoader] onUpdate callback threw:', err);
+        }
+      }
+    });
+    watcher.on('error', err => console.error('[configLoader] File watcher error:', err));
+  };
+
   // Close any existing watcher first (handles re-init with a different path).
   if (watcher) {
-    await watcher.close();
+    const oldWatcher = watcher;
     watcher = null;
+    // Ensure the new watcher is started only after the old one has fully closed.
+    await Promise
+      .resolve(oldWatcher.close())
+      .then(() => {
+        createNewWatcher();
+      })
+      .catch(err => {
+        console.error('[configLoader] Error closing previous file watcher:', err);
+        // Attempt to start a fresh watcher even if close failed.
+        createNewWatcher();
+      });
+  } else {
+    createNewWatcher();
   }
 
   // Shared reload-and-notify handler used for both 'change' and 'add' events.
