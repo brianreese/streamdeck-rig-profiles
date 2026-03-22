@@ -124,6 +124,21 @@ test('readState returns { activeProfile: null } when JSON lacks activeProfile ke
   assert.equal(state.activeProfile, null);
 });
 
+// --- Type coercion ------------------------------------------------------------
+
+test('readState coerces non-string activeProfile to null', ({ localPath }) => {
+  writeFileSync(localPath, JSON.stringify({ activeProfile: 123, lastSwitched: 'ts' }), 'utf8');
+  const state = readState({ localPath });
+  assert.equal(state.activeProfile, null);
+});
+
+test('readState coerces non-string lastSwitched to undefined', ({ localPath }) => {
+  writeFileSync(localPath, JSON.stringify({ activeProfile: 'brian', lastSwitched: 999 }), 'utf8');
+  const state = readState({ localPath });
+  assert.equal(state.activeProfile, 'brian');
+  assert.equal(state.lastSwitched, undefined);
+});
+
 // --- Atomic write: no leftover .tmp -------------------------------------------
 
 test('no leftover .tmp files after a successful write', ({ localPath, sharedPath }) => {

@@ -26,7 +26,7 @@
 // testing only — production code should call readState() and writeState(id)
 // without arguments (matching the same path-override convention used in setup.js).
 
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { SHARED_STATE_DIR, PLUGIN_DATA_DIR } from './setup.js';
 
@@ -74,7 +74,10 @@ export function readState({ localPath = LOCAL_STATE_PATH } = {}) {
     const raw    = readFileSync(localPath, 'utf8');
     const parsed = JSON.parse(raw);
     if (parsed !== null && typeof parsed === 'object' && 'activeProfile' in parsed) {
-      return parsed;
+      // Coerce to the documented shape — guard against stored non-string values.
+      const activeProfile = typeof parsed.activeProfile === 'string' ? parsed.activeProfile : null;
+      const lastSwitched  = typeof parsed.lastSwitched  === 'string' ? parsed.lastSwitched  : undefined;
+      return lastSwitched ? { activeProfile, lastSwitched } : { activeProfile };
     }
     // Valid JSON but unexpected shape — treat as empty state.
     return { activeProfile: null };
@@ -129,5 +132,10 @@ export function writeState(profileId, { localPath = LOCAL_STATE_PATH, sharedPath
 function writeAtomic(targetPath, content) {
   const tmpPath = `${targetPath}.tmp`;
   writeFileSync(tmpPath, content, 'utf8');
+  // On Windows, renameSync fails with EPERM when the destination already exists.
+  // Explicitly remove it first so successive writeState() calls work cross-platform.
+  if (process.platform === 'win32' && existsSync(targetPath)) {
+    unlinkSync(targetPath);
+  }
   renameSync(tmpPath, targetPath);
 }

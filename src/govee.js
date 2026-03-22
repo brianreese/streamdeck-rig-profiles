@@ -32,11 +32,13 @@
 // ---------------------------------------------------------------------------
 //
 // Discovery + catalog fetches are expensive (~2-5 s per device).  Results are
-// persisted to data/govee-cache.json after each successful init().
+// persisted to CACHE_PATH (PLUGIN_DATA_DIR/govee-cache.json) after each successful init().
+//   macOS:   ~/Library/Application Support/com.rig.profiles/govee-cache.json
+//   Windows: %APPDATA%\com.rig.profiles\govee-cache.json
 //
 // Default behaviour:   cache is loaded on startup if present; API is not called.
 // Bypass the cache:    init(apiKey, { forceRefresh: true })
-// Clear manually:      clearCache()  — or delete data/govee-cache.json
+// Clear manually:      clearCache()  — or delete CACHE_PATH (see above)
 //
 // TODO(pre-launch): add a TTL so the cache auto-refreshes after e.g. 24 h.
 //   For now it is indefinite; the "Discover Devices" PI button should call
@@ -56,15 +58,15 @@
 //     Returns [{ id, name }] snapshot for the property inspector.
 //
 //   clearCache()
-//     Clears the in-memory cache and deletes data/govee-cache.json.
+//     Clears the in-memory cache and deletes CACHE_PATH (PLUGIN_DATA_DIR/govee-cache.json).
 //
 //   CACHE_PATH  (exported constant)
 //     Absolute path of the on-disk cache file.
 
 import fetch from 'node-fetch';
 import { randomUUID } from 'crypto';
-import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
-import { resolve } from 'path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
+import { resolve, dirname } from 'path';
 import { PLUGIN_DATA_DIR } from './setup.js';
 
 const API_BASE  = 'https://openapi.api.govee.com/router/api/v1';
@@ -198,6 +200,7 @@ function saveCache(apiKey, { cachePath = CACHE_PATH } = {}) {
         id, sku, deviceName, sceneMap,
       })),
     };
+    mkdirSync(dirname(cachePath), { recursive: true });
     writeFileSync(cachePath, JSON.stringify(data, null, 2), 'utf8');
     console.log(`[govee] Cache saved → ${cachePath}`);
   } catch (err) {
@@ -216,7 +219,7 @@ function saveCache(apiKey, { cachePath = CACHE_PATH } = {}) {
  *   1. GET  /user/devices          — enumerate linked devices
  *   2. POST /device/scenes         — per device: factory/dynamic scene catalog
  *   3. POST /device/diy-scenes     — per device: user DIY + Snapshot scenes
- * Results are merged (DIY wins on name collision) and saved to data/govee-cache.json.
+ * Results are merged (DIY wins on name collision) and saved to CACHE_PATH (PLUGIN_DATA_DIR/govee-cache.json).
  *
  * Subsequent calls load from cache unless forceRefresh is set.
  *

@@ -39,7 +39,7 @@ You're coding on a Mac, but the Stream Deck, Fanatec hardware, Moza hardware, an
 | Task | Machine |
 |---|---|
 | All source code development | Mac |
-| All automated unit tests (`npm test`, `node src/state.test.js`) | Mac |
+| All automated unit tests (`npm test`, `node src/state.integration.test.js`) | Mac |
 | Govee API testing (`scripts/test-govee.js`) — rig lights will actually respond | Mac |
 | Fanatec hotkey parsing + local keyfire verification | Mac |
 | `buttonRenderer.js` visual output (generates PNG locally) | Mac |

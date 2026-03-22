@@ -78,7 +78,7 @@ export GOVEE_KEY="your-key-here"   # optional convenience — the script always 
 | `--scene` | `<NAME>` | Activate the named scene after discovery |
 | `--devices` | `<N1,N2>` | Comma-separated device names to target (tests the `govee_devices` allowlist logic) |
 | `--refresh` | — | Bypass the disk cache and re-fetch from the Govee API |
-| `--clear-cache` | — | Delete `data/govee-cache.json` and exit |
+| `--clear-cache` | — | Delete the on-disk cache (`PLUGIN_DATA_DIR/govee-cache.json`) and exit |
 
 ### Typical workflow when setting up Govee
 
@@ -101,9 +101,12 @@ node scripts/test-govee.js --key YOUR_KEY --list-devices --refresh
 
 ### Caching behaviour
 
-Discovery is cached to `data/govee-cache.json` after the first successful `init()`. Subsequent runs load from cache instantly. The cache is tied to the last 4 digits of the API key — changing the key automatically triggers a fresh network fetch.
+Discovery is cached to `PLUGIN_DATA_DIR/govee-cache.json` after the first successful `init()`. Subsequent runs load from cache instantly. The cache is tied to the last 4 digits of the API key — changing the key automatically triggers a fresh network fetch.
 
-> **Note:** `data/govee-cache.json` contains device IDs and scene mappings — not credentials. It is safe to commit but is listed in `.gitignore` by default so test runs don't dirty the repo.
+- **macOS:** `~/Library/Application Support/com.rig.profiles/govee-cache.json`
+- **Windows:** `%APPDATA%\com.rig.profiles\govee-cache.json`
+
+> **Note:** The cache contains device IDs and scene mappings — not credentials. It is not committed to the repo. To clear it, run `node scripts/test-govee.js --key ... --clear-cache` or delete the file directly.
 
 ### What to look for
 

@@ -11,7 +11,7 @@
 //   --list-scenes           Print every scene name found per device (good for debugging)
 //   --list-devices          Print discovered device names (copy-paste for govee_devices config)
 //   --refresh               Bypass the disk cache and re-fetch from the Govee API
-//   --clear-cache           Delete data/govee-cache.json and exit
+//   --clear-cache           Delete CACHE_PATH (PLUGIN_DATA_DIR/govee-cache.json) and exit
 //
 // Examples:
 //   node scripts/test-govee.js --key abcd-1234 --list-devices
@@ -98,7 +98,6 @@ try {
   if (listScenes) {
     // Access sceneMap by re-importing the raw cache (we only export device snapshots)
     // Easiest: re-read the cache file that was just written.
-    const { createRequire } = await import('module');
     const fs = await import('fs');
     if (fs.existsSync(CACHE_PATH)) {
       const cacheData = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
