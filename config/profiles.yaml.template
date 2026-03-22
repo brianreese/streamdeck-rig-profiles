@@ -99,3 +99,14 @@ settings:
   # Devices are auto-discovered using this key — no device IDs to enter.
   # Leave empty ("") to disable Govee integration entirely.
   govee_api_key: ""
+
+  # Optional allowlist of Govee device names to target on every scene change.
+  # Names must match EXACTLY as shown in the Govee app (and in the output of
+  #   node scripts/test-govee.js --key YOUR_KEY --list-devices
+  # Leave as null or omit to send scenes to ALL discovered devices (not
+  # recommended if you have Govee devices elsewhere in the house).
+  #
+  # Single device:   govee_devices: "Rig Strip Light"
+  # Multiple:        govee_devices: ["Rig Strip Light", "Monitor Lightbar"]
+  # All devices:     govee_devices: null
+  govee_devices: null

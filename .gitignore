@@ -26,6 +26,9 @@ node_modules/
 dist/
 build/
 
+# (data/ was previously used for local dev cache — govee cache now lives in
+#  ~/Library/Application Support/com.rig.profiles/ — see src/setup.js)
+
 # TypeScript cache
 *.tsbuildinfo
 

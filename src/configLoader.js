@@ -53,6 +53,10 @@ const PROFILE_DEFAULTS = {
 const SETTINGS_DEFAULTS = {
   default_profile: null,
   govee_api_key:   '',
+  // Optional allowlist of Govee device names to target on scene changes.
+  // null = all discovered devices.  Match names exactly as shown in the Govee app.
+  // A bare string is coerced to a one-item array (same convention as content_filter_tags).
+  govee_devices:   null,
 };
 
 /** All valid top-level keys for a profile entry. Anything else triggers a warning. */
@@ -177,6 +181,21 @@ function load() {
   const rawSettings = (raw.settings && typeof raw.settings === 'object') ? raw.settings : {};
   const mergedSettings = { ...SETTINGS_DEFAULTS, ...rawSettings };
 
+  // Coerce govee_devices: null → null, string → [string], string[] → string[].
+  if (mergedSettings.govee_devices != null) {
+    if (typeof mergedSettings.govee_devices === 'string') {
+      mergedSettings.govee_devices = [mergedSettings.govee_devices];
+    } else if (Array.isArray(mergedSettings.govee_devices)) {
+      mergedSettings.govee_devices = mergedSettings.govee_devices.map(String);
+    } else {
+      console.warn(
+        `[configLoader] settings.govee_devices has an unexpected type ` +
+        `(${typeof mergedSettings.govee_devices}) — setting to null.`
+      );
+      mergedSettings.govee_devices = null;
+    }
+  }
+
   // Fall back to the first profile id if default_profile is omitted.
   if (!mergedSettings.default_profile && loaded.length > 0) {
     mergedSettings.default_profile = loaded[0].id;
@@ -207,40 +226,18 @@ function load() {
 // ---------------------------------------------------------------------------
 
 async function startWatcher() {
-  const createNewWatcher = () => {
-    watcher = chokidar.watch(resolvedConfigPath, { ignoreInitial: true });
-    watcher.on('change', () => {
-      console.log('[configLoader] profiles.yaml changed — reloading...');
-      load();
-      // Notify all registered listeners with the fresh snapshot.
-      for (const cb of updateCallbacks) {
-        try {
-          cb(getProfiles(), getSettings());
-        } catch (err) {
-          console.error('[configLoader] onUpdate callback threw:', err);
-        }
-      }
-    });
-    watcher.on('error', err => console.error('[configLoader] File watcher error:', err));
-  };
-
   // Close any existing watcher first (handles re-init with a different path).
+  // Previously this block also created an intermediate file-path watcher via
+  // createNewWatcher(), but that watcher was immediately orphaned when `watcher`
+  // was reassigned to the directory-level watcher below — leaking a chokidar
+  // FSWatcher on every init() call and preventing clean process exit in tests.
   if (watcher) {
-    const oldWatcher = watcher;
+    try {
+      await watcher.close();
+    } catch (err) {
+      console.error('[configLoader] Error closing previous file watcher:', err);
+    }
     watcher = null;
-    // Ensure the new watcher is started only after the old one has fully closed.
-    await Promise
-      .resolve(oldWatcher.close())
-      .then(() => {
-        createNewWatcher();
-      })
-      .catch(err => {
-        console.error('[configLoader] Error closing previous file watcher:', err);
-        // Attempt to start a fresh watcher even if close failed.
-        createNewWatcher();
-      });
-  } else {
-    createNewWatcher();
   }
 
   // Shared reload-and-notify handler used for both 'change' and 'add' events.

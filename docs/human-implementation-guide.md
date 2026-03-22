@@ -32,6 +32,27 @@ Clone both locally.
 
 ---
 
+### Development environment — Mac + Windows sim rig
+
+You're coding on a Mac, but the Stream Deck, Fanatec hardware, Moza hardware, and Govee lights live on a separate Windows sim rig. Here's how to split the work:
+
+| Task | Machine |
+|---|---|
+| All source code development | Mac |
+| All automated unit tests (`npm test`, `node src/state.integration.test.js`) | Mac |
+| Govee API testing (`scripts/test-govee.js`) — rig lights will actually respond | Mac |
+| Fanatec hotkey parsing + local keyfire verification | Mac |
+| `buttonRenderer.js` visual output (generates PNG locally) | Mac |
+| Verify FanaLab changes preset on hotkey | Windows sim rig |
+| Stream Deck button rendering and pressing | Windows sim rig |
+| Full plugin integration tests (T-01–T-12) | Windows sim rig |
+
+Three Windows checkpoints are marked in this guide (**W-1**, **W-2**, **W-3**). See `integration-testing.md` for the full schedule and what to run at each visit. Outside those checkpoints, stay on the Mac.
+
+> **Govee from Mac:** The Govee API (`openapi.api.govee.com`) is cloud-based. Running `scripts/test-govee.js` from your Mac with a valid API key will trigger real scene changes on the rig lights — no need to be at the Windows machine for Govee validation.
+
+---
+
 # Part 1: streamdeck-rig-profiles
 
 ---
@@ -107,7 +128,7 @@ verifies the values. Use Node's built-in assert module, no test framework needed
 ```
 
 ### Review checklist
-- [ ] Test passes: `node state.test.js`
+- [ ] Test passes: `node src/state.integration.test.js`
 - [ ] Shared directory created automatically
 - [ ] Handles missing/corrupt files gracefully
 
@@ -127,11 +148,28 @@ In the streamdeck-rig-profiles plugin, create two hardware integration modules:
    - Export: { activatePreset }
 
 2. src/govee.js
-   - setScene(apiKey, deviceId, model, sceneName): single device, PUT to Govee API
-   - setSceneAllDevices(apiKey, devices, sceneName): array of {id, model} objects.
-     Use Promise.allSettled so one failure doesn't cancel others.
-   - Both functions should throw on non-ok HTTP responses with a descriptive message.
-   - Export: { setScene, setSceneAllDevices }
+   Uses auto-discovery — no device IDs are configured anywhere; the API key is
+   sufficient. Design from the impl plan (Step 6):
+
+   - init(apiKey): call once at plugin startup.
+     1. GET /user/devices → discover all devices linked to the API key
+     2. POST /device/scenes per device → build a scene name → capability cache
+     Log count of devices discovered.
+
+   - activateScene(apiKey, sceneName, allowlist = null):
+     Iterate the device cache (filtered to allowlist if provided).
+     Look up sceneName in each device's cache; warn + skip if not found.
+     POST /device/control per device. Use Promise.allSettled so one device
+     failure does not cancel others.
+
+   - Export: { init, activateScene }
+
+   API base: https://openapi.api.govee.com/router/api/v1
+   Auth header: Govee-API-Key
+
+   Write a manual test script (scripts/test-govee.js) that accepts --key as a CLI arg
+   (never hardcode keys). It should call init(), log discovered devices, then
+   call activateScene() with a scene name passed via --scene.
 
 3. src/moza.js
    - activateProfile(profileName): stub only for now. Log the intent with console.log.
@@ -139,17 +177,29 @@ In the streamdeck-rig-profiles plugin, create two hardware integration modules:
      implemented once Pit House profile file location is confirmed.
    - Export: { activateProfile }
 
-No test framework — write simple manual test scripts (test-fanatec.js, test-govee.js)
+No test framework — write simple manual test scripts (scripts/test-fanatec.js, scripts/test-govee.js)
 that can be run with node to verify each module works against real hardware.
 For test-govee.js, accept API key and device info as command line args so the
 key isn't hardcoded.
 ```
 
 ### Review checklist
-- [ ] `node test-govee.js --key YOUR_KEY --device YOUR_DEVICE_ID --model YOUR_MODEL --scene "Racing"` triggers a Govee scene change
-- [ ] Fanatec: hotkey fires (verify FanaLab changes preset)
-- [ ] Govee: partial device failure (bad device ID) doesn't crash the whole call
-- [ ] Moza stub: no crash, logs message
+- [ ] `node scripts/test-govee.js --key YOUR_KEY --list-devices` prints your Govee device names *(Mac)*
+- [ ] `node scripts/test-govee.js --key YOUR_KEY --list-scenes` prints all available scene names per device *(Mac)*
+- [ ] `node scripts/test-govee.js --key YOUR_KEY --scene "Racing"` triggers the scene on all devices *(Mac)*
+- [ ] `node scripts/test-govee.js --key YOUR_KEY --scene "Racing" --devices "Device Name"` targets a specific device *(Mac)*
+- [ ] Second run uses the disk cache (no network calls) *(Mac)*
+- [ ] Govee: `init()` logs the correct device count *(Mac)*
+- [ ] Fanatec: hotkey fires (verify FanaLab changes preset) *(Windows — W-1 below)*
+- [ ] Govee: one unreachable/missing-scene device doesn't crash the others (Promise.allSettled) *(Mac)*
+- [ ] Moza stub: no crash, logs message *(Mac)*
+
+> **🖥 Windows Checkpoint W-1** — Quick trip to the sim rig before building the orchestrator:
+> 1. `git pull && npm install` on the Windows machine (`npm install` is required on first pull — robotjs needs a native build)
+> 2. `node scripts/test-fanatec.js --hotkey ctrl+alt+f1` — verify FanaLab changes preset on hotkey
+> 3. `npm run link`, open Stream Deck software — confirm the plugin loads without errors
+>
+> Expected time: ~30 min. Isolates hardware driver issues before you wire everything into `plugin.js`.
 
 ---
 
@@ -165,7 +215,7 @@ In the streamdeck-rig-profiles plugin, create:
    - Each step is independently try/caught
    - onStepResult(stepName, 'ok' | 'error') is called after each step
    - sd_profile_switch is a placeholder for now — accept a switchSDProfile(name)
-     function as a parameter so app.js can inject the real SD SDK call later
+     function as a parameter so plugin.js can inject the real SD SDK call later
 
 2. src/buttonRenderer.js
    Uses the `canvas` npm package to generate button images as base64 PNG strings.
@@ -186,12 +236,14 @@ All render functions return a base64 string (without the data:image/png;base64, 
 
 ---
 
-## Chunk 5 — app.js: short press, long press, picker
+## Chunk 5 — plugin.js: short press, long press, picker
 
 ### Agent prompt
 ```
-In the streamdeck-rig-profiles plugin, implement app.js — the main plugin entry
-point using the @elgato/streamdeck SDK.
+In the streamdeck-rig-profiles plugin, implement the main logic in src/plugin.js
+— the existing entry point using the @elgato/streamdeck SDK.
+(The file already exists with a skeleton; fill in the action handlers.)
+Do not create a new app.js.
 
 The plugin has a single action: com.rig.profiles.toggle
 This action is placed at the same position on every Stream Deck profile.
@@ -235,6 +287,13 @@ Add comments explaining each section.
 - [ ] Editing profiles.yaml while plugin runs: changes take effect
 - [ ] Stream Deck restart: button shows correct profile immediately
 
+> **🖥 Windows Checkpoint W-2** — Main integration session. `plugin.js` is now feature-complete:
+> 1. `git pull && npm run link` on the Windows machine
+> 2. Work through **T-01 through T-10** in `integration-testing.md`
+> 3. Fix issues on Mac → push → re-pull → re-test; iterate until all pass
+>
+> Expected time: ~1–2 hours. Don't proceed to Chunk 6 until T-01–T-10 all pass.
+
 ---
 
 ## Chunk 6 — Property inspector + README
@@ -247,16 +306,20 @@ In the streamdeck-rig-profiles plugin:
    right-clicks the action in Stream Deck.
    Fields:
    - Govee API Key (password type input)
-   - Govee Devices: a dynamic list where each row has Device ID, Model Number,
-     and a Label field. Add/Remove row buttons. Minimum 1 row, max 8.
-   - A "Test Govee Connection" button that sends a test scene command to all
-     configured devices and shows success/failure inline
+   - "Discover Devices" button — sends the key to plugin.js, which calls
+     govee.init(); display the count and names of devices found inline
+     (e.g. "Found 3 devices: Strip 1, Lightbar, Desk Lamp")
+   - Govee device allowlist (optional, advanced): comma-separated device IDs;
+     leave blank to address all discovered devices. Label it clearly as
+     optional/advanced so most users skip it.
+   - "Test Govee" button — triggers activateScene() with the first available
+     scene on all devices as a connectivity check; show success/failure inline
    - An "Open profiles.yaml" button that opens the config file in the default
      system editor (shell.openPath)
    - A note/callout section: "Remember to configure matching hotkeys in FanaLab
      before testing profile switching"
 
-   Use the Stream Deck Property Inspector SDK for two-way communication with app.js.
+   Use the Stream Deck Property Inspector SDK for two-way communication with plugin.js.
    Settings should persist via sendToPlugin/sendToPropertyInspector pattern.
 
 2. Create README.md covering:
@@ -264,15 +327,17 @@ In the streamdeck-rig-profiles plugin:
    - Installation (npm install, streamdeck link)
    - Configuration: how to edit profiles.yaml, field reference table
    - FanaLab setup: how to configure hotkeys
-   - Govee setup: how to find device ID and model number
+   - Govee setup: how to get an API key, how device auto-discovery works,
+     what scene names must match (Govee app names), optional allowlist
    - Moza: current status (not yet implemented), link to tracking issue
    - Troubleshooting: FanaLab not running, Govee API errors
 ```
 
 ### Review checklist
 - [ ] Settings panel opens when right-clicking the action
-- [ ] Govee API key and devices save and reload correctly
-- [ ] "Test Govee" button works (triggers a scene change)
+- [ ] Govee API key saves and reloads correctly
+- [ ] "Discover Devices" button finds and displays device names
+- [ ] "Test Govee" button triggers a scene change on all discovered devices
 - [ ] README is clear enough that a stranger could install and configure the plugin
 
 ---
@@ -288,9 +353,9 @@ In the streamdeck-rig-profiles plugin, do a final pass for robustness:
    (log warning, maintain last known state, don't crash)
 3. Add a manifest.json review: ensure icon, description, and category are set
    appropriately for a public release
-4. Add a .gitignore that excludes node_modules, any state.json files, and
-   any file matching **/config/profiles.yaml (user config should not be committed;
-   only the template should be in the repo)
+4. Add a .gitignore that excludes node_modules, data/state.json (plugin-local
+   state written at runtime), any file matching **/config/profiles.yaml (user
+   config should not be committed; only the template should be in the repo)
 5. Verify package.json has correct main entry, license field (MIT), and a
    "link" script: "streamdeck link" for dev installation
 ```
@@ -300,6 +365,14 @@ In the streamdeck-rig-profiles plugin, do a final pass for robustness:
 - [ ] `.gitignore` excludes node_modules and user config
 - [ ] `npm run link` installs the plugin into Stream Deck successfully
 - [ ] Plugin appears in Stream Deck with correct name, icon, description
+
+> **🖥 Windows Checkpoint W-3** — Final sign-off before starting Part 2:
+> 1. `git pull` on the Windows machine
+> 2. Run **T-11** and **T-12** from `integration-testing.md`
+> 3. Run `git status` — confirm `data/`, `config/profiles.yaml`, and `node_modules/` are excluded
+> 4. Verify the plugin appears in Stream Deck with the correct name, icon, and description
+>
+> Once this passes, `streamdeck-rig-profiles` is shippable. Proceed to Part 2.
 
 ---
 
@@ -677,7 +750,9 @@ Once both plugins are installed and configured:
 1. Set profiles.yaml with your 3 profiles
 2. Set races.yaml with 3–4 tracks, 3–4 cars, 3 formats, 2–3 featured combos
 3. Configure FanaLab hotkeys matching your profiles.yaml entries
-4. Configure Govee device IDs in the property inspector
+4. Enter your Govee API key in the property inspector; click "Discover Devices" to confirm all rig lights are found
+
+> **Platform:** Windows sim rig — both plugins must be installed (`npm run link` in each repo).
 
 **Test sequence:**
 - [ ] Rig profiles: short press cycles Brian → Kai → Riley → Brian, colors change
