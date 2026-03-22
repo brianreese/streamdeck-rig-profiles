@@ -6,7 +6,7 @@
 - Stream Deck software installed and XL connected
 - `@elgato/cli` installed globally
 - FanaLab installed and running
-- Govee API key in hand (device model numbers needed — check Govee app)
+- Govee developer API key (free — https://developer.govee.com/)
 
 ---
 
@@ -49,9 +49,12 @@ On first run, if `config/profiles.yaml` does not exist, copy template automatica
 ### Step 3 — `src/configLoader.js`
 
 - Parse `profiles.yaml` with `js-yaml`
-- Validate: each profile needs `id`, `name`, `color`; warn on unknown fields
-- Watch for changes with `chokidar`, emit `config:updated`
-- Expose: `getProfiles()`, `getProfileById(id)`, `getSettings()`
+- Validate: each profile needs `id`, `name`, `color`; warn on unknown fields; skip invalid profiles
+- Coerce `content_filter_tags` to `null | string[]`
+- Watch for changes with `chokidar`; call registered `onUpdate` callbacks after reload
+- Explicit `init(configPath?)` must be called before using any getter (no side effects on import)
+- Export `close()` to stop the watcher on teardown
+- Expose: `init()`, `close()`, `getProfiles()`, `getProfileById(id)`, `getSettings()`, `onUpdate(callback)`
 
 ---
 
@@ -116,27 +119,80 @@ FanaLab must be running for hotkeys to work. The plugin does not launch FanaLab 
 
 ```javascript
 const fetch = require('node-fetch');
-const API_BASE = 'https://developer-api.govee.com/v1/devices/control';
+const { randomUUID } = require('crypto');
+const API_BASE = 'https://openapi.api.govee.com/router/api/v1';
 
-const setScene = async (apiKey, device, model, sceneName) => {
-  const res = await fetch(API_BASE, {
-    method: 'PUT',
-    headers: { 'Govee-API-Key': apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ device, model, cmd: { name: 'scene', value: sceneName } })
+// Device + scene catalog cache. Built at startup; refresh from property inspector.
+// Map of deviceId → { sku, sceneMap: { "Racing": <capability object>, ... } }
+let deviceCache = new Map();
+
+const discoverDevices = async (apiKey) => {
+  const res = await fetch(`${API_BASE}/user/devices`, {
+    headers: { 'Govee-API-Key': apiKey }
   });
-  if (!res.ok) throw new Error(`Govee API error: ${res.status}`);
+  if (!res.ok) throw new Error(`Govee discovery failed: ${res.status}`);
+  const { data } = await res.json();
+  return data; // [{ device, sku, deviceName, ... }]
 };
 
-// Call for each device in the profile's govee_devices array
-const setSceneAllDevices = async (apiKey, devices, sceneName) => {
+const fetchSceneCatalog = async (apiKey, device, sku) => {
+  const res = await fetch(`${API_BASE}/device/scenes`, {
+    method: 'POST',
+    headers: { 'Govee-API-Key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestId: randomUUID(), payload: { sku, device } })
+  });
+  if (!res.ok) return {};
+  const { payload } = await res.json();
+  // Flatten all scene capability data points into name → capability object
+  const map = {};
+  for (const cap of payload?.capabilities ?? []) {
+    for (const pt of cap?.parameters?.dataPoints ?? []) {
+      if (pt.name) map[pt.name] = { type: cap.type, instance: cap.instance, value: pt.value };
+    }
+  }
+  return map;
+};
+
+// Call once at startup (and on "Refresh" from property inspector)
+const init = async (apiKey) => {
+  const devices = await discoverDevices(apiKey);
+  for (const d of devices) {
+    const sceneMap = await fetchSceneCatalog(apiKey, d.device, d.sku);
+    deviceCache.set(d.device, { sku: d.sku, sceneMap });
+  }
+  console.log(`[govee] Discovered ${deviceCache.size} device(s).`);
+};
+
+// On profile switch: activate named scene on all discovered (or allowlisted) devices
+const activateScene = async (apiKey, sceneName, allowlist = null) => {
+  const targets = allowlist
+    ? [...deviceCache.entries()].filter(([id]) => allowlist.includes(id))
+    : [...deviceCache.entries()];
+
   await Promise.allSettled(
-    devices.map(d => setScene(apiKey, d.id, d.model, sceneName))
+    targets.map(async ([deviceId, { sku, sceneMap }]) => {
+      const scene = sceneMap[sceneName];
+      if (!scene) {
+        console.warn(`[govee] Scene "${sceneName}" not found on device ${deviceId} — skipping.`);
+        return;
+      }
+      const res = await fetch(`${API_BASE}/device/control`, {
+        method: 'POST',
+        headers: { 'Govee-API-Key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: randomUUID(),
+          payload: { sku, device: deviceId, capability: scene }
+        })
+      });
+      if (!res.ok) throw new Error(`Govee control failed: ${res.status}`);
+    })
   );
-  // allSettled: partial failures don't abort other devices
 };
 ```
 
-Govee device config lives in `property-inspector` settings (API key, device list), not in `profiles.yaml`. Device IDs and model numbers are entered once in the SD settings panel.
+Device configuration is fully automatic: call `init(apiKey)` at plugin startup and the driver discovers all Govee devices and builds their scene catalogs. **No device IDs to configure anywhere.** Scene names in profiles.yaml (`govee_scene: Racing`) must match scene names exactly as named in the Govee app. Scene values are resolved from the cache — users never see raw API compound values.
+
+The optional `allowlist` parameter lets users target specific devices (configured in the property inspector). When absent, all discovered devices are addressed.
 
 ---
 
@@ -172,7 +228,7 @@ const switchProfile = async (profile, settings, onStepResult) => {
     },
     {
       name: 'govee',
-      fn: () => govee.setSceneAllDevices(settings.govee_api_key, settings.govee_devices, profile.govee_scene)
+      fn: () => govee.activateScene(settings.govee_api_key, profile.govee_scene)
     },
     {
       name: 'sd_profile',
@@ -296,20 +352,23 @@ const dismissPicker = (onDismiss) => {
 ### Step 12 — `ui/property-inspector.html`
 
 Fields:
-- Govee API key (password input)
-- Govee devices: repeatable rows of (Device ID, Model, Label) — add/remove buttons
-- "Test Govee" button — sets a neutral scene on all devices as a connectivity test
-- FanaLab note: reminder to configure hotkeys in FanaLab matching profiles.yaml entries
+- Govee API key (password input; leave blank to disable Govee integration)
+- "Discover Devices" button — calls `govee.init()`, shows count and names of devices found
+- Govee device allowlist (optional, advanced): comma-separated device IDs; when empty, all discovered devices are used
+- "Test Govee" button — fires the first available scene on all devices as a connectivity check
+- FanaLab note: reminder to configure hotkeys in FanaLab matching `fanatec_preset_hotkey` values in profiles.yaml
 - "Open profiles.yaml" button
 
 ---
 
 ### Step 13 — Shared directory creation
 
-On plugin startup, ensure shared state directory exists:
-```javascript
-fs.mkdirSync(path.join(process.env.APPDATA, 'streamdeck-rig-shared'), { recursive: true });
-```
+Handled by `src/setup.js` — `ensureConfig()` calls `mkdirSync(sharedStateDir, { recursive: true })` where `sharedStateDir` is the cross-platform path exported as `SHARED_STATE_DIR`:
+
+- Windows: `%APPDATA%\streamdeck-rig-shared`
+- macOS:   `~/Library/Application Support/streamdeck-rig-shared`
+
+Called automatically in `src/plugin.js` before `configLoader.init()`. No manual setup required.
 
 ---
 
@@ -333,27 +392,34 @@ Manual test checklist:
 
 ## Moza Research Notes
 
-Before implementing `moza.js` properly, find:
+Moza Pit House has no public API, CLI, or SDK as of March 2026. No official Moza developer GitHub organization exists. No community tooling for programmatic profile switching was found.
 
-1. **Profile file location** — likely somewhere in:
-   - `%APPDATA%\MOZA\`
-   - `%PROGRAMDATA%\MOZA\`
-   - `%USERPROFILE%\Documents\MOZA\`
+---
 
-2. **Profile file format** — probably JSON or XML. Need to confirm:
-   - How profiles are identified (by name? by UUID?)
-   - What field controls active profile
-   - Whether Pit House hot-reloads when the file changes, or needs a signal
+**Path 1 — USB Serial Protocol (recommended)**
 
-3. **Community resources to check:**
-   - Moza Racing Discord (look for developer/API channels)
-   - GitHub: search "moza pit house" for any community tooling
-   - SimHub plugin source code (SimHub integrates with Moza — may reveal the file format)
+The open-source Boxflat project (`Lawstorant/boxflat`) reverse-engineered Moza’s USB serial communication protocol and documents it in `moza-protocol.md` in that repo. The protocol sends individual FFB parameters directly to device firmware over a virtual COM port — it bypasses Pit House entirely.
 
-Once file location and format are confirmed, implement:
-```javascript
-const activateProfile = async (profileName) => {
-  // Option A: swap profile config file + signal reload
-  // Option B: AHK window automation (fallback)
-};
-```
+A Windows-compatible Node.js client using the `serialport` package and following the Boxflat protocol is the most robust implementation path:
+- Activates the hardware profile state directly, regardless of Pit House state
+- Works whether or not Pit House is running
+- Requires COM port discovery (enumerate ports, identify Moza device)
+- Moza firmware updates could break compatibility
+
+See: `https://github.com/Lawstorant/boxflat` → `moza-protocol.md`
+
+---
+
+**Path 2 — AHK Window Automation (fallback)**
+
+AutoHotkey can click through the Pit House UI to select a preset. No protocol reverse-engineering needed, but fragile (depends on UI layout stability across Pit House versions). No working community implementation found — would need to be developed from scratch against a running Pit House instance.
+
+---
+
+**Path 3 — Profile File Swap (not recommended)**
+
+Community investigation (via the `pithouse2boxflat` converter project) confirms preset data is stored as JSON in `%APPDATA%\MOZA\PitHouse\` or similar. However, Pit House writes FFB parameters to device firmware at load time — it does not watch for file changes. Swapping a file while Pit House is running will not produce a live hardware change without also triggering a UI reload action.
+
+---
+
+**Current status:** Stub in `src/moza.js` — logs intent, no-op. Implement Path 1 once the serial protocol is validated against the target hardware.

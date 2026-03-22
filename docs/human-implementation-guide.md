@@ -365,17 +365,17 @@ In the streamdeck-ac-launcher plugin, create:
    Builds lookup maps: tracksById, carsById, formatsById
    Resolves featured entries: replaces string ids with full objects, warns on
    missing refs but doesn't crash (omit broken featured entries)
-   
+
    Exposes filtered views (Phase 1: profileTags is always null, return all):
    - getTracks(profileTags?)
    - getCars(profileTags?)
    - getFormats(profileTags?)
    - getFeatured(profileTags?)
-   
+
    Tag filtering logic: if profileTags is null, return all. If profileTags is a
    string, return only entries whose tags array includes that string, OR entries
-   with an empty/absent tags array... 
-   
+   with an empty/absent tags array...
+
    Wait — actually, filtering should be EXCLUSIVE for "kids" profiles:
    only show entries that have the filter tag. Entries with no tags are shown
    to everyone. Implement: if filterTag is set, include entries that either
@@ -384,13 +384,13 @@ In the streamdeck-ac-launcher plugin, create:
 2. src/navigationStack.js
    A simple stack. Each frame is an object with shape:
    { page, selectedFormat, selectedTrack, selectedCar, optionsOverrides, pageOffset }
-   
+
    Pages: 'home' | 'track_select' | 'car_select' | 'options' | 'confirm' | 'launching'
-   
+
    Methods: push(page, partialState), pop(), reset(), current()
    reset() returns to: { page: 'home', selectedFormat: null, selectedTrack: null,
      selectedCar: null, optionsOverrides: {}, pageOffset: 0 }
-   
+
    Write a simple unit test (nav.test.js) that pushes a few pages and verifies
    pop() returns correct state.
 ```
@@ -424,27 +424,27 @@ In the streamdeck-ac-launcher plugin, create:
                time_of_day, weather },
      overrides: {}   // same shape as format fields, overrides format values
    }
-   
+
    Merges format + overrides (overrides win).
-   
+
    Writes two files:
    - %USERPROFILE%\Documents\Assetto Corsa\cfg\race.ini
    - %USERPROFILE%\Documents\Assetto Corsa\cfg\entry_list.ini
-   
+
    Before writing, backs up existing files as .bak.
-   
+
    For race.ini: generate the [RACE] section with TRACK, TRACK_CONFIG (layout or
    empty), CARS (player car), CARS_COUNT, RACE_LAPS, AI_LEVEL, RACE_EXTRA_LAP=0.
    Add SESSION blocks based on practice/qualifying flags.
-   
+
    IMPORTANT: leave a clear TODO comment saying "validate these field names against
    a CM-generated race.ini before first real test" — we need to verify the exact
    INI field names from a real file.
-   
+
    For entry_list.ini: player in [CAR_0] with MODEL=<car_id>, SKIN=, BALLAST=0,
    RESTRICTOR=0. AI entries [CAR_1] through [CAR_N] with same model, DRIVER_NAME
    generated as "AI Driver 1" etc.
-   
+
    Export: generateIni(raceConfig)
 ```
 
@@ -488,7 +488,7 @@ HOME (XL, dynamic layout):
 TRACK_SELECT / CAR_SELECT (shared layout):
   Items fill positions 0–27 based on pageOffset (28 items per page)
   Position 28: [◀ Prev] if pageOffset > 0, else blank
-  Position 29: [Next ▶] if more items exist, else blank  
+  Position 29: [Next ▶] if more items exist, else blank
   Position 30: blank
   Position 31: [Back]
 
@@ -528,7 +528,7 @@ For toggles (practice, qualifying): button title is "ON" or "OFF".
 In the streamdeck-ac-launcher plugin:
 
 1. Create src/launcher.js
-   - launch(raceConfig, settings): 
+   - launch(raceConfig, settings):
      1. Call isACRunning()
      2. If running: handle per settings.on_ac_running
         - 'focus': call focusACWindow(), return { launched: false, reason: 'already_running' }
@@ -543,13 +543,13 @@ In the streamdeck-ac-launcher plugin:
 
 2. Implement app.js — the main entry point.
    On keyDown for the plugin's single action (com.rig.racelauncher.browse):
-   
+
    - First keypress (plugin entry): check isACRunning(), handle per config,
      then render home page using pageRenderer
-   
+
    - Subsequent keypresses: look up the action string for the pressed position
      from the last rendered button descriptor array. Switch on action:
-     
+
      'select_format:<id>' → push track_select to nav stack, re-render
      'select_track:<id>'  → push car_select to nav stack, re-render
      'select_car:<id>'    → push options page (or skip to confirm if skip_options), re-render
@@ -563,9 +563,9 @@ In the streamdeck-ac-launcher plugin:
      'options:cycle:<field>'     → advance cycle, update overrides, re-render
      'options:toggle:<field>'    → flip boolean, update overrides, re-render
      'profile:toggle'     → no-op in this plugin (handled by rig-profiles)
-   
+
    Use setTitle for all button labels in Phase 1 (no images yet).
-   
+
    Read active profile from shared state file on startup. Watch the file for changes
    and re-render home if profile changes (filters may change).
 ```
@@ -635,7 +635,7 @@ In the streamdeck-ac-launcher plugin, add Phase 2: CM preset scanning.
 2. config/cm-tags.yaml — a sidecar file format:
    preset_name_here: [kids, featured]
    another_preset: [kids]
-   
+
    Create src/cmTagsLoader.js to load this file and expose getTagsForPreset(name).
 
 3. Update src/raceIndex.js to accept a second source array and merge it.

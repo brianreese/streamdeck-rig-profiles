@@ -1,0 +1,101 @@
+# ============================================================
+# profiles.yaml — streamdeck-rig-profiles
+# ============================================================
+# This file defines the named rig profiles available on your
+# Stream Deck toggle button. Copy this file to profiles.yaml
+# and customize it for your setup. The plugin auto-copies it
+# on first run if profiles.yaml does not yet exist.
+#
+# REQUIRED fields per profile: id, name, color
+# All other fields are optional — omit any you don't use and
+# the plugin will skip that hardware step silently.
+# ============================================================
+
+
+# ============================================================
+# PROFILES
+# ============================================================
+# Each entry in this list becomes a selectable rig profile.
+# Profiles are cycled in list order on short press.
+# ============================================================
+
+profiles:
+
+  # ----------------------------------------------------------
+  # Primary profile — full access, no content filtering
+  # ----------------------------------------------------------
+  - id: primary
+    # Display name shown on the Stream Deck toggle button.
+    name: Primary
+
+    # Button background color when this profile is active.
+    # Must be a 6-digit hex color string (e.g. "#2255CC").
+    color: "#2255CC"
+
+    # FanaLab hotkey for this profile's hardware preset.
+    # Configure the matching hotkey in FanaLab first.
+    # Format: modifier+modifier+key  (e.g. ctrl+alt+f1)
+    # Set to null or omit to skip Fanatec switching.
+    fanatec_preset_hotkey: "ctrl+alt+f1"
+
+    # Moza Pit House profile name (must match exactly).
+    # Set to null or omit to skip Moza switching.
+    moza_profile: default
+
+    # Govee scene name to activate when this profile is selected.
+    # Must match a scene name exactly as you named it in the Govee app.
+    # Govee devices are auto-discovered using your API key — no device
+    # IDs needed here. Set to null or omit to disable Govee switching.
+    govee_scene: Racing
+
+    # Stream Deck profile to switch to. Must match the profile name
+    # EXACTLY as it appears in the Stream Deck software (case-sensitive).
+    # Set to null or omit to skip Stream Deck profile switching.
+    sd_profile: "Main Profile"
+
+    # No content_filter_tags = this profile sees ALL content in the Race Launcher.
+
+
+  # ----------------------------------------------------------
+  # Secondary profile — filtered content, simplified launcher
+  # ----------------------------------------------------------
+  - id: secondary
+    name: Secondary
+    color: "#22AA44"
+    fanatec_preset_hotkey: "ctrl+alt+f2"
+    moza_profile: beginner
+    govee_scene: "Beginner Mode"
+    sd_profile: "Secondary Profile"
+
+    # Race Launcher content filtering — applied to tracks, cars, and formats
+    # simultaneously. Content is shown if tagged with AT LEAST ONE listed tag
+    # (OR logic). Content with no tags is always hidden when a filter is active.
+    #
+    # Single tag:   content_filter_tags: beginner
+    # Multiple:     content_filter_tags: [beginner, guest_profile]
+    # No filter:    omit or set to null
+    content_filter_tags: [beginner, guest_profile]
+
+    # Skip the Options page in the Race Launcher and go straight to launch
+    # using the default format below. Recommended when filter tags are set.
+    skip_options_step: true
+
+    # Race format to use when skip_options_step is true.
+    # Must match a format id in the Race Launcher's races.yaml.
+    default_format: quick_blast
+
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
+settings:
+  # Profile to activate on plugin startup / rig boot.
+  # Must match an id from the profiles list above.
+  default_profile: primary
+
+  # Govee developer API key. Required for Govee lighting integration.
+  # Get yours free at: https://developer.govee.com/
+  # Devices are auto-discovered using this key — no device IDs to enter.
+  # Leave empty ("") to disable Govee integration entirely.
+  govee_api_key: ""
