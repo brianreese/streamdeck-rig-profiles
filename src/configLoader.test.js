@@ -81,8 +81,8 @@ beforeEach(() => {
   tmpDir = makeTempDir();
 });
 
-afterEach(() => {
-  close();
+afterEach(async () => {
+  await close();
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -91,9 +91,9 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('init() and basic loading', () => {
-  it('loads a valid minimal profiles.yaml', () => {
+  it('loads a valid minimal profiles.yaml', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     const profiles = getProfiles();
     expect(profiles).toHaveLength(1);
     expect(profiles[0].id).toBe('primary');
@@ -101,36 +101,36 @@ describe('init() and basic loading', () => {
     expect(profiles[0].color).toBe('#2255CC');
   });
 
-  it('loads two valid profiles in order', () => {
+  it('loads two valid profiles in order', async () => {
     configPath = writeYaml(tmpDir, TWO_PROFILE_YAML);
-    init(configPath);
+    await init(configPath);
     const profiles = getProfiles();
     expect(profiles).toHaveLength(2);
     expect(profiles[0].id).toBe('primary');
     expect(profiles[1].id).toBe('secondary');
   });
 
-  it('returns empty profiles array when file does not exist', () => {
-    init(join(tmpDir, 'nonexistent.yaml'));
+  it('returns empty profiles array when file does not exist', async () => {
+    await init(join(tmpDir, 'nonexistent.yaml'));
     expect(getProfiles()).toHaveLength(0);
   });
 
-  it('returns empty profiles array for empty YAML file', () => {
+  it('returns empty profiles array for empty YAML file', async () => {
     configPath = writeYaml(tmpDir, '');
-    init(configPath);
+    await init(configPath);
     expect(getProfiles()).toHaveLength(0);
   });
 
-  it('returns empty profiles array for YAML without profiles key', () => {
+  it('returns empty profiles array for YAML without profiles key', async () => {
     configPath = writeYaml(tmpDir, 'settings:\n  default_profile: primary\n');
-    init(configPath);
+    await init(configPath);
     expect(getProfiles()).toHaveLength(0);
   });
 
-  it('can be called multiple times safely (re-init)', () => {
+  it('can be called multiple times safely (re-init)', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
-    init(configPath);
+    await init(configPath);
+    await init(configPath);
     expect(getProfiles()).toHaveLength(1);
   });
 });
@@ -140,7 +140,7 @@ describe('init() and basic loading', () => {
 // ---------------------------------------------------------------------------
 
 describe('validation — required fields', () => {
-  it('skips a profile missing id', () => {
+  it('skips a profile missing id', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - name: NoId
@@ -149,33 +149,33 @@ profiles:
     name: Valid
     color: "#00FF00"
 `);
-    init(configPath);
+    await init(configPath);
     const profiles = getProfiles();
     expect(profiles).toHaveLength(1);
     expect(profiles[0].id).toBe('valid');
   });
 
-  it('skips a profile missing name', () => {
+  it('skips a profile missing name', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - id: noname
     color: "#FF0000"
 `);
-    init(configPath);
+    await init(configPath);
     expect(getProfiles()).toHaveLength(0);
   });
 
-  it('skips a profile missing color', () => {
+  it('skips a profile missing color', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - id: nocolor
     name: No Color
 `);
-    init(configPath);
+    await init(configPath);
     expect(getProfiles()).toHaveLength(0);
   });
 
-  it('loads other profiles even when one is invalid', () => {
+  it('loads other profiles even when one is invalid', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - id: good
@@ -184,7 +184,7 @@ profiles:
   - name: Missing Id
     color: "#FF0000"
 `);
-    init(configPath);
+    await init(configPath);
     const profiles = getProfiles();
     expect(profiles).toHaveLength(1);
     expect(profiles[0].id).toBe('good');
@@ -196,9 +196,9 @@ profiles:
 // ---------------------------------------------------------------------------
 
 describe('default values for optional fields', () => {
-  it('fills all optional driver fields with null by default', () => {
+  it('fills all optional driver fields with null by default', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     const p = getProfiles()[0];
     expect(p.fanatec_preset_hotkey).toBeNull();
     expect(p.moza_profile).toBeNull();
@@ -208,13 +208,13 @@ describe('default values for optional fields', () => {
     expect(p.default_format).toBeNull();
   });
 
-  it('fills skip_options_step with false by default', () => {
+  it('fills skip_options_step with false by default', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     expect(getProfiles()[0].skip_options_step).toBe(false);
   });
 
-  it('preserves explicitly set driver fields', () => {
+  it('preserves explicitly set driver fields', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - id: full
@@ -227,7 +227,7 @@ profiles:
     skip_options_step: true
     default_format: sprint
 `);
-    init(configPath);
+    await init(configPath);
     const p = getProfiles()[0];
     expect(p.fanatec_preset_hotkey).toBe('ctrl+alt+f1');
     expect(p.moza_profile).toBe('adult');
@@ -243,13 +243,13 @@ profiles:
 // ---------------------------------------------------------------------------
 
 describe('content_filter_tags coercion', () => {
-  it('leaves null as null', () => {
+  it('leaves null as null', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     expect(getProfiles()[0].content_filter_tags).toBeNull();
   });
 
-  it('coerces a bare string to a one-item array', () => {
+  it('coerces a bare string to a one-item array', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - id: p
@@ -257,11 +257,11 @@ profiles:
     color: "#123456"
     content_filter_tags: beginner
 `);
-    init(configPath);
+    await init(configPath);
     expect(getProfiles()[0].content_filter_tags).toEqual(['beginner']);
   });
 
-  it('keeps an array of strings as-is', () => {
+  it('keeps an array of strings as-is', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - id: p
@@ -269,11 +269,11 @@ profiles:
     color: "#123456"
     content_filter_tags: [beginner, guest_profile]
 `);
-    init(configPath);
+    await init(configPath);
     expect(getProfiles()[0].content_filter_tags).toEqual(['beginner', 'guest_profile']);
   });
 
-  it('coerces a one-item YAML array to a one-item array', () => {
+  it('coerces a one-item YAML array to a one-item array', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - id: p
@@ -281,11 +281,11 @@ profiles:
     color: "#123456"
     content_filter_tags: [beginner]
 `);
-    init(configPath);
+    await init(configPath);
     expect(getProfiles()[0].content_filter_tags).toEqual(['beginner']);
   });
 
-  it('normalises array items to strings', () => {
+  it('normalises array items to strings', async () => {
     // YAML could produce numbers if user forgets quotes
     configPath = writeYaml(tmpDir, `
 profiles:
@@ -294,7 +294,7 @@ profiles:
     color: "#123456"
     content_filter_tags: [42, true]
 `);
-    init(configPath);
+    await init(configPath);
     const tags = getProfiles()[0].content_filter_tags;
     expect(tags).toEqual(['42', 'true']);
   });
@@ -305,37 +305,37 @@ profiles:
 // ---------------------------------------------------------------------------
 
 describe('settings', () => {
-  it('loads govee_api_key from settings', () => {
+  it('loads govee_api_key from settings', async () => {
     configPath = writeYaml(tmpDir, TWO_PROFILE_YAML);
-    init(configPath);
+    await init(configPath);
     expect(getSettings().govee_api_key).toBe('test-key');
   });
 
-  it('loads default_profile from settings', () => {
+  it('loads default_profile from settings', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     expect(getSettings().default_profile).toBe('primary');
   });
 
-  it('falls back to first profile id when default_profile is omitted', () => {
+  it('falls back to first profile id when default_profile is omitted', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - id: first
     name: First
     color: "#111111"
 `);
-    init(configPath);
+    await init(configPath);
     expect(getSettings().default_profile).toBe('first');
   });
 
-  it('keeps settings defaults when settings block is absent', () => {
+  it('keeps settings defaults when settings block is absent', async () => {
     configPath = writeYaml(tmpDir, `
 profiles:
   - id: p
     name: P
     color: "#000000"
 `);
-    init(configPath);
+    await init(configPath);
     expect(getSettings().govee_api_key).toBe('');
   });
 });
@@ -345,9 +345,9 @@ profiles:
 // ---------------------------------------------------------------------------
 
 describe('getProfiles() returns a defensive copy', () => {
-  it('mutating the returned array does not affect internal state', () => {
+  it('mutating the returned array does not affect internal state', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     const copy1 = getProfiles();
     copy1.push({ id: 'injected' });
     expect(getProfiles()).toHaveLength(1);
@@ -359,9 +359,9 @@ describe('getProfiles() returns a defensive copy', () => {
 // ---------------------------------------------------------------------------
 
 describe('getSettings() returns a defensive copy', () => {
-  it('mutating the returned object does not affect internal state', () => {
+  it('mutating the returned object does not affect internal state', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     const s = getSettings();
     s.govee_api_key = 'mutated';
     expect(getSettings().govee_api_key).toBe('');
@@ -373,17 +373,17 @@ describe('getSettings() returns a defensive copy', () => {
 // ---------------------------------------------------------------------------
 
 describe('getProfileById()', () => {
-  it('returns the matching profile', () => {
+  it('returns the matching profile', async () => {
     configPath = writeYaml(tmpDir, TWO_PROFILE_YAML);
-    init(configPath);
+    await init(configPath);
     const p = getProfileById('secondary');
     expect(p).not.toBeNull();
     expect(p.id).toBe('secondary');
   });
 
-  it('returns null for an unknown id', () => {
+  it('returns null for an unknown id', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     expect(getProfileById('ghost')).toBeNull();
   });
 });
@@ -393,19 +393,19 @@ describe('getProfileById()', () => {
 // ---------------------------------------------------------------------------
 
 describe('onUpdate()', () => {
-  it('throws TypeError when passed a non-function', () => {
+  it('throws TypeError when passed a non-function', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     expect(() => onUpdate('not-a-function')).toThrow(TypeError);
   });
 
-  it('callbacks are cleared when init() is called again', () => {
+  it('callbacks are cleared when init() is called again', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
+    await init(configPath);
     let callCount = 0;
     onUpdate(() => { callCount++; });
     // Re-init clears the callback list
-    init(configPath);
+    await init(configPath);
     // After re-init the callback registered before is gone — no way to
     // trigger it without a file change event; we verify indirectly by
     // ensuring new init state is clean (no stale callbacks from prior run).
@@ -418,16 +418,14 @@ describe('onUpdate()', () => {
 // ---------------------------------------------------------------------------
 
 describe('close()', () => {
-  it('is safe to call when no watcher is running', () => {
-    expect(() => close()).not.toThrow();
+  it('is safe to call when no watcher is running', async () => {
+    await expect(close()).resolves.toBeUndefined();
   });
 
-  it('is safe to call multiple times', () => {
+  it('is safe to call multiple times', async () => {
     configPath = writeYaml(tmpDir, MINIMAL_YAML);
-    init(configPath);
-    expect(() => {
-      close();
-      close();
-    }).not.toThrow();
+    await init(configPath);
+    await expect(close()).resolves.toBeUndefined();
+    await expect(close()).resolves.toBeUndefined();
   });
 });

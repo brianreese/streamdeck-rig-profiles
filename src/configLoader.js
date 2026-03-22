@@ -2,14 +2,14 @@
 //
 // Usage (plugin startup):
 //   import { init, close, getProfiles, getSettings, onUpdate } from './configLoader.js';
-//   init();                          // load once; starts file watcher
+//   await init();                    // load once; starts file watcher
 //   onUpdate((profiles, settings) => { /* re-render buttons */ });
 //   // ...
-//   close();                         // stop watcher on plugin teardown
+//   await close();                   // stop watcher on plugin teardown (returns a Promise)
 //
 // Public API:
-//   init(configPath?)    → void           — load config + start watcher; must be called before getters
-//   close()              → void           — stop file watcher (call on plugin teardown or in test cleanup)
+//   init(configPath?)    → Promise<void>  — load config + start watcher; must be called before getters
+//   close()              → Promise<void>  — stop file watcher (call on plugin teardown or in test cleanup)
 //   getProfiles()        → Profile[]      — shallow copy; all valid, fully-defaulted profiles
 //   getProfileById(id)   → Profile | null — look up a single profile by id
 //   getSettings()        → Settings       — shallow copy of the top-level settings block
@@ -203,10 +203,10 @@ function load() {
 // Internal: file watcher
 // ---------------------------------------------------------------------------
 
-function startWatcher() {
+async function startWatcher() {
   // Close any existing watcher first (handles re-init with a different path).
   if (watcher) {
-    watcher.close();
+    await watcher.close();
     watcher = null;
   }
   watcher = chokidar.watch(resolvedConfigPath, { ignoreInitial: true });
@@ -235,8 +235,9 @@ function startWatcher() {
  *
  * @param {string} [configPath] - Path to profiles.yaml. Defaults to config/profiles.yaml
  *   relative to this file. Pass a custom path in tests to avoid touching the real config.
+ * @returns {Promise<void>}
  */
-export function init(configPath = DEFAULT_CONFIG_PATH) {
+export async function init(configPath = DEFAULT_CONFIG_PATH) {
   resolvedConfigPath = configPath;
   profiles = [];
   settings = { ...SETTINGS_DEFAULTS };
@@ -244,16 +245,18 @@ export function init(configPath = DEFAULT_CONFIG_PATH) {
   // In production code, register callbacks after calling init().
   updateCallbacks.length = 0;
   load();
-  startWatcher();
+  await startWatcher();
 }
 
 /**
  * Stop the file watcher. Call on plugin teardown or at the end of each test.
  * Safe to call when no watcher is active.
+ *
+ * @returns {Promise<void>}
  */
-export function close() {
+export async function close() {
   if (watcher) {
-    watcher.close();
+    await watcher.close();
     watcher = null;
   }
 }
