@@ -127,11 +127,28 @@ In the streamdeck-rig-profiles plugin, create two hardware integration modules:
    - Export: { activatePreset }
 
 2. src/govee.js
-   - setScene(apiKey, deviceId, model, sceneName): single device, PUT to Govee API
-   - setSceneAllDevices(apiKey, devices, sceneName): array of {id, model} objects.
-     Use Promise.allSettled so one failure doesn't cancel others.
-   - Both functions should throw on non-ok HTTP responses with a descriptive message.
-   - Export: { setScene, setSceneAllDevices }
+   Uses auto-discovery — no device IDs are configured anywhere; the API key is
+   sufficient. Design from the impl plan (Step 6):
+
+   - init(apiKey): call once at plugin startup.
+     1. GET /user/devices → discover all devices linked to the API key
+     2. POST /device/scenes per device → build a scene name → capability cache
+     Log count of devices discovered.
+
+   - activateScene(apiKey, sceneName, allowlist = null):
+     Iterate the device cache (filtered to allowlist if provided).
+     Look up sceneName in each device's cache; warn + skip if not found.
+     POST /device/control per device. Use Promise.allSettled so one device
+     failure does not cancel others.
+
+   - Export: { init, activateScene }
+
+   API base: https://openapi.api.govee.com/router/api/v1
+   Auth header: Govee-API-Key
+
+   Write a manual test script (test-govee.js) that accepts --key as a CLI arg
+   (never hardcode keys). It should call init(), log discovered devices, then
+   call activateScene() with a scene name passed via --scene.
 
 3. src/moza.js
    - activateProfile(profileName): stub only for now. Log the intent with console.log.
@@ -146,9 +163,10 @@ key isn't hardcoded.
 ```
 
 ### Review checklist
-- [ ] `node test-govee.js --key YOUR_KEY --device YOUR_DEVICE_ID --model YOUR_MODEL --scene "Racing"` triggers a Govee scene change
+- [ ] `node test-govee.js --key YOUR_KEY --scene "Racing"` discovers devices and triggers the scene on all of them
+- [ ] Govee: `init()` logs the correct device count
 - [ ] Fanatec: hotkey fires (verify FanaLab changes preset)
-- [ ] Govee: partial device failure (bad device ID) doesn't crash the whole call
+- [ ] Govee: one unreachable/missing-scene device doesn't crash the others (Promise.allSettled)
 - [ ] Moza stub: no crash, logs message
 
 ---
@@ -165,7 +183,7 @@ In the streamdeck-rig-profiles plugin, create:
    - Each step is independently try/caught
    - onStepResult(stepName, 'ok' | 'error') is called after each step
    - sd_profile_switch is a placeholder for now — accept a switchSDProfile(name)
-     function as a parameter so app.js can inject the real SD SDK call later
+     function as a parameter so plugin.js can inject the real SD SDK call later
 
 2. src/buttonRenderer.js
    Uses the `canvas` npm package to generate button images as base64 PNG strings.
@@ -186,12 +204,14 @@ All render functions return a base64 string (without the data:image/png;base64, 
 
 ---
 
-## Chunk 5 — app.js: short press, long press, picker
+## Chunk 5 — plugin.js: short press, long press, picker
 
 ### Agent prompt
 ```
-In the streamdeck-rig-profiles plugin, implement app.js — the main plugin entry
-point using the @elgato/streamdeck SDK.
+In the streamdeck-rig-profiles plugin, implement the main logic in src/plugin.js
+— the existing entry point using the @elgato/streamdeck SDK.
+(The file already exists with a skeleton; fill in the action handlers.)
+Do not create a new app.js.
 
 The plugin has a single action: com.rig.profiles.toggle
 This action is placed at the same position on every Stream Deck profile.
@@ -247,16 +267,20 @@ In the streamdeck-rig-profiles plugin:
    right-clicks the action in Stream Deck.
    Fields:
    - Govee API Key (password type input)
-   - Govee Devices: a dynamic list where each row has Device ID, Model Number,
-     and a Label field. Add/Remove row buttons. Minimum 1 row, max 8.
-   - A "Test Govee Connection" button that sends a test scene command to all
-     configured devices and shows success/failure inline
+   - "Discover Devices" button — sends the key to plugin.js, which calls
+     govee.init(); display the count and names of devices found inline
+     (e.g. "Found 3 devices: Strip 1, Lightbar, Desk Lamp")
+   - Govee device allowlist (optional, advanced): comma-separated device IDs;
+     leave blank to address all discovered devices. Label it clearly as
+     optional/advanced so most users skip it.
+   - "Test Govee" button — triggers activateScene() with the first available
+     scene on all devices as a connectivity check; show success/failure inline
    - An "Open profiles.yaml" button that opens the config file in the default
      system editor (shell.openPath)
    - A note/callout section: "Remember to configure matching hotkeys in FanaLab
      before testing profile switching"
 
-   Use the Stream Deck Property Inspector SDK for two-way communication with app.js.
+   Use the Stream Deck Property Inspector SDK for two-way communication with plugin.js.
    Settings should persist via sendToPlugin/sendToPropertyInspector pattern.
 
 2. Create README.md covering:
@@ -264,15 +288,17 @@ In the streamdeck-rig-profiles plugin:
    - Installation (npm install, streamdeck link)
    - Configuration: how to edit profiles.yaml, field reference table
    - FanaLab setup: how to configure hotkeys
-   - Govee setup: how to find device ID and model number
+   - Govee setup: how to get an API key, how device auto-discovery works,
+     what scene names must match (Govee app names), optional allowlist
    - Moza: current status (not yet implemented), link to tracking issue
    - Troubleshooting: FanaLab not running, Govee API errors
 ```
 
 ### Review checklist
 - [ ] Settings panel opens when right-clicking the action
-- [ ] Govee API key and devices save and reload correctly
-- [ ] "Test Govee" button works (triggers a scene change)
+- [ ] Govee API key saves and reloads correctly
+- [ ] "Discover Devices" button finds and displays device names
+- [ ] "Test Govee" button triggers a scene change on all discovered devices
 - [ ] README is clear enough that a stranger could install and configure the plugin
 
 ---
@@ -288,9 +314,9 @@ In the streamdeck-rig-profiles plugin, do a final pass for robustness:
    (log warning, maintain last known state, don't crash)
 3. Add a manifest.json review: ensure icon, description, and category are set
    appropriately for a public release
-4. Add a .gitignore that excludes node_modules, any state.json files, and
-   any file matching **/config/profiles.yaml (user config should not be committed;
-   only the template should be in the repo)
+4. Add a .gitignore that excludes node_modules, data/state.json (plugin-local
+   state written at runtime), any file matching **/config/profiles.yaml (user
+   config should not be committed; only the template should be in the repo)
 5. Verify package.json has correct main entry, license field (MIT), and a
    "link" script: "streamdeck link" for dev installation
 ```
