@@ -264,3 +264,65 @@ provider if no clean read-back exists.
 Realistically this is a larger job than the Fanatec provider was, and the
 "apply a named preset" semantic does not exist at device level — expect to be
 applying parameter sets, with weaker verification.
+
+## 7. MOZA workaround — game-binding stand-in process (WORKS)
+
+Two experiments, 2026-08-27.
+
+### Option 3 (write config.ini) — dead
+
+`moza-option3-test.mjs` wrote a different preset uuid into
+`Presets\config.ini` `[LastUsedPreset]` and waited. Result: **STUCK, NO APPLY**
+— the write survived (Pit House did not rewrite it) but no pedal parameter
+changed. The file is a record of what was applied, read at startup or device
+connect, not an input. Original file restored; a `.claude-backup` copy remains.
+
+### Game binding via a stand-in process — CONFIRMED WORKING
+
+Pit House matches running games by executable **name** only —
+`GameConfigInfo.xml` lists 60 games and every `<path>` is empty — and it runs
+`bin\ProcessMonitor.exe` to watch for them. A preset can be bound to a game.
+
+`moza-gamebind-test.mjs` copied Windows' own `waitfor.exe` to a temp folder as
+`AssettoCorsa.exe` and ran it. Within seconds Pit House applied an
+Assetto-Corsa-bound preset:
+
+```
+preset before : Brian Brake Hybrid
+started AssettoCorsa.exe (pid 36488)
+preset changed -> GTR1994-Default
+```
+
+Two important properties:
+
+- **Name matching is sufficient.** No real game, no install, no path check.
+- **The change is sticky.** The preset did not revert when the process exited,
+  so a momentary process is enough — nothing needs to stay running.
+
+### The design this enables
+
+No device protocol work, using only Pit House's own supported feature:
+
+1. In Pit House, bind each person's pedal preset to a *game they will never
+   play* — e.g. Carter Brake -> "Tokyo Xtreme Racer", Brian Brake Hybrid ->
+   "Formula Legends".
+2. The `apps` provider launches a stand-in process named after that game's
+   executable (a copy of `waitfor.exe`, or any harmless binary renamed).
+3. Pit House sees it and applies the bound preset.
+4. `verify()` reads back `[LastUsedPreset]` — already implemented and working.
+
+No MOZA file needs editing if the chosen games already have a `program` entry.
+Three entries have none at all (American Truck Simulator, Euro Truck Simulator
+2, Formula Legends) and so can never fire accidentally, but using them *would*
+require adding a `<program>` to `GameConfigInfo.xml`.
+
+### Caveats
+
+- Only works for presets bound to a game, so each profile needs one sacrificed
+  game slot. 60 games available, so there is plenty of room.
+- If the sacrificed game is ever actually played, its preset applies. Choose
+  accordingly.
+- Whether Pit House rewrites `GameConfigInfo.xml` on update is untested; prefer
+  games that already carry a `program` so the file is never touched.
+- This does not replace the serial protocol work (section 6) — it is a
+  workaround that happens to be reliable and cheap.
