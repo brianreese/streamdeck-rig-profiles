@@ -301,7 +301,7 @@ export async function activateScene(apiKey, sceneName, deviceNames = null, { _fe
       const scene = sceneMap[sceneName];
       if (!scene) {
         console.warn(`[govee] Scene "${sceneName}" not found on ${deviceName} (${deviceId}) — skipping.`);
-        return;
+        return false;
       }
       const res = await _fetch(`${API_BASE}/device/control`, {
         method: 'POST',
@@ -311,7 +311,14 @@ export async function activateScene(apiKey, sceneName, deviceNames = null, { _fe
           payload: { sku, device: deviceId, capability: scene },
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      if (!res.ok) throw new Error(`${deviceName}: HTTP ${res.status} ${res.statusText}`);
+      // Govee answers 200 with a non-zero code when it rejects the request, so
+      // the status line alone is not proof the scene was accepted.
+      const body = await res.json().catch(() => null);
+      if (body?.code !== undefined && body.code !== 200 && body.code !== 0) {
+        throw new Error(`${deviceName}: Govee code ${body.code} ${body.msg ?? ''}`.trim());
+      }
+      return true;
     })
   );
 
@@ -320,6 +327,19 @@ export async function activateScene(apiKey, sceneName, deviceNames = null, { _fe
   for (const r of failed) {
     console.error(`[govee] Device control error: ${r.reason?.message ?? r.reason}`);
   }
+
+  // Report the outcome to the caller. This used to return undefined whatever
+  // happened, so a scene that reached no device at all was indistinguishable
+  // from one that worked — the lights simply did not change and nothing said
+  // why. Callers need enough to tell the user something true.
+  const sent = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+  const skipped = results.filter(r => r.status === 'fulfilled' && r.value !== true).length;
+  return {
+    sent,
+    skipped,
+    failed: failed.map(r => String(r.reason?.message ?? r.reason)),
+    targets: targets.length,
+  };
 }
 
 /**

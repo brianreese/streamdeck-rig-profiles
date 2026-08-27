@@ -15,6 +15,9 @@ import { STATUS } from './status.js';
 /** Scene catalog, cached per process. Discovery is slow (2-5s per device). */
 let sceneNames = null;
 
+/** Result of the last activateScene, so verify() can report what was sent. */
+let lastOutcome = null;
+
 async function ensureCatalog(apiKey) {
   if (sceneNames?.length || !apiKey) return sceneNames;
   // init() loads from the on-disk cache when present, so this is usually cheap.
@@ -71,21 +74,38 @@ export default {
       // separate capability and is deliberately not faked here.
       throw new Error('no scene selected');
     }
-    await activateScene(apiKey, scene, ctx.settings?.goveeDevices ?? null);
+
+    const outcome = await activateScene(apiKey, scene, ctx.settings?.goveeDevices ?? null);
+    lastOutcome = outcome ?? null;
+
+    // A scene that reached no device is a failure, even though every individual
+    // call "succeeded" by not throwing. Without this the lights simply do not
+    // change and the key still goes amber as though something happened.
+    if (outcome && outcome.sent === 0) {
+      const why = outcome.failed.length
+        ? outcome.failed.join('; ')
+        : `no device in the allowlist has a scene named "${scene}"`;
+      throw new Error(`scene "${scene}" reached no device — ${why}`);
+    }
   },
 
   async verify(cfg) {
     // The Govee REST API confirms it accepted the request, not that the lamps
     // changed. Claiming VERIFIED here would be exactly the lie the status
-    // vocabulary exists to prevent, so this provider declares verifiable:false
-    // and reports the honest outcome instead.
-    return {
-      status: STATUS.APPLIED_UNVERIFIED,
-      detail: `sent scene "${cfg?.scene}" — Govee does not report lamp state back`,
-    };
+    // vocabulary exists to prevent, so this reports what was actually sent.
+    const sent = lastOutcome?.sent;
+    const detail =
+      sent === undefined
+        ? `sent scene "${cfg?.scene}" — Govee does not report lamp state back`
+        : `scene "${cfg?.scene}" accepted by ${sent} of ${lastOutcome.targets} device(s)` +
+          (lastOutcome.skipped ? `, ${lastOutcome.skipped} lack that scene` : '') +
+          (lastOutcome.failed.length ? `; errors: ${lastOutcome.failed.join('; ')}` : '');
+
+    return { status: STATUS.APPLIED_UNVERIFIED, detail };
   },
 };
 
 export function _resetForTesting() {
   sceneNames = null;
+  lastOutcome = null;
 }
