@@ -45,8 +45,11 @@ export default {
     return Object.entries(PARAMS).map(([key, spec]) => ({
       key,
       label: `${spec.label} (${spec.unit})`,
-      type: 'text',
-      placeholder: `${spec.min}–${spec.max}`,
+      type: 'range',
+      min: spec.min,
+      max: spec.max,
+      step: spec.step ?? 1,
+      unit: spec.unit,
       help: spec.help,
     }));
   },
