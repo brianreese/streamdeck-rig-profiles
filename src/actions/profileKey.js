@@ -16,6 +16,8 @@ import { applyProfile, summarise } from '../profileSwitch.js';
 import { renderProfileKey } from '../buttonRenderer.js';
 import { STATUS } from '../providers/index.js';
 import { readState, writeState } from '../state.js';
+import { loadAvatarDataUri } from '../avatars.js';
+import { handlePiRequest } from '../piBridge.js';
 
 export const MANIFEST_ID = 'com.rig.profiles.key';
 export const HOLD_MS = 1000;
@@ -30,8 +32,18 @@ let activeProfileId = null;
 let activeStatus = STATUS.SKIPPED;
 let hydrated = false;
 
+/** Avatar bytes, keyed by filename. Cheap to hold, expensive to re-read. */
+const avatarCache = new Map();
+
 function findProfile(settings, id) {
-  return (settings?.profiles ?? []).find((p) => p.id === id) ?? null;
+  const profile = (settings?.profiles ?? []).find((p) => p.id === id) ?? null;
+  if (!profile?.avatar) return profile;
+
+  if (!avatarCache.has(profile.avatar)) {
+    avatarCache.set(profile.avatar, loadAvatarDataUri(profile.avatar));
+  }
+  // A missing file degrades to the initial fallback rather than breaking the key.
+  return { ...profile, avatarDataUri: avatarCache.get(profile.avatar) ?? undefined };
 }
 
 async function repaintAll(settings) {
@@ -97,6 +109,21 @@ export class ProfileKey extends SingletonAction {
       `[profileKey] didReceiveSettings key=${ev.action.id} profileId=${JSON.stringify(profileId)}`,
     );
     await repaintAll(await streamDeck.settings.getGlobalSettings());
+  }
+
+  /** Property inspector requests: live hardware options, saves, avatars. */
+  async onSendToPlugin(ev) {
+    const reply = await handlePiRequest(ev.payload, {
+      settings: streamDeck.settings,
+      logger: streamDeck.logger,
+    });
+    await ev.action.sendToPropertyInspector(reply);
+
+    // A save or avatar change alters what the keys should look like.
+    if (['saveProfiles', 'uploadAvatar', 'deleteAvatar'].includes(ev.payload?.request)) {
+      avatarCache.clear();
+      await repaintAll(await streamDeck.settings.getGlobalSettings());
+    }
   }
 
   /**

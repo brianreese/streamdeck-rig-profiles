@@ -3,18 +3,53 @@
   <head>
     <meta charset="utf-8" />
     <style>
-      :root { color-scheme: dark; }
+      :root { color-scheme: dark; --amber: #e8a317; --red: #d64545; }
       body {
         font: 13px/1.5 -apple-system, "Segoe UI", sans-serif;
         color: #d8d8d8; background: #2d2d2d; margin: 0; padding: 12px;
       }
-      .row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+      .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
       label { flex: 0 0 92px; text-align: right; color: #969696; }
-      select { flex: 1; background: #3d3d3d; color: #d8d8d8;
-        border: 1px solid #4d4d4d; border-radius: 4px; padding: 4px 6px; }
-      select.unset { border-color: #e8a317; }
+      select, input[type="text"] {
+        flex: 1; min-width: 0; background: #3d3d3d; color: #d8d8d8;
+        border: 1px solid #4d4d4d; border-radius: 4px; padding: 4px 6px;
+      }
+      input[type="color"] {
+        width: 38px; height: 26px; padding: 0; background: none;
+        border: 1px solid #4d4d4d; border-radius: 4px;
+      }
+      select.unset { border-color: var(--amber); }
       .hint { margin-left: 100px; color: #7a7a7a; font-size: 11px; }
-      .warn { margin-left: 100px; color: #e8a317; font-size: 11px; }
+      .warn { margin-left: 100px; color: var(--amber); font-size: 11px; }
+      .err  { margin-left: 100px; color: var(--red); font-size: 11px; }
+
+      details { margin-top: 14px; border-top: 1px solid #414141; padding-top: 10px; }
+      summary { cursor: pointer; color: #969696; user-select: none; }
+      .profile-card {
+        border: 1px solid #414141; border-radius: 6px;
+        padding: 8px; margin: 8px 0; background: #333;
+      }
+      .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+      .swatch { width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto; }
+      .card-title { flex: 1; font-weight: 600; }
+      button {
+        background: #4a4a4a; color: #d8d8d8; border: 1px solid #5a5a5a;
+        border-radius: 4px; padding: 4px 10px; cursor: pointer;
+      }
+      button:hover { background: #565656; }
+      button.danger { border-color: #6a3a3a; }
+      button.primary { background: #2255cc; border-color: #2f66e0; }
+      .actions { display: flex; gap: 8px; margin-top: 10px; }
+      .avatar-preview {
+        width: 34px; height: 34px; border-radius: 4px; object-fit: cover;
+        border: 1px solid #4d4d4d; background: #222;
+      }
+      textarea {
+        width: 100%; box-sizing: border-box; height: 150px; background: #262626;
+        color: #c8c8c8; border: 1px solid #4d4d4d; border-radius: 4px;
+        font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+      }
+      .muted { color: #7a7a7a; font-size: 11px; }
     </style>
   </head>
   <body>
@@ -25,25 +60,62 @@
     <div class="hint" id="summary">This key activates the selected profile.</div>
     <div class="warn" id="warn" hidden></div>
 
+    <details id="manage">
+      <summary>Manage profiles</summary>
+      <div id="cards"></div>
+      <div class="actions">
+        <button id="add">Add profile</button>
+        <button id="save" class="primary">Save</button>
+      </div>
+      <div class="err" id="errors" hidden></div>
+      <div class="hint" id="saved" hidden>Saved.</div>
+
+      <details style="margin-top:12px">
+        <summary>Export / import YAML</summary>
+        <p class="muted">
+          Export for version control. Importing replaces every profile below —
+          review it, then Save.
+        </p>
+        <textarea id="yaml" spellcheck="false"></textarea>
+        <div class="actions">
+          <button id="export">Export</button>
+        </div>
+      </details>
+    </details>
+
     <script>
       // Hand-rolled property inspector against the documented SDK v2 socket
-      // contract. No component library: the plugin has no build step, and the
+      // contract. No component library: the plugin has no build step and the
       // page must work offline with no CDN.
-      let ws, uuid;
+      let ws, uuid, actionUuid;
       let globals = null;
       let settings = {};
+      let draft = [];               // profiles being edited
+      let providerOptions = {};     // providerId -> [{value,label}]
+      const pending = new Map();    // request name -> resolver
 
-      function send(event, payload) {
-        if (ws?.readyState !== 1) return;
-        ws.send(JSON.stringify({ event, context: uuid, payload }));
+      const send = (event, payload) =>
+        ws?.readyState === 1 && ws.send(JSON.stringify({ event, context: uuid, payload }));
+
+      /** Ask the plugin something and await the matching reply. */
+      function ask(request, extra = {}) {
+        return new Promise((resolve) => {
+          pending.set(request, resolve);
+          ws.send(JSON.stringify({
+            event: 'sendToPlugin', context: uuid, action: actionUuid,
+            payload: { request, ...extra },
+          }));
+        });
       }
 
-      function saveSettings(next) {
+      function saveKeySettings(next) {
         settings = { ...settings, ...next };
         ws.send(JSON.stringify({ event: 'setSettings', context: uuid, payload: settings }));
       }
 
-      function render() {
+      // ---------------------------------------------------------------- key
+
+      function renderKeyPicker() {
         const select = document.getElementById('profile');
         const summary = document.getElementById('summary');
         const warn = document.getElementById('warn');
@@ -51,27 +123,18 @@
         const chosen = settings?.profileId ?? '';
 
         if (!profiles.length) {
-          select.innerHTML = '<option value="">No profiles configured yet</option>';
-          summary.textContent = 'Edit config/profiles.yaml, then restart Stream Deck.';
+          select.innerHTML = '<option value="">No profiles yet — add one below</option>';
+          summary.textContent = 'Add a profile under "Manage profiles".';
           return;
         }
 
         // A placeholder is essential when nothing is saved. Without it the
-        // browser shows the first profile as though it were selected, the user
-        // never fires a change event, and the key stays silently unassigned —
-        // looking configured while doing nothing on press.
-        const placeholder = chosen
-          ? ''
-          : '<option value="" selected>— Select a profile —</option>';
-
-        select.innerHTML =
-          placeholder +
-          profiles
-            .map(
-              (p) =>
-                `<option value="${p.id}"${p.id === chosen ? ' selected' : ''}>${p.name}</option>`,
-            )
-            .join('');
+        // browser shows the first profile as though it were selected, no change
+        // event fires, and the key stays silently unassigned while looking set.
+        const placeholder = chosen ? '' : '<option value="" selected>— Select a profile —</option>';
+        select.innerHTML = placeholder + profiles
+          .map((p) => `<option value="${p.id}"${p.id === chosen ? ' selected' : ''}>${esc(p.name)}</option>`)
+          .join('');
         select.classList.toggle('unset', !chosen);
 
         if (!chosen) {
@@ -79,27 +142,186 @@
           warn.hidden = true;
           return;
         }
-
         const active = profiles.find((p) => p.id === chosen);
-        const providers = Object.keys(active?.providers ?? {});
-        summary.textContent = providers.length
-          ? `Applies: ${providers.join(', ')}${active.restricted ? ' — hold to activate' : ''}`
+        const names = Object.keys(active?.providers ?? {});
+        summary.textContent = names.length
+          ? `Applies: ${names.join(', ')}${active.restricted ? ' — hold to activate' : ''}`
           : 'This profile does not configure any hardware yet.';
-
-        // Surfaced by the migration: a legacy FanaLab hotkey has no wheelbase
-        // slot equivalent, so the user has to pick one.
         warn.hidden = !active?.needsWheelbaseSetup;
         warn.textContent = 'This profile still needs a wheelbase setup slot.';
       }
 
+      // ------------------------------------------------------------- editor
+
+      const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+      function slugify(name, taken) {
+        let base = String(name || 'profile').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || 'profile';
+        let id = base, n = 2;
+        while (taken.includes(id)) id = `${base}-${n++}`;
+        return id;
+      }
+
+      function renderCards() {
+        const host = document.getElementById('cards');
+        const slots = providerOptions['fanatec-base'] ?? [1, 2, 3, 4, 5].map((v) => ({ value: v, label: `S${v}` }));
+
+        host.innerHTML = draft.map((p, i) => `
+          <div class="profile-card" data-i="${i}">
+            <div class="card-head">
+              <span class="swatch" style="background:${esc(p.color)}"></span>
+              <span class="card-title">${esc(p.name || '(unnamed)')}</span>
+              <button class="danger" data-act="remove" data-i="${i}">Remove</button>
+            </div>
+            <div class="row">
+              <label>Name</label>
+              <input type="text" data-f="name" data-i="${i}" value="${esc(p.name)}" />
+              <input type="color" data-f="color" data-i="${i}" value="${esc(p.color)}" />
+            </div>
+            <div class="row">
+              <label>Wheelbase</label>
+              <select data-f="setup" data-i="${i}">
+                <option value="">— none —</option>
+                ${slots.map((o) => {
+                  const cur = p.providers?.['fanatec-base']?.setup;
+                  return `<option value="${o.value}"${String(cur) === String(o.value) ? ' selected' : ''}>${esc(o.label)}</option>`;
+                }).join('')}
+              </select>
+            </div>
+            <div class="row">
+              <label>Avatar</label>
+              <img class="avatar-preview" data-preview="${i}" src="${p.avatarDataUri || ''}"
+                   style="${p.avatarDataUri ? '' : 'visibility:hidden'}" />
+              <input type="file" data-f="avatar" data-i="${i}" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" />
+            </div>
+            <div class="row">
+              <label>Hold to switch</label>
+              <input type="checkbox" data-f="restricted" data-i="${i}" ${p.restricted ? 'checked' : ''} />
+              <span class="muted" style="flex:1">Requires a 1s press. Use for full-torque profiles.</span>
+            </div>
+          </div>`).join('');
+      }
+
+      function onEditorInput(e) {
+        const el = e.target;
+        const i = Number(el.dataset.i);
+        const field = el.dataset.f;
+        if (Number.isNaN(i) || !field) return;
+        const p = draft[i];
+
+        if (field === 'name') { p.name = el.value; }
+        else if (field === 'color') { p.color = el.value; }
+        else if (field === 'restricted') { p.restricted = el.checked; }
+        else if (field === 'setup') {
+          p.providers = p.providers ?? {};
+          if (el.value) p.providers['fanatec-base'] = { setup: Number(el.value) };
+          else delete p.providers['fanatec-base'];
+          delete p.needsWheelbaseSetup;
+        } else if (field === 'avatar') {
+          const file = el.files?.[0];
+          if (file) uploadAvatar(i, file);
+          return;
+        }
+        // Only the header needs to follow name/colour live; re-rendering the
+        // whole card would steal focus mid-keystroke.
+        const card = el.closest('.profile-card');
+        card.querySelector('.card-title').textContent = p.name || '(unnamed)';
+        card.querySelector('.swatch').style.background = p.color;
+      }
+
+      async function uploadAvatar(i, file) {
+        const p = draft[i];
+        if (!p.id) p.id = slugify(p.name, draft.map((d) => d.id).filter(Boolean));
+        const base64 = await new Promise((res) => {
+          const r = new FileReader();
+          r.onload = () => res(String(r.result).split(',')[1]);
+          r.readAsDataURL(file);
+        });
+        const reply = await ask('uploadAvatar', { profileId: p.id, base64, filename: file.name });
+        const errors = document.getElementById('errors');
+        if (!reply.ok) {
+          errors.hidden = false;
+          errors.textContent = reply.error;
+          return;
+        }
+        errors.hidden = true;
+        p.avatar = reply.filename;
+        const got = await ask('getAvatar', { profileId: p.id, filename: reply.filename });
+        p.avatarDataUri = got.dataUri;
+        const img = document.querySelector(`[data-preview="${i}"]`);
+        if (img) { img.src = got.dataUri || ''; img.style.visibility = got.dataUri ? '' : 'hidden'; }
+      }
+
+      async function saveAll() {
+        const errors = document.getElementById('errors');
+        const saved = document.getElementById('saved');
+        const taken = [];
+        for (const p of draft) {
+          if (!p.id) p.id = slugify(p.name, taken);
+          taken.push(p.id);
+        }
+        // avatarDataUri is a render-time convenience; never persist the bytes.
+        const payload = draft.map(({ avatarDataUri, ...rest }) => rest);
+        const reply = await ask('saveProfiles', { profiles: payload, settings: globals?.settings ?? {} });
+
+        if (!reply.ok) {
+          saved.hidden = true;
+          errors.hidden = false;
+          errors.innerHTML = reply.errors.map(esc).join('<br>');
+          return;
+        }
+        errors.hidden = true;
+        saved.hidden = false;
+        setTimeout(() => { saved.hidden = true; }, 2000);
+        send('getGlobalSettings');
+      }
+
+      // ---------------------------------------------------------------- wire
+
       document.getElementById('profile').addEventListener('change', (e) => {
-        saveSettings({ profileId: e.target.value });
-        render();
+        saveKeySettings({ profileId: e.target.value });
+        renderKeyPicker();
       });
+      document.getElementById('cards').addEventListener('input', onEditorInput);
+      document.getElementById('cards').addEventListener('change', onEditorInput);
+      document.getElementById('cards').addEventListener('click', (e) => {
+        if (e.target.dataset.act !== 'remove') return;
+        draft.splice(Number(e.target.dataset.i), 1);
+        renderCards();
+      });
+      document.getElementById('add').addEventListener('click', () => {
+        draft.push({ id: '', name: 'New profile', color: '#2255cc', restricted: false, providers: {} });
+        renderCards();
+      });
+      document.getElementById('save').addEventListener('click', saveAll);
+      document.getElementById('export').addEventListener('click', async () => {
+        document.getElementById('yaml').value = (await ask('exportYaml')).yaml ?? '';
+      });
+      document.getElementById('manage').addEventListener('toggle', async (e) => {
+        if (!e.target.open) return;
+        // Enumerate live hardware only when the editor is actually opened —
+        // it costs a round-trip to the wheelbase.
+        const reply = await ask('getProviderOptions', { providerId: 'fanatec-base' });
+        providerOptions['fanatec-base'] = reply.options ?? [];
+        renderCards();
+      });
+
+      async function seedDraft() {
+        draft = JSON.parse(JSON.stringify(globals?.profiles ?? []));
+        for (const p of draft) {
+          if (!p.avatar) continue;
+          p.avatarDataUri = (await ask('getAvatar', { profileId: p.id, filename: p.avatar })).dataUri;
+        }
+        renderCards();
+      }
 
       function connectElgatoStreamDeckSocket(port, propertyInspectorUUID, registerEvent, info, actionInfoJson) {
         uuid = propertyInspectorUUID;
-        settings = JSON.parse(actionInfoJson)?.payload?.settings ?? {};
+        const actionInfo = JSON.parse(actionInfoJson);
+        actionUuid = actionInfo?.action;
+        settings = actionInfo?.payload?.settings ?? {};
         ws = new WebSocket(`ws://127.0.0.1:${port}`);
 
         ws.onopen = () => {
@@ -112,13 +334,18 @@
           const msg = JSON.parse(evt.data);
           if (msg.event === 'didReceiveGlobalSettings') {
             globals = msg.payload.settings;
-            render();
+            renderKeyPicker();
+            seedDraft();
           }
-          // Track the live per-key settings rather than the actionInfo snapshot,
+          // Track live per-key settings rather than the actionInfo snapshot,
           // which goes stale the moment anything is saved.
           if (msg.event === 'didReceiveSettings') {
             settings = msg.payload.settings ?? {};
-            render();
+            renderKeyPicker();
+          }
+          if (msg.event === 'sendToPropertyInspector') {
+            const resolve = pending.get(msg.payload?.request);
+            if (resolve) { pending.delete(msg.payload.request); resolve(msg.payload); }
           }
         };
       }
