@@ -13,6 +13,7 @@
 import yaml from 'js-yaml';
 import { getProvider, allProviders } from './providers/index.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar } from './avatars.js';
+import { _resetForTesting as resetGoveeCatalog } from './providers/govee.js';
 
 /** Turn a stored profile list into the legacy-shaped YAML we can re-import. */
 export function profilesToYaml(globals) {
@@ -30,7 +31,9 @@ export function profilesToYaml(globals) {
     profiles,
     settings: {
       default_profile: globals?.settings?.defaultProfile ?? profiles[0]?.id ?? null,
-      govee_api_key: globals?.settings?.goveeApiKey ?? '',
+      // The Govee API key is deliberately NOT exported. Export exists so this
+      // can be committed to version control, and a credential in a repo is a
+      // credential leaked. Enter it in the inspector on each machine instead.
       govee_devices: globals?.settings?.goveeDevices ?? null,
     },
   });
@@ -150,6 +153,52 @@ export async function handlePiRequest(msg, { settings, logger = console } = {}) 
 
     case 'deleteAvatar':
       return { request, ok: deleteAvatar(msg.filename), profileId: msg.profileId };
+
+    // Global settings (API keys and the like) live alongside profiles but are
+    // saved separately, so entering a key does not require touching profiles.
+    case 'getSettings': {
+      const current = (await settings.getGlobalSettings())?.settings ?? {};
+      return {
+        request,
+        settings: {
+          ...current,
+          // Never echo the key back to the page. The inspector only needs to
+          // know whether one is set, not what it is.
+          goveeApiKey: undefined,
+          goveeApiKeySet: Boolean(current.goveeApiKey),
+        },
+      };
+    }
+
+    case 'saveSettings': {
+      const current = await settings.getGlobalSettings();
+      const next = { ...current?.settings, ...msg.settings };
+      // An empty key field means "leave it alone", not "clear it" — otherwise
+      // saving any other setting would wipe a key the page never displayed.
+      if (!msg.settings?.goveeApiKey) next.goveeApiKey = current?.settings?.goveeApiKey ?? '';
+      if (msg.clearGoveeKey) next.goveeApiKey = '';
+
+      await settings.setGlobalSettings({ ...current, settings: next });
+      return { request, ok: true, goveeApiKeySet: Boolean(next.goveeApiKey) };
+    }
+
+    case 'goveeDiscover': {
+      const apiKey = (await settings.getGlobalSettings())?.settings?.goveeApiKey;
+      if (!apiKey) return { request, ok: false, error: 'enter a Govee API key first' };
+      try {
+        const { init, getDiscoveredDevices, getSceneNames } = await import('./govee.js');
+        await init(apiKey, { forceRefresh: true });
+        resetGoveeCatalog();
+        return {
+          request,
+          ok: true,
+          devices: getDiscoveredDevices(),
+          scenes: getSceneNames(),
+        };
+      } catch (err) {
+        return { request, ok: false, error: err.message };
+      }
+    }
 
     case 'exportYaml':
       return { request, yaml: profilesToYaml(await settings.getGlobalSettings()) };

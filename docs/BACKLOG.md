@@ -85,7 +85,40 @@ Still to do:
 - Diagnostic logging in `profileKey.js` is verbose (every willAppear, keyDown,
   keyUp, PI request). It earned its place — three bugs were only visible in the
   event trace — but should drop to debug level once this settles.
-- The Stream Deck profile-switch provider (`streamdeck`) is referenced by
-  `profileSwitch.js` DEFERRED ordering but not yet implemented.
+## 5. Stream Deck profile switching — parked, harder than it looks
+
+`profileSwitch.js` reserves `streamdeck` in its DEFERRED ordering, but the
+provider does not exist, and the original spec's `sd_profile: "Kid Desktop"`
+cannot work as written. From the SDK:
+
+> Plugins may only switch to profiles distributed with the plugin, as defined
+> within the manifest, and cannot access user-defined profiles.
+
+So a profile the user made in the Stream Deck app is unreachable. What is
+actually possible:
+
+- `switchToProfile(deviceId, undefined)` — return to the previously active
+  profile. Works with no bundling at all.
+- Switch to a profile **bundled in our own manifest**, which the user then
+  customises in place.
+
+The bundled route means shipping `.streamDeckProfile` files. Format, from
+unpacking Corsair's (they are ZIPs):
+
+```
+package.json        {AppVersion, DeviceModel, FormatVersion, OSType,
+                     RequiredPlugins:["com.rig.profiles"], ...}
+Profiles/<GUID>.sdProfile/manifest.json      {Device:{Model,UUID}, Name,
+                                              Pages:{Current,Default,Pages[]}}
+Profiles/<GUID>.sdProfile/Profiles/<GUID>/manifest.json   (per page)
+```
+
+`DeviceModel` is device-specific (`20GAT9902` is the XL), so supporting more
+than one deck size means one bundled file per model. Doable, fiddly, and it
+puts generically-named profiles in the user's app that they must then populate.
+
+Parked deliberately: the value (kids see a restricted deck) is real, but the
+cost is out of proportion to everything else outstanding. Revisit after the
+browser editor.
 - Moza pedals: protocol unknown. `MOZA Pit House` writes a `COAP_Log.log`,
   suggesting CoAP to the device — a lead, not a plan.

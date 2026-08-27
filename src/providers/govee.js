@@ -9,19 +9,17 @@
 // offers the catalog as a dropdown, and a profile can fall back to its own
 // colour when no scene is chosen. Colour always works and cannot be mistyped.
 
-import { init as initGovee, activateScene, getDiscoveredDevices } from '../govee.js';
+import { init as initGovee, activateScene, getSceneNames } from '../govee.js';
 import { STATUS } from './status.js';
 
 /** Scene catalog, cached per process. Discovery is slow (2-5s per device). */
 let sceneNames = null;
 
 async function ensureCatalog(apiKey) {
-  if (sceneNames || !apiKey) return sceneNames;
+  if (sceneNames?.length || !apiKey) return sceneNames;
+  // init() loads from the on-disk cache when present, so this is usually cheap.
   await initGovee(apiKey);
-  const devices = getDiscoveredDevices() ?? [];
-  const names = new Set();
-  for (const d of devices) for (const s of d.scenes ?? []) names.add(s);
-  sceneNames = [...names].sort();
+  sceneNames = getSceneNames();
   return sceneNames;
 }
 

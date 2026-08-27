@@ -197,3 +197,81 @@ describe('import marker', () => {
     expect(settings.written().importedFrom).toBe('abc123');
   });
 });
+
+describe('global settings', () => {
+  it('never echoes the api key back to the inspector', async () => {
+    const settings = fakeSettings({ settings: { goveeApiKey: 'secret-key' } });
+    const reply = await handlePiRequest({ request: 'getSettings' }, { settings, logger: silent });
+    expect(reply.settings.goveeApiKey).toBeUndefined();
+    expect(reply.settings.goveeApiKeySet).toBe(true);
+  });
+
+  it('reports when no key is set', async () => {
+    const reply = await handlePiRequest(
+      { request: 'getSettings' },
+      { settings: fakeSettings({}), logger: silent },
+    );
+    expect(reply.settings.goveeApiKeySet).toBe(false);
+  });
+
+  it('keeps the existing key when the field is left blank', async () => {
+    // The page cannot show the key, so a blank field means "unchanged" —
+    // treating it as "clear" would wipe the key on any unrelated save.
+    const settings = fakeSettings({ settings: { goveeApiKey: 'secret-key' } });
+    await handlePiRequest(
+      { request: 'saveSettings', settings: { goveeApiKey: '', goveeDevices: ['Strip'] } },
+      { settings, logger: silent },
+    );
+    expect(settings.written().settings.goveeApiKey).toBe('secret-key');
+    expect(settings.written().settings.goveeDevices).toEqual(['Strip']);
+  });
+
+  it('replaces the key when a new one is typed', async () => {
+    const settings = fakeSettings({ settings: { goveeApiKey: 'old' } });
+    await handlePiRequest(
+      { request: 'saveSettings', settings: { goveeApiKey: 'new' } },
+      { settings, logger: silent },
+    );
+    expect(settings.written().settings.goveeApiKey).toBe('new');
+  });
+
+  it('clears the key only on an explicit request', async () => {
+    const settings = fakeSettings({ settings: { goveeApiKey: 'old' } });
+    await handlePiRequest(
+      { request: 'saveSettings', settings: {}, clearGoveeKey: true },
+      { settings, logger: silent },
+    );
+    expect(settings.written().settings.goveeApiKey).toBe('');
+  });
+
+  it('does not touch profiles when saving settings', async () => {
+    const settings = fakeSettings({ profiles: [validProfile()], settings: {} });
+    await handlePiRequest(
+      { request: 'saveSettings', settings: { goveeApiKey: 'k' } },
+      { settings, logger: silent },
+    );
+    expect(settings.written().profiles).toHaveLength(1);
+  });
+
+  it('refuses discovery without a key rather than failing obscurely', async () => {
+    const reply = await handlePiRequest(
+      { request: 'goveeDiscover' },
+      { settings: fakeSettings({}), logger: silent },
+    );
+    expect(reply.ok).toBe(false);
+    expect(reply.error).toMatch(/API key/i);
+  });
+});
+
+describe('yaml export secrecy', () => {
+  it('never writes the api key into an export', () => {
+    // Export exists to be committed to version control.
+    const out = profilesToYaml({
+      profiles: [validProfile()],
+      settings: { goveeApiKey: 'super-secret', goveeDevices: ['Strip'] },
+    });
+    expect(out).not.toContain('super-secret');
+    expect(out).not.toContain('govee_api_key');
+    expect(out).toContain('Strip');
+  });
+});

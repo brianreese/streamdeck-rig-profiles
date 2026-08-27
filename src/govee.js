@@ -348,3 +348,18 @@ export function clearCache({ cachePath = CACHE_PATH } = {}) {
 export function _resetForTesting() {
   deviceCache.clear();
 }
+
+/**
+ * Every scene name known across all discovered devices, sorted and de-duped.
+ *
+ * The property inspector offers these as a dropdown. Scene names are matched
+ * exactly against the Govee app, so typing one by hand is the classic silent
+ * failure: a typo simply does nothing.
+ */
+export function getSceneNames() {
+  const names = new Set();
+  for (const { sceneMap } of deviceCache.values()) {
+    for (const name of Object.keys(sceneMap ?? {})) names.add(name);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+}

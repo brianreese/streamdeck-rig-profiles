@@ -102,6 +102,32 @@
       <div class="hint" id="saved" hidden>Saved.</div>
 
       <details style="margin-top:12px">
+        <summary>Hardware settings</summary>
+        <div class="row" style="margin-top:8px">
+          <label for="goveeKey">Govee key</label>
+          <input type="password" id="goveeKey" placeholder="not set" autocomplete="off" />
+          <button id="goveeShow" title="Show">👁</button>
+        </div>
+        <div class="hint" id="goveeState">
+          Free key from developer.govee.com. Stored locally; never included in a YAML export.
+        </div>
+        <div class="row">
+          <label for="goveeDevices">Only these</label>
+          <input type="text" id="goveeDevices" placeholder="all devices" />
+        </div>
+        <div class="hint">
+          Optional. Comma-separated device names, so scenes do not fire at lamps
+          elsewhere in the house.
+        </div>
+        <div class="actions">
+          <button id="settingsSave" class="primary">Save settings</button>
+          <button id="goveeDiscover">Discover devices</button>
+        </div>
+        <div class="hint" id="goveeResult" hidden></div>
+        <div class="err" id="goveeError" hidden></div>
+      </details>
+
+      <details style="margin-top:12px">
         <summary>Export / import YAML</summary>
         <p class="muted">
           Export for version control. Importing replaces every profile below —
@@ -452,6 +478,67 @@
         renderCards();
       });
       document.getElementById('save').addEventListener('click', saveAll);
+      // ------------------------------------------------------- settings
+
+      /**
+       * The key is never sent back to the page — only whether one is set — so
+       * the field shows a placeholder rather than a fake value to overwrite.
+       */
+      async function loadSettings() {
+        const reply = await ask('getSettings');
+        const cfg = reply.settings ?? {};
+        document.getElementById('goveeKey').placeholder =
+          cfg.goveeApiKeySet ? '•••••••• (saved)' : 'not set';
+        document.getElementById('goveeState').textContent = cfg.goveeApiKeySet
+          ? 'A key is saved. Type a new one to replace it; leave blank to keep it.'
+          : 'Free key from developer.govee.com. Stored locally; never included in a YAML export.';
+        const devices = cfg.goveeDevices;
+        document.getElementById('goveeDevices').value =
+          Array.isArray(devices) ? devices.join(', ') : (devices ?? '');
+      }
+
+      document.getElementById('goveeShow').addEventListener('click', () => {
+        const f = document.getElementById('goveeKey');
+        f.type = f.type === 'password' ? 'text' : 'password';
+      });
+
+      document.getElementById('settingsSave').addEventListener('click', async () => {
+        const raw = document.getElementById('goveeDevices').value.trim();
+        const reply = await ask('saveSettings', {
+          settings: {
+            goveeApiKey: document.getElementById('goveeKey').value.trim(),
+            goveeDevices: raw ? raw.split(',').map((x) => x.trim()).filter(Boolean) : null,
+          },
+        });
+        const err = document.getElementById('goveeError');
+        err.hidden = reply.ok !== false;
+        if (reply.ok === false) err.textContent = reply.error ?? 'could not save';
+        document.getElementById('goveeKey').value = '';
+        await loadSettings();
+      });
+
+      document.getElementById('goveeDiscover').addEventListener('click', async () => {
+        const result = document.getElementById('goveeResult');
+        const err = document.getElementById('goveeError');
+        result.hidden = false;
+        err.hidden = true;
+        result.textContent = 'Discovering… (a few seconds per device)';
+
+        const reply = await ask('goveeDiscover', {}, 60000);
+        if (!reply.ok) {
+          result.hidden = true;
+          err.hidden = false;
+          err.textContent = reply.error ?? 'discovery failed';
+          return;
+        }
+        result.textContent =
+          `${reply.devices.length} device(s), ${reply.scenes.length} scene(s): ` +
+          reply.devices.map((d) => d.name).join(', ');
+        // Scene dropdowns are built from provider schemas, so refresh them.
+        providers = (await ask('getProviders')).providers ?? [];
+        renderCards();
+      });
+
       document.getElementById('export').addEventListener('click', async () => {
         document.getElementById('yaml').value = (await ask('exportYaml')).yaml ?? '';
       });
@@ -463,6 +550,7 @@
         const reply = await ask('getProviders');
         providers = reply.providers ?? [];
         renderCards();
+        loadSettings();
       });
 
       async function seedDraft() {
