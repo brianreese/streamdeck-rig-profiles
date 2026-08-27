@@ -53,3 +53,4 @@ build/
 
 # Stream Deck CLI artifacts
 *.sdPlugin/
+scripts/scans/

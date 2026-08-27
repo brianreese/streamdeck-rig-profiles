@@ -25,6 +25,13 @@ export const PIT_HOUSE_EXE = 'MOZA Pit House.exe';
 /**
  * Parameters we have confirmed on real hardware.
  *
+ * Encoding note: these values are a 16-bit fraction of 65536 scaled to the
+ * parameter's range, which is why an early reading of friction and stiffness
+ * as plain integers looked wrong. Confirmed against the live pedal:
+ *   0xAE 0x2666 -> 0.15 -> friction 15%
+ *   0xB2 0x4CCD -> 0.30 -> stiffness 3 of 10
+ *   0xB7 0x4000 -> 0.25 -> damping 25%
+ *
  * A caution about what these do NOT change: the pedal's physical resistance
  * comes from a force-vs-travel curve (forces_curve, 7 points, paired with
  * stroke_curve, 6 points) that nobody has mapped — AZOM lists it as an open
