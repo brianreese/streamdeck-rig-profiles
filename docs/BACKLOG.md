@@ -316,6 +316,27 @@ Three entries have none at all (American Truck Simulator, Euro Truck Simulator
 2, Formula Legends) and so can never fire accidentally, but using them *would*
 require adding a `<program>` to `GameConfigInfo.xml`.
 
+### CORRECTION: the watch list is hardcoded, not extensible
+
+Tested directly. GameConfigInfo.xml does NOT drive which processes Pit House
+watches — it is display metadata only:
+
+- Renaming Assetto Corsa's <program> to a name we controlled, restarting Pit
+  House, and running a stand-in with that name produced **no reaction**.
+- The file survived untouched, and an appended 61st <Game> entry was neither
+  removed nor honoured.
+- The real list is compiled into the binary: 94 .exe strings including
+  AssettoCorsa.exe, acc.exe, F1_25.exe, TokyoXtremeRacer.exe, iRacingSim64DX11.exe.
+
+So arbitrary processes cannot be added. A stand-in must be named after one of
+the ~60 built-in game executables.
+
+That is less limiting than it sounds: you are not giving up a game, you are
+naming a throwaway process after a game you will never launch. With ~60 to
+choose from and a handful of profiles needed, pick from the ones you do not own
+— Farming Simulator, Dakar, Tokyo Xtreme Racer, American Truck Simulator. The
+only real cost is that if you ever DO play that game, its bound preset applies.
+
 ### Caveats
 
 - Only works for presets bound to a game, so each profile needs one sacrificed
