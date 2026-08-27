@@ -188,6 +188,69 @@ But `GET` on the device resources returns only an empty `0.00` ACK and no
 separate response, with or without a token. Likely an app-level pairing or auth
 step (Pit House keeps an empty `token` file), or a required content-format.
 
+### CORRECTION: the real preset store is Pit House, not Cockpit
+
+The first pass looked in `DocumentsMOZA CockpitPresetLibrary` and found one
+unrelated preset. The actual store for Pit House is:
+
+```
+DocumentsMOZA Pit HousePresets\n  config.ini        [LastUsedPreset] <deviceId>=<presetUuid>   <-- current selection
+                    [IsAutoLoadPreset] MBoost=true
+  favorites.json
+  Pedals{uuid}.json   33 presets, incl. the user's own
+  Motor{uuid}.json    222
+  Steering Wheel{uuid}.json  21
+DocumentsMOZA Pit HouseLocalParametersMBoost<serial>.json  <-- live params
+```
+
+Preset shape: `{ id, name, deviceType, devices, deviceParams, games, carModels,
+tags, isOfficial, lastModified, version }`.
+
+Real presets already defined here include **"Carter Brake"**, **"Brian Brake
+ Hybrid"** (currently loaded) and **"F1 25-Brake-Brian"** — so the per-person
+pedal profiles the kids need already exist.
+
+Device ids line up across sources: `0f7d598567382e66` in config.ini is the
+MBoost, and is also one of the CoAP resources. MBoost USB serial is
+`3f003d001951343132393730` (VID_346E PID_0008).
+
+### Prior art: there is already a MOZA Stream Deck plugin
+
+`d-b-c-e/moza-streamdeck-plugin` (GitHub, .NET) does exactly this for **motor**
+presets. Its method, per its own docs:
+
+- Reads presets from `%USERPROFILE%DocumentsMOZA Pit HousePresetsMotor*.json`
+  (handling OneDrive redirection).
+- Applies each supported `deviceParams` entry through the **MOZA SDK**, with
+  50ms between calls, steering angle applied last.
+- Bundles `MOZA_API_C.dll`, `MOZA_API_CSharp.dll`, `MOZA_SDK.dll`.
+
+So the approach is proven; it simply has not been done for pedals.
+
+### MOZA publishes an official SDK — and it covers mBooster
+
+https://mozaracing.com/pages/sdk — native C++ and C# libraries, "Full Device
+Parameter Control" across motor, steering wheel, **pedals**, handbrake and
+shifter, with pedal support listed explicitly for **CRP2, SR-P and mBooster**.
+Also offers Pit House connectivity and device discovery.
+
+Not currently installed on this machine; it must be downloaded.
+
+### Recommended approach
+
+1. Download the official MOZA SDK; use `MOZA_API_C.dll` (a C API, so callable
+   from Node via koffi, which ships prebuilt binaries — no compiler needed).
+2. Enumerate presets by reading `PresetsPedals*.json` for `id` and `name`;
+   the property inspector offers those names, exactly as the Fanatec provider
+   offers slots.
+3. Apply by replaying `deviceParams` through the SDK, pacing the calls.
+4. Verify by re-reading `[LastUsedPreset]` from config.ini if Pit House updates
+   it — `moza-watch.mjs` exists to confirm whether it does.
+
+Verification is explicitly lower stakes here: a stiff pedal is not the hazard a
+high-torque wheel is, so `applied-unverified` is an acceptable outcome for this
+provider if no clean read-back exists.
+
 ### Where to go next
 
 1. Create the MBooster presets in the app — needed whichever route wins.
