@@ -235,6 +235,13 @@ export class ProfileKey extends SingletonAction {
 
     const outcome = await applyProfile(profile, {
       log: (m) => streamDeck.logger.info(m),
+      // Log every provider as it lands, not just the aggregate. The button
+      // shows the worst status, so a failing wheelbase was hiding whether
+      // the lights or the pedal did anything at all.
+      onResult: (r) =>
+        streamDeck.logger.info(
+          `[profileKey] ${profile.name} · ${r.label}: ${r.status} — ${r.detail}`,
+        ),
     });
 
     activeStatus = outcome.status;
