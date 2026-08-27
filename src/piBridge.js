@@ -19,11 +19,10 @@ export function profilesToYaml(globals) {
   const profiles = (globals?.profiles ?? []).map((p) => {
     const out = { id: p.id, name: p.name, color: p.color };
     if (p.restricted) out.restricted = true;
-    const setup = p.providers?.['fanatec-base']?.setup;
-    if (setup) out.fanatec_setup = setup;
-    if (p.providers?.govee?.scene) out.govee_scene = p.providers.govee.scene;
-    if (p.providers?.streamdeck?.profile) out.sd_profile = p.providers.streamdeck.profile;
-    if (p.providers?.['moza-pedals']?.profile) out.moza_profile = p.providers['moza-pedals'].profile;
+    if (p.avatar) out.avatar = p.avatar;
+    // Dump the providers map verbatim rather than translating known keys:
+    // a provider added later must round-trip without touching this function.
+    if (Object.keys(p.providers ?? {}).length) out.providers = p.providers;
     return out;
   });
 
@@ -60,12 +59,11 @@ export function validateProfiles(profiles) {
     if (!/^#[0-9a-f]{6}$/i.test(p?.color ?? '')) errors.push(`${where}: colour must be #rrggbb`);
 
     for (const [providerId, cfg] of Object.entries(p?.providers ?? {})) {
-      if (!getProvider(providerId)) continue; // unknown ids are tolerated
-      if (providerId === 'fanatec-base') {
-        const slot = Number(cfg?.setup);
-        if (!Number.isInteger(slot) || slot < 1 || slot > 5) {
-          errors.push(`${where}: wheelbase setup must be 1-5`);
-        }
+      const provider = getProvider(providerId);
+      if (!provider) continue; // unknown ids are tolerated: config outlives code
+      // Each provider owns its own rules; the core knows none of them.
+      for (const problem of provider.validate?.(cfg) ?? []) {
+        errors.push(`${where}: ${problem}`);
       }
     }
   }
@@ -83,15 +81,28 @@ export async function handlePiRequest(msg, { settings, logger = console } = {}) 
   const { request } = msg ?? {};
 
   switch (request) {
-    case 'getProviders':
-      return {
-        request,
-        providers: allProviders().map((p) => ({
-          id: p.id,
-          label: p.label,
-          verifiable: p.verifiable,
-        })),
-      };
+    case 'getProviders': {
+      const settingsBlob = (await settings.getGlobalSettings())?.settings ?? {};
+      // Schema plus live options in one round-trip: the editor cannot render a
+      // provider's fields until it knows what they are, and asking per provider
+      // would stall the panel opening.
+      const providers = await Promise.all(
+        allProviders().map(async (p) => {
+          const fields = p.schema?.() ?? [];
+          for (const f of fields) {
+            if (f.type !== 'select' || !p.options) continue;
+            try {
+              const live = await p.options({ settings: settingsBlob });
+              if (live?.length) f.options = live;
+            } catch (err) {
+              logger.warn?.(`[pi] options for ${p.id}.${f.key} failed: ${err.message}`);
+            }
+          }
+          return { id: p.id, label: p.label, verifiable: p.verifiable, fields };
+        }),
+      );
+      return { request, providers };
+    }
 
     // Live hardware enumeration — this is the whole reason the editor beats
     // hand-written YAML: you pick a wheelbase slot from what the base reports,

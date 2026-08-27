@@ -22,6 +22,8 @@
 // verifiable:false so the UI can be honest about it.
 
 import fanatecBase from './fanatecBase.js';
+import govee from './govee.js';
+import apps from './apps.js';
 
 export { STATUS, worstOf, isConfirmed } from './status.js';
 
@@ -49,6 +51,8 @@ export function _resetForTesting() {
 
 function registerBuiltins() {
   register(fanatecBase);
+  register(govee);
+  register(apps);
 }
 
 registerBuiltins();

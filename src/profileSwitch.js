@@ -70,6 +70,9 @@ async function runOne(providerId, cfg, ctx) {
  * @returns {Promise<{ status: string, results: ProviderResult[] }>}
  */
 export async function applyProfile(profile, ctx = {}) {
+  // Providers receive the profile id (so per-profile state can be keyed) and
+  // the global settings blob (API keys and the like) alongside their own slice.
+  ctx = { ...ctx, profileId: profile?.id, profile };
   const entries = Object.entries(profile?.providers ?? {});
   if (!entries.length) {
     return { status: STATUS.SKIPPED, results: [] };

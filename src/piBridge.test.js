@@ -81,13 +81,52 @@ describe('provider options', () => {
 });
 
 describe('profilesToYaml', () => {
-  it('round-trips through the yaml import shape', () => {
+  it('emits the providers map verbatim', () => {
     const out = yaml.load(
       profilesToYaml({ profiles: [validProfile({ restricted: true })], settings: {} }),
     );
     expect(out.profiles[0]).toMatchObject({
-      id: 'kai', name: 'Kai', fanatec_setup: 2, restricted: true,
+      id: 'kai', name: 'Kai', restricted: true,
+      providers: { 'fanatec-base': { setup: 2 } },
     });
+  });
+
+  it('round-trips a provider this build has never heard of', () => {
+    // The point of dumping the map verbatim: exporting and re-importing must
+    // not quietly drop hardware added by a future version.
+    const exotic = validProfile({
+      providers: { 'warp-drive': { coils: 3, mode: 'cruise' } },
+    });
+    const out = yaml.load(profilesToYaml({ profiles: [exotic], settings: {} }));
+    expect(out.profiles[0].providers['warp-drive']).toEqual({ coils: 3, mode: 'cruise' });
+  });
+
+  it('omits the providers key entirely when a profile configures nothing', () => {
+    const out = yaml.load(
+      profilesToYaml({ profiles: [validProfile({ providers: {} })], settings: {} }),
+    );
+    expect(out.profiles[0].providers).toBeUndefined();
+  });
+});
+
+describe('provider-driven validation', () => {
+  it('lets each provider reject its own bad config', () => {
+    const bad = validProfile({ providers: { 'fanatec-base': { setup: 99 } } });
+    const { ok, errors } = validateProfiles([bad]);
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/wheelbase setup must be 1-5/);
+  });
+
+  it('rejects an enabled apps provider with nothing to run', () => {
+    const bad = validProfile({ providers: { apps: { commands: '   \n# just a comment' } } });
+    const { ok, errors } = validateProfiles([bad]);
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/no commands/);
+  });
+
+  it('accepts a profile that configures no hardware at all', () => {
+    // A space-sim profile may have nothing to say about a wheelbase.
+    expect(validateProfiles([validProfile({ providers: {} })]).ok).toBe(true);
   });
 });
 

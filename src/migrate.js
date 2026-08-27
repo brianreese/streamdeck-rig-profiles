@@ -30,9 +30,11 @@ const LEGACY_CONFIG = resolve(__dirname, '..', 'config', 'profiles.yaml');
 
 /** Convert one legacy profile record into the provider-based shape. */
 export function convertProfile(old) {
-  const providers = {};
+  // Preferred form: a providers map written verbatim, so a provider added
+  // later round-trips through YAML without this function knowing about it.
+  const providers = { ...(old.providers ?? {}) };
 
-  // The current way to express a wheelbase in YAML: a setup slot number.
+  // The current shorthand for a wheelbase: a setup slot number.
   const setup = Number(old.fanatec_setup);
   if (Number.isInteger(setup) && setup >= 1 && setup <= 5) {
     providers['fanatec-base'] = { setup };
@@ -46,7 +48,7 @@ export function convertProfile(old) {
     id: old.id,
     name: old.name ?? old.id,
     color: old.color ?? '#2255CC',
-    avatar: null,
+    avatar: old.avatar ?? null,
     restricted: Boolean(old.restricted),
     providers,
     // Surfaced in the PI so the user knows a wheelbase slot still needs picking:

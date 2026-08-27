@@ -50,6 +50,23 @@
         font-family: ui-monospace, Consolas, monospace; font-size: 11px;
       }
       .muted { color: #7a7a7a; font-size: 11px; }
+
+      /* The inspector panel is short by default, so the editor is an
+         accordion: only the profile being edited is expanded. */
+      .profile-card { padding: 6px 8px; margin: 6px 0; }
+      .profile-card > .card-body { display: none; padding-top: 6px; }
+      .profile-card.open > .card-body { display: block; }
+      .card-head { cursor: pointer; margin-bottom: 0; }
+      .chev { color: #7a7a7a; width: 10px; flex: 0 0 auto; }
+      .prov { border-top: 1px solid #414141; margin-top: 6px; padding-top: 6px; }
+      .prov-head { display: flex; align-items: center; gap: 6px; }
+      .prov-head span.pname { flex: 1; color: #d8d8d8; }
+      .prov-fields { display: none; padding: 4px 0 0 18px; }
+      .prov.on .prov-fields { display: block; }
+      .badge { font-size: 10px; color: #7a7a7a; border: 1px solid #4d4d4d;
+               border-radius: 3px; padding: 0 4px; }
+      textarea.cmds { height: 74px; }
+      .row { margin-bottom: 6px; }
     </style>
   </head>
   <body>
@@ -92,7 +109,8 @@
       let settings = {};
       let draft = [];               // profiles being edited
       let dirty = false;            // unsaved editor changes
-      let providerOptions = {};     // providerId -> [{value,label}]
+      let providers = [];           // [{id,label,verifiable,fields}] from the plugin
+      let openCard = 0;             // accordion: index of the expanded profile
       const pending = new Map();    // request name -> resolver
 
       const send = (event, payload) =>
@@ -175,48 +193,111 @@
         return id;
       }
 
+      /** Render one schema-declared field for a provider. */
+      function fieldHtml(prov, field, cfg, i) {
+        const v = cfg?.[field.key];
+        const id = `${i}|${prov.id}|${field.key}`;
+        const help = field.help
+          ? `<div class="muted" style="margin:2px 0 0 100px">${esc(field.help)}</div>`
+          : '';
+
+        if (field.type === 'select') {
+          const opts = (field.options ?? []).map((o) =>
+            `<option value="${esc(o.value)}"${String(v) === String(o.value) ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
+          return `<div class="row"><label>${esc(field.label)}</label><select data-fld="${id}"><option value="">— none —</option>${opts}</select></div>${help}`;
+        }
+        if (field.type === 'boolean') {
+          return `<div class="row"><label>${esc(field.label)}</label><input type="checkbox" data-fld="${id}"${v ? ' checked' : ''} /><span class="muted" style="flex:1">${esc(field.help ?? '')}</span></div>`;
+        }
+        if (field.type === 'textarea') {
+          return `<div class="row" style="align-items:flex-start"><label>${esc(field.label)}</label><textarea class="cmds" data-fld="${id}" spellcheck="false" placeholder="${esc(field.placeholder ?? '')}">${esc(v ?? '')}</textarea></div>${help}`;
+        }
+        return `<div class="row"><label>${esc(field.label)}</label><input type="text" data-fld="${id}" value="${esc(v ?? '')}" /></div>${help}`;
+      }
+
+      /**
+       * Provider blocks for one profile, built entirely from declared schemas.
+       * The editor knows nothing about wheelbases, lights, or scripts — a
+       * profile enables only the providers it actually cares about.
+       */
+      function providersHtml(p, i) {
+        if (!providers.length) return '<div class="muted">Loading hardware…</div>';
+        return providers.map((prov) => {
+          const on = Boolean(p.providers?.[prov.id]);
+          const cfg = p.providers?.[prov.id] ?? {};
+          const badge = prov.verifiable ? '' : '<span class="badge">cannot confirm</span>';
+          const fields = (prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg, i)).join('');
+          return `<div class="prov ${on ? 'on' : ''}"><div class="prov-head"><input type="checkbox" data-prov="${i}|${prov.id}"${on ? ' checked' : ''} /><span class="pname">${esc(prov.label)}</span>${badge}</div><div class="prov-fields">${fields}</div></div>`;
+        }).join('');
+      }
+
       function renderCards() {
         const host = document.getElementById('cards');
-        const slots = providerOptions['fanatec-base'] ?? [1, 2, 3, 4, 5].map((v) => ({ value: v, label: `S${v}` }));
-
-        host.innerHTML = draft.map((p, i) => `
-          <div class="profile-card" data-i="${i}">
-            <div class="card-head">
+        host.innerHTML = draft.map((p, i) => {
+          const enabled = Object.keys(p.providers ?? {});
+          return `
+          <div class="profile-card ${i === openCard ? 'open' : ''}" data-i="${i}">
+            <div class="card-head" data-toggle="${i}">
+              <span class="chev">${i === openCard ? '▾' : '▸'}</span>
               <span class="swatch" style="background:${esc(p.color)}"></span>
               <span class="card-title">${esc(p.name || '(unnamed)')}</span>
+              <span class="muted">${esc(enabled.length ? enabled.join(', ') : 'nothing')}</span>
               <button class="danger" data-act="remove" data-i="${i}">Remove</button>
             </div>
-            <div class="row">
-              <label>Name</label>
-              <input type="text" data-f="name" data-i="${i}" value="${esc(p.name)}" />
-              <input type="color" data-f="color" data-i="${i}" value="${esc(p.color)}" />
+            <div class="card-body">
+              <div class="row">
+                <label>Name</label>
+                <input type="text" data-f="name" data-i="${i}" value="${esc(p.name)}" />
+                <input type="color" data-f="color" data-i="${i}" value="${esc(p.color)}" />
+              </div>
+              <div class="row">
+                <label>Avatar</label>
+                <img class="avatar-preview" data-preview="${i}" src="${p.avatarDataUri || ''}"
+                     style="${p.avatarDataUri ? '' : 'visibility:hidden'}" />
+                <input type="file" data-f="avatar" data-i="${i}" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" />
+              </div>
+              <div class="row">
+                <label>Hold to switch</label>
+                <input type="checkbox" data-f="restricted" data-i="${i}" ${p.restricted ? 'checked' : ''} />
+                <span class="muted" style="flex:1">Requires a 1s press. Use for full-torque profiles.</span>
+              </div>
+              ${providersHtml(p, i)}
             </div>
-            <div class="row">
-              <label>Wheelbase</label>
-              <select data-f="setup" data-i="${i}">
-                <option value="">— none —</option>
-                ${slots.map((o) => {
-                  const cur = p.providers?.['fanatec-base']?.setup;
-                  return `<option value="${o.value}"${String(cur) === String(o.value) ? ' selected' : ''}>${esc(o.label)}</option>`;
-                }).join('')}
-              </select>
-            </div>
-            <div class="row">
-              <label>Avatar</label>
-              <img class="avatar-preview" data-preview="${i}" src="${p.avatarDataUri || ''}"
-                   style="${p.avatarDataUri ? '' : 'visibility:hidden'}" />
-              <input type="file" data-f="avatar" data-i="${i}" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" />
-            </div>
-            <div class="row">
-              <label>Hold to switch</label>
-              <input type="checkbox" data-f="restricted" data-i="${i}" ${p.restricted ? 'checked' : ''} />
-              <span class="muted" style="flex:1">Requires a 1s press. Use for full-torque profiles.</span>
-            </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
       }
 
       function onEditorInput(e) {
         const el = e.target;
+
+        // Provider enable/disable.
+        if (el.dataset.prov) {
+          const [i, providerId] = el.dataset.prov.split('|');
+          const p = draft[Number(i)];
+          p.providers = p.providers ?? {};
+          if (el.checked) p.providers[providerId] = p.providers[providerId] ?? {};
+          else delete p.providers[providerId];
+          dirty = true;
+          el.closest('.prov').classList.toggle('on', el.checked);
+          refreshHead(Number(i));
+          return;
+        }
+
+        // A field belonging to a provider's declared schema.
+        if (el.dataset.fld) {
+          const [i, providerId, key] = el.dataset.fld.split('|');
+          const p = draft[Number(i)];
+          p.providers = p.providers ?? {};
+          const cfg = (p.providers[providerId] = p.providers[providerId] ?? {});
+          const raw = el.type === 'checkbox' ? el.checked : el.value;
+          // Numeric selects (a wheelbase slot) must not be stored as strings.
+          cfg[key] = raw === '' ? undefined : (typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw);
+          if (cfg[key] === undefined) delete cfg[key];
+          dirty = true;
+          delete p.needsWheelbaseSetup;
+          return;
+        }
+
         const i = Number(el.dataset.i);
         const field = el.dataset.f;
         if (Number.isNaN(i) || !field) return;
@@ -226,21 +307,27 @@
         if (field === 'name') { p.name = el.value; }
         else if (field === 'color') { p.color = el.value; }
         else if (field === 'restricted') { p.restricted = el.checked; }
-        else if (field === 'setup') {
-          p.providers = p.providers ?? {};
-          if (el.value) p.providers['fanatec-base'] = { setup: Number(el.value) };
-          else delete p.providers['fanatec-base'];
-          delete p.needsWheelbaseSetup;
-        } else if (field === 'avatar') {
+        else if (field === 'avatar') {
           const file = el.files?.[0];
           if (file) uploadAvatar(i, file);
           return;
         }
-        // Only the header needs to follow name/colour live; re-rendering the
-        // whole card would steal focus mid-keystroke.
-        const card = el.closest('.profile-card');
+        refreshHead(i);
+      }
+
+      /**
+       * Update just the card header. Re-rendering the whole card on every
+       * keystroke would steal focus mid-word.
+       */
+      function refreshHead(i) {
+        const p = draft[i];
+        const card = document.querySelector(`.profile-card[data-i="${i}"]`);
+        if (!card) return;
         card.querySelector('.card-title').textContent = p.name || '(unnamed)';
         card.querySelector('.swatch').style.background = p.color;
+        const enabled = Object.keys(p.providers ?? {});
+        card.querySelector('.card-head .muted').textContent =
+          enabled.length ? enabled.join(', ') : 'nothing';
       }
 
       async function uploadAvatar(i, file) {
@@ -300,14 +387,25 @@
       document.getElementById('cards').addEventListener('input', onEditorInput);
       document.getElementById('cards').addEventListener('change', onEditorInput);
       document.getElementById('cards').addEventListener('click', (e) => {
-        if (e.target.dataset.act !== 'remove') return;
-        dirty = true;
-        draft.splice(Number(e.target.dataset.i), 1);
+        if (e.target.dataset.act === 'remove') {
+          e.stopPropagation();
+          dirty = true;
+          const i = Number(e.target.dataset.i);
+          draft.splice(i, 1);
+          if (openCard >= draft.length) openCard = draft.length - 1;
+          renderCards();
+          return;
+        }
+        const head = e.target.closest('[data-toggle]');
+        if (!head) return;
+        const i = Number(head.dataset.toggle);
+        openCard = openCard === i ? -1 : i;   // click the open one to collapse
         renderCards();
       });
       document.getElementById('add').addEventListener('click', () => {
         dirty = true;
         draft.push({ id: '', name: 'New profile', color: '#2255cc', restricted: false, providers: {} });
+        openCard = draft.length - 1;
         renderCards();
       });
       document.getElementById('save').addEventListener('click', saveAll);
@@ -316,10 +414,10 @@
       });
       document.getElementById('manage').addEventListener('toggle', async (e) => {
         if (!e.target.open) return;
-        // Enumerate live hardware only when the editor is actually opened —
-        // it costs a round-trip to the wheelbase.
-        const reply = await ask('getProviderOptions', { providerId: 'fanatec-base' });
-        providerOptions['fanatec-base'] = reply.options ?? [];
+        // Fetch schemas (with live options folded in) only when the editor is
+        // actually opened — it costs a round-trip to the hardware.
+        const reply = await ask('getProviders');
+        providers = reply.providers ?? [];
         renderCards();
       });
 

@@ -58,6 +58,30 @@ export default {
   label: 'Fanatec Wheelbase',
   verifiable: true,
 
+  /**
+   * Fields the property inspector should render for this provider.
+   *
+   * Declared here rather than hardcoded in the editor so that a profile which
+   * has nothing to say about a wheelbase simply does not enable this provider,
+   * and so adding hardware later needs no editor changes.
+   */
+  schema() {
+    return [
+      {
+        key: 'setup',
+        label: 'Setup slot',
+        type: 'select',
+        // Filled from the hardware via options(); these are the fallback.
+        options: [1, 2, 3, 4, 5].map((v) => ({ value: v, label: `S${v}` })),
+        help: 'Dial the slots in via the Fanatec app first — this only selects between them.',
+      },
+    ];
+  },
+
+  validate(cfg) {
+    return normaliseSlot(cfg) === null ? [`wheelbase setup must be ${SLOT_MIN}-${SLOT_MAX}`] : [];
+  },
+
   describe(cfg) {
     const slot = normaliseSlot(cfg);
     return slot ? `wheelbase setup S${slot}` : 'wheelbase (not configured)';
