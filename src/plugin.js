@@ -18,6 +18,15 @@ import { ensureConfig } from './setup.js';
 import { ProfileKey } from './actions/profileKey.js';
 import { migrateIfNeeded } from './migrate.js';
 
+// An uncaught rejection here kills the plugin process and Stream Deck silently
+// restarts it, which reads as "the button just did nothing". Log first.
+process.on('unhandledRejection', (reason) => {
+  streamDeck.logger.error(`[plugin] unhandled rejection: ${reason?.stack ?? reason}`);
+});
+process.on('uncaughtException', (err) => {
+  streamDeck.logger.error(`[plugin] uncaught exception: ${err?.stack ?? err}`);
+});
+
 ensureConfig();
 
 streamDeck.actions.registerAction(new ProfileKey());

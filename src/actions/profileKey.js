@@ -121,6 +121,11 @@ export class ProfileKey extends SingletonAction {
    */
   async onSendToPlugin(ev) {
     const request = ev.payload?.request;
+    // Logged before any await: a later log line cannot distinguish "never
+    // arrived" from "arrived and hung part-way through".
+    streamDeck.logger.info(
+      `[pi] <- ${request} (${JSON.stringify(ev.payload ?? {}).length} bytes)`,
+    );
     try {
       const reply = await handlePiRequest(ev.payload, {
         settings: streamDeck.settings,

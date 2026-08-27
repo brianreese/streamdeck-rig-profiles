@@ -98,10 +98,20 @@
       const send = (event, payload) =>
         ws?.readyState === 1 && ws.send(JSON.stringify({ event, context: uuid, payload }));
 
-      /** Ask the plugin something and await the matching reply. */
-      function ask(request, extra = {}) {
+      /**
+       * Ask the plugin something and await the matching reply.
+       *
+       * Always settles. A request that goes unanswered used to leave the caller
+       * awaiting forever, which is indistinguishable from a save that quietly
+       * did nothing — the failure mode is worse than the bug it hides.
+       */
+      function ask(request, extra = {}, timeoutMs = 8000) {
         return new Promise((resolve) => {
-          pending.set(request, resolve);
+          const timer = setTimeout(() => {
+            pending.delete(request);
+            resolve({ request, ok: false, error: 'no reply from the plugin (timed out)' });
+          }, timeoutMs);
+          pending.set(request, (reply) => { clearTimeout(timer); resolve(reply); });
           ws.send(JSON.stringify({
             event: 'sendToPlugin', context: uuid, action: actionUuid,
             payload: { request, ...extra },
@@ -271,7 +281,7 @@
         if (!reply.ok) {
           saved.hidden = true;
           errors.hidden = false;
-          errors.innerHTML = reply.errors.map(esc).join('<br>');
+          errors.innerHTML = (reply.errors ?? [reply.error ?? 'save failed']).map(esc).join('<br>');
           return;
         }
         errors.hidden = true;
