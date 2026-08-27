@@ -25,13 +25,21 @@ export const PIT_HOUSE_EXE = 'MOZA Pit House.exe';
 /**
  * Parameters we have confirmed on real hardware.
  *
+ * A caution about what these do NOT change: the pedal's physical resistance
+ * comes from a force-vs-travel curve (forces_curve, 7 points, paired with
+ * stroke_curve, 6 points) that nobody has mapped — AZOM lists it as an open
+ * question. 0xB3 sets the load at which output reaches 100%, so lowering it
+ * means full braking needs less pressure, while the pedal feels exactly as
+ * stiff as before. For a child that is arguably the more useful control, but
+ * it is not the same thing as a softer pedal.
+ *
  * Only these are exposed. Friction (0xAE) and end-stop stiffness (0xB2) read
  * back cleanly with a selector byte, but their units do not line up with what
  * Pit House stores, so they are deliberately left out rather than guessed at.
  */
 export const PARAMS = {
   maxForceKg: {
-    label: 'Max force',
+    label: 'Full-brake force',
     command: 0xb3,
     width: 4,
     unit: 'kg',
@@ -40,7 +48,7 @@ export const PARAMS = {
     step: 1,
     toRaw: force.toRaw,
     fromRaw: force.fromRaw,
-    help: 'How hard the pedal must be pressed. Lower is easier.',
+    help: 'Pressure that counts as 100% braking. Lower means full braking arrives sooner — it does not change how stiff the pedal feels.',
   },
   travelStartMm: {
     label: 'Travel start',
