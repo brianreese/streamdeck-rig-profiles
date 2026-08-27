@@ -72,7 +72,11 @@ async function runOne(providerId, cfg, ctx) {
 export async function applyProfile(profile, ctx = {}) {
   // Providers receive the profile id (so per-profile state can be keyed) and
   // the global settings blob (API keys and the like) alongside their own slice.
-  ctx = { ...ctx, profileId: profile?.id, profile };
+  //
+  // The settings half was documented here but never actually passed, so any
+  // provider needing a credential failed with "no API key set" however the key
+  // was configured. Callers hand it in as ctx.settings.
+  ctx = { ...ctx, profileId: profile?.id, profile, settings: ctx.settings ?? {} };
   const entries = Object.entries(profile?.providers ?? {});
   if (!entries.length) {
     return { status: STATUS.SKIPPED, results: [] };

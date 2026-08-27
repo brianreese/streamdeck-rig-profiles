@@ -234,6 +234,9 @@ export class ProfileKey extends SingletonAction {
     await ev.action.setImage(renderProfileKey({ profile, active: true, switching: true }));
 
     const outcome = await applyProfile(profile, {
+      // Global settings hold credentials (the Govee key) and device
+      // allowlists; providers need them alongside their own config slice.
+      settings: settings?.settings ?? {},
       log: (m) => streamDeck.logger.info(m),
       // Log every provider as it lands, not just the aggregate. The button
       // shows the worst status, so a failing wheelbase was hiding whether

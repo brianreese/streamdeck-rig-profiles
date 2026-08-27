@@ -108,3 +108,31 @@ describe('applyProfile', () => {
     expect(order).toEqual(['slow', 'streamdeck']);
   });
 });
+
+describe('provider context', () => {
+  it('passes global settings through, so credentials reach providers', async () => {
+    // This was documented but never wired: any provider needing an API key
+    // failed with "no key set" no matter how it was configured.
+    let seen = null;
+    register(stub('needs-key', { apply: async (_cfg, ctx) => { seen = ctx.settings; } }));
+    await applyProfile(
+      { id: 'p', providers: { 'needs-key': {} } },
+      { settings: { goveeApiKey: 'abc123' } },
+    );
+    expect(seen).toEqual({ goveeApiKey: 'abc123' });
+  });
+
+  it('gives providers the profile id so per-profile state can be keyed', async () => {
+    let seen = null;
+    register(stub('keyed', { apply: async (_cfg, ctx) => { seen = ctx.profileId; } }));
+    await applyProfile({ id: 'kai', providers: { keyed: {} } }, {});
+    expect(seen).toBe('kai');
+  });
+
+  it('defaults settings to an empty object rather than undefined', async () => {
+    let seen = 'unset';
+    register(stub('nosettings', { apply: async (_cfg, ctx) => { seen = ctx.settings; } }));
+    await applyProfile({ id: 'p', providers: { nosettings: {} } }, {});
+    expect(seen).toEqual({});
+  });
+});
