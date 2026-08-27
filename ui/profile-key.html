@@ -62,20 +62,34 @@
       .prov-head { display: flex; align-items: center; gap: 6px; }
       .prov-head span.pname { flex: 1; color: #d8d8d8; }
       .prov-fields { display: none; padding: 4px 0 0 18px; }
-      .prov.on .prov-fields { display: block; }
       .badge { font-size: 10px; color: #7a7a7a; border: 1px solid #4d4d4d;
                border-radius: 3px; padding: 0 4px; }
       textarea.cmds { height: 74px; }
       .row { margin-bottom: 6px; }
+
+      /* While the editor is open the key's own picker is redundant and the
+         panel is short, so reclaim its rows. */
+      body.editing #keypick { display: none; }
+      body.editing details#manage { border-top: none; margin-top: 0; padding-top: 0; }
+
+      .prov-fields { display: block; }
+      .rm-prov {
+        background: none; border: none; color: #7a7a7a; cursor: pointer;
+        font-size: 15px; line-height: 1; padding: 0 4px;
+      }
+      .rm-prov:hover { color: var(--red); background: none; }
+      select.addprov { color: #969696; }
     </style>
   </head>
   <body>
-    <div class="row">
-      <label for="profile">Profile</label>
-      <select id="profile"><option value="">Loading…</option></select>
+    <div id="keypick">
+      <div class="row">
+        <label for="profile">Profile</label>
+        <select id="profile"><option value="">Loading…</option></select>
+      </div>
+      <div class="hint" id="summary">This key activates the selected profile.</div>
+      <div class="warn" id="warn" hidden></div>
     </div>
-    <div class="hint" id="summary">This key activates the selected profile.</div>
-    <div class="warn" id="warn" hidden></div>
 
     <details id="manage">
       <summary>Manage profiles</summary>
@@ -220,15 +234,36 @@
        * The editor knows nothing about wheelbases, lights, or scripts — a
        * profile enables only the providers it actually cares about.
        */
+      /**
+       * Provider blocks for one profile — only the ones it actually uses.
+       *
+       * A checkbox per known provider stops working the moment there are ten
+       * of them: a space-sim profile should not have to look at eight unticked
+       * wheelbases. Configured providers render as blocks; the rest live
+       * behind an "add" picker.
+       */
       function providersHtml(p, i) {
         if (!providers.length) return '<div class="muted">Loading hardware…</div>';
-        return providers.map((prov) => {
-          const on = Boolean(p.providers?.[prov.id]);
-          const cfg = p.providers?.[prov.id] ?? {};
+        const cfgOf = (id) => p.providers?.[id];
+        const enabled = providers.filter((prov) => cfgOf(prov.id));
+        const available = providers.filter((prov) => !cfgOf(prov.id));
+
+        const blocks = enabled.map((prov) => {
+          const cfg = cfgOf(prov.id) ?? {};
           const badge = prov.verifiable ? '' : '<span class="badge">cannot confirm</span>';
           const fields = (prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg, i)).join('');
-          return `<div class="prov ${on ? 'on' : ''}"><div class="prov-head"><input type="checkbox" data-prov="${i}|${prov.id}"${on ? ' checked' : ''} /><span class="pname">${esc(prov.label)}</span>${badge}</div><div class="prov-fields">${fields}</div></div>`;
+          return `<div class="prov"><div class="prov-head"><span class="pname">${esc(prov.label)}</span>${badge}<button class="rm-prov" title="Remove" data-rmprov="${i}|${prov.id}">\u00d7</button></div><div class="prov-fields">${fields}</div></div>`;
         }).join('');
+
+        const empty = enabled.length
+          ? ''
+          : '<div class="muted" style="margin:6px 0 0 4px">No hardware yet — this profile will not change anything.</div>';
+
+        const picker = available.length
+          ? `<div class="prov"><select class="addprov" data-addprov="${i}"><option value="">+ Add hardware…</option>${available.map((prov) => '<option value="' + prov.id + '">' + esc(prov.label) + '</option>').join('')}</select></div>`
+          : '';
+
+        return blocks + empty + picker;
       }
 
       function renderCards() {
@@ -270,16 +305,16 @@
       function onEditorInput(e) {
         const el = e.target;
 
-        // Provider enable/disable.
-        if (el.dataset.prov) {
-          const [i, providerId] = el.dataset.prov.split('|');
-          const p = draft[Number(i)];
+        // Add a provider from the picker.
+        if (el.dataset.addprov) {
+          const i = Number(el.dataset.addprov);
+          const providerId = el.value;
+          if (!providerId) return;
+          const p = draft[i];
           p.providers = p.providers ?? {};
-          if (el.checked) p.providers[providerId] = p.providers[providerId] ?? {};
-          else delete p.providers[providerId];
+          p.providers[providerId] = p.providers[providerId] ?? {};
           dirty = true;
-          el.closest('.prov').classList.toggle('on', el.checked);
-          refreshHead(Number(i));
+          renderCards();
           return;
         }
 
@@ -387,6 +422,14 @@
       document.getElementById('cards').addEventListener('input', onEditorInput);
       document.getElementById('cards').addEventListener('change', onEditorInput);
       document.getElementById('cards').addEventListener('click', (e) => {
+        if (e.target.dataset.rmprov) {
+          e.stopPropagation();
+          const [i, providerId] = e.target.dataset.rmprov.split('|');
+          delete draft[Number(i)].providers[providerId];
+          dirty = true;
+          renderCards();
+          return;
+        }
         if (e.target.dataset.act === 'remove') {
           e.stopPropagation();
           dirty = true;
@@ -413,6 +456,7 @@
         document.getElementById('yaml').value = (await ask('exportYaml')).yaml ?? '';
       });
       document.getElementById('manage').addEventListener('toggle', async (e) => {
+        document.body.classList.toggle('editing', e.target.open);
         if (!e.target.open) return;
         // Fetch schemas (with live options folded in) only when the editor is
         // actually opened — it costs a round-trip to the hardware.

@@ -13,8 +13,42 @@ Ideas, roughly in order of effort:
   *(Done in phase 3 — biggest win for the least work.)*
 - Tighten vertical rhythm; the original spacing was generous for a full page,
   not a 300px-tall panel.
-- A "pop out" editor. The inspector cannot resize itself, so this would mean a
-  separate window, which the SDK does not directly support. Parked.
+- Hide the key's profile picker while the editor is open, reclaiming its rows.
+  *(Done in phase 3.1.)*
+- **Configure in a browser window — the real fix, and the agreed direction.**
+  The plugin is an ordinary Node process, so it can host a small page on
+  localhost and open the user's browser at it. That gives a full-size editor
+  with room for search, grouping, drag-to-reorder, live key previews, and
+  per-provider UI as complex as the hardware needs — none of which fits a
+  ~300px panel. The property inspector keeps only the one thing it is good at:
+  picking which profile a key activates.
+
+  Notes for when this is built:
+  - Bind to 127.0.0.1 on an ephemeral port; never 0.0.0.0.
+  - Start the server on demand (a button in the inspector), not at boot, and
+    stop it when the page disconnects.
+  - Reuse `piBridge.js` wholesale — the request/reply handlers are transport
+    agnostic already, so the browser page can speak the same vocabulary over
+    HTTP or a websocket instead of `sendToPlugin`.
+  - Global settings remain the source of truth; the page reads and writes them
+    through the same `saveProfiles` path, validation included.
+
+## 1a. Multi Action composition — investigated, not viable
+
+Dragging Stream Deck actions into a profile was explored and rejected on
+evidence, recorded here so it is not revisited:
+
+- Plugins get exactly one UI surface (`PropertyInspectorPath`). There is no API
+  to render into the key grid, so the Multi Action canvas cannot be imitated.
+- `MultiActionPayload` has no `coordinates` — an action inside a Multi Action
+  has no key, so `setImage` has nothing to target. Every rendered state (the
+  confirmation dot, the amber cannot-confirm stripe, the hold progress bar)
+  is structurally unavailable there.
+- The plugin command vocabulary has no abort/stop/cancel, and no channel for a
+  nested action to report failure, so a Multi Action cannot stop early.
+
+Standalone per-provider actions remain worth shipping *for direct placement on
+a key*, where coordinates exist and all of the above works normally.
 
 ## 2. Providers must be selectable per profile — not assumed
 
