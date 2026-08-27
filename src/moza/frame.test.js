@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   checksum, encode, decode, decodeAll, readFrame, keepAliveFrame,
-  swapNibbles, travel, force, GROUP, DEVICE, START,
+  swapNibbles, travel, force, GROUP, DEVICE, START, writeFrame, toBytes,
 } from './frame.js';
 
 const hex = (buf) => buf.toString('hex');
@@ -150,5 +150,41 @@ describe('value scaling', () => {
 
   it('round-trips a force value', () => {
     expect(force.fromRaw(force.toRaw(88))).toBeCloseTo(88, 3);
+  });
+});
+
+describe('write frames', () => {
+  it('uses the write group', () => {
+    const frame = writeFrame(0xb3, toBytes(force.toRaw(35), 4));
+    expect(frame[2]).toBe(GROUP.WRITE);
+    expect(frame[3]).toBe(DEVICE.MBOOSTER);
+  });
+
+  it('reproduces a real max-threshold write for 50kg', () => {
+    // 50kg is the value the hardware read back as 0x00004000, so a write of
+    // the same value must produce those bytes.
+    const frame = writeFrame(0xb3, toBytes(force.toRaw(50), 4));
+    expect(frame.subarray(4).toString('hex')).toBe('b300004000' + frame.at(-1).toString(16).padStart(2, '0'));
+  });
+
+  it('carries a selector when one is given', () => {
+    const frame = writeFrame([0xae, 0x01], toBytes(20, 2));
+    expect([...frame.subarray(4, 7)]).toEqual([0xae, 0x01, 0x00]);
+  });
+});
+
+describe('toBytes', () => {
+  it('encodes big-endian at the requested width', () => {
+    expect(toBytes(0x1234, 2)).toEqual([0x12, 0x34]);
+    expect(toBytes(0x4000, 4)).toEqual([0x00, 0x00, 0x40, 0x00]);
+  });
+});
+
+describe('readFrame width', () => {
+  it('reserves space for the answer', () => {
+    // Without this the device replies with no value bytes at all.
+    const frame = readFrame(0x84, { width: 2 });
+    expect(frame[1]).toBe(3); // command id + two placeholders
+    expect([...frame.subarray(4, 7)]).toEqual([0x84, 0x00, 0x00]);
   });
 });

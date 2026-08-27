@@ -69,10 +69,39 @@ export function encode({ group, device, payload = [] }) {
   return Buffer.from([...body, checksum(body)]);
 }
 
-/** Convenience: a read request for one command id. */
-export function readFrame(commandId, { device = DEVICE.MBOOSTER } = {}) {
+/**
+ * A read request.
+ *
+ * The request must reserve space for the answer: sending only the command id
+ * gets a well-formed reply with no value bytes back. Appending `width` zero
+ * bytes makes the device fill them in. This is why command tables carry a byte
+ * width per parameter — it is part of the request, not just documentation.
+ *
+ * @param {number|number[]} commandId  id, optionally followed by a selector
+ * @param {object} [opts]
+ * @param {number} [opts.width]  expected value size in bytes
+ */
+export function readFrame(commandId, { device = DEVICE.MBOOSTER, width = 0 } = {}) {
   const id = Array.isArray(commandId) ? commandId : [commandId];
-  return encode({ group: GROUP.READ, device, payload: id });
+  return encode({ group: GROUP.READ, device, payload: [...id, ...new Array(width).fill(0)] });
+}
+
+/**
+ * A write request.
+ *
+ * @param {number|number[]} commandId  id, optionally followed by a selector
+ * @param {number[]|Buffer} value      big-endian value bytes
+ */
+export function writeFrame(commandId, value = [], { device = DEVICE.MBOOSTER } = {}) {
+  const id = Array.isArray(commandId) ? commandId : [commandId];
+  return encode({ group: GROUP.WRITE, device, payload: [...id, ...value] });
+}
+
+/** Big-endian bytes for a value of the given width. */
+export function toBytes(value, width) {
+  const out = [];
+  for (let i = width - 1; i >= 0; i--) out.push((value >>> (i * 8)) & 0xff);
+  return out;
 }
 
 /** The keepalive the device expects roughly twice a second. */
