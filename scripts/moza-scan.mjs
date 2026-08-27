@@ -1,18 +1,23 @@
-// scripts/moza-scan.mjs — sweep every command id and record what the pedal says.
+// scripts/moza-scan.mjs — sweep the pedal's command space and record answers.
 //
-// Reads only. The point is to find out which command a Pit House control writes
-// to, without capturing serial traffic: take a snapshot, change one thing in
-// Pit House, take another, and diff them. Whatever moved is the command.
+// Reads only. It exists to find which command a Pit House control writes to,
+// without capturing serial traffic: snapshot, change one thing in Pit House,
+// snapshot again, diff.
 //
-// Pit House holds the port, so the sequence is:
+// Two details learned the hard way:
 //
-//   1. set the control in Pit House, close it
-//   2. node scripts/moza-scan.mjs before
-//   3. reopen Pit House, change the one control, close it
-//   4. node scripts/moza-scan.mjs after
-//   5. node scripts/moza-scan.mjs --diff before after
+//   * Some commands are live sensor readings, not settings, and drift between
+//     reads. 0x24 fooled a whole round of analysis by matching a preset field
+//     to four decimals. Every sweep is therefore run twice and anything that
+//     moved between passes is discarded.
+//   * Some commands need a selector byte and answer a bare read with nothing
+//     or zeros, so selectors are swept too.
 //
-// Snapshots land in scripts/scans/<label>.json.
+// Pit House holds the port, and its X button only hides it to the tray — it has
+// to be properly quit.
+//
+//   node scripts/moza-scan.mjs <label>
+//   node scripts/moza-scan.mjs --diff <a> <b>
 
 import { SerialPort } from 'serialport';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
@@ -23,16 +28,19 @@ import { readFrame, keepAliveFrame, decodeAll, GROUP } from '../src/moza/frame.j
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCANS = join(HERE, 'scans');
 const BAUD = 115200;
-
-// Ask for four bytes: the reply carries its own length, so this discovers the
-// width rather than assuming it.
-const WIDTH = 4;
-const SETTLE_MS = 110;
+const WIDTH = 4; // ask for four bytes; the reply reports its own length
+const SETTLE_MS = 60;
+const SELECTORS = [null, 0x00, 0x01]; // null = no selector byte
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const args = process.argv.slice(2);
+const hexId = (key) => {
+  const [id, sel] = String(key).split('.');
+  const base = `0x${Number(id).toString(16).padStart(2, '0')}`;
+  return sel === undefined ? base : `${base}[sel ${sel}]`;
+};
 
-// ------------------------------------------------------------------- diff
+// -------------------------------------------------------------------- diff
 if (args[0] === '--diff') {
   const [, a, b] = args;
   const load = (name) => {
@@ -46,29 +54,36 @@ if (args[0] === '--diff') {
   const before = load(a);
   const after = load(b);
 
-  const ids = new Set([...Object.keys(before.values), ...Object.keys(after.values)]);
   const changed = [];
-  for (const id of ids) {
-    const x = before.values[id];
-    const y = after.values[id];
-    if (x !== y) changed.push({ id, from: x ?? '(absent)', to: y ?? '(absent)' });
+  for (const key of new Set([...Object.keys(before.values), ...Object.keys(after.values)])) {
+    const x = before.values[key];
+    const y = after.values[key];
+    if (x !== y) changed.push({ key, from: x ?? '(absent)', to: y ?? '(absent)' });
   }
 
   console.log(`${a} -> ${b}\n`);
   if (!changed.length) {
-    console.log('Nothing changed. Either the control writes host-side only, or');
-    console.log('the value lives behind a selector this sweep did not send.');
+    console.log('Nothing stable changed. Either the control is host-side only,');
+    console.log('or its value sits behind a selector this sweep did not try.');
   } else {
-    console.log(`${changed.length} command(s) changed:\n`);
-    for (const c of changed.sort((m, n) => Number(m.id) - Number(n.id))) {
-      const hex = `0x${Number(c.id).toString(16).padStart(2, '0')}`;
-      console.log(`  ${hex}  ${String(c.from).padEnd(14)} ->  ${c.to}`);
+    console.log(`${changed.length} changed:\n`);
+    for (const c of changed) {
+      const f = Buffer.from(String(c.to).padEnd(8, '0').slice(0, 8), 'hex');
+      let hint = '';
+      try {
+        hint = `  float ${f.readFloatBE(0).toFixed(3)}  u32 ${f.readUInt32BE(0)}  hi16/65536 ${(f.readUInt16BE(0) / 65536).toFixed(4)}`;
+      } catch {
+        /* not four bytes */
+      }
+      console.log(`  ${hexId(c.key).padEnd(16)} ${String(c.from).padEnd(10)} -> ${String(c.to).padEnd(10)}${hint}`);
     }
   }
+  const drifted = [...new Set([...(before.unstable ?? []), ...(after.unstable ?? [])])];
+  if (drifted.length) console.log(`\nignored as live readings: ${drifted.map(hexId).join(' ')}`);
   process.exit(0);
 }
 
-// ------------------------------------------------------------------- scan
+// -------------------------------------------------------------------- scan
 const label = args[0];
 if (!label) {
   console.error('Usage: moza-scan.mjs <label>   |   moza-scan.mjs --diff <a> <b>');
@@ -90,7 +105,7 @@ try {
   await new Promise((res, rej) => port.open((e) => (e ? rej(e) : res())));
 } catch (err) {
   console.error(`Could not open ${hit.path}: ${err.message}`);
-  console.error('Close MOZA Pit House first — it holds the port.');
+  console.error('Quit MOZA Pit House properly — its X button only hides it to the tray.');
   process.exit(1);
 }
 
@@ -107,32 +122,52 @@ const heartbeat = setInterval(() => port.write(keepAliveFrame()), 500);
 port.write(keepAliveFrame());
 await sleep(400);
 
-const values = {};
-process.stdout.write(`scanning 0x00-0xff on ${hit.path} `);
+async function sweep() {
+  const out = {};
+  for (const sel of SELECTORS) {
+    for (let id = 0x00; id <= 0xff; id++) {
+      const request = sel === null ? [id] : [id, sel];
+      frames = [];
+      port.write(readFrame(request, { width: WIDTH }));
+      await sleep(SETTLE_MS);
 
-for (let id = 0x00; id <= 0xff; id++) {
-  frames = [];
-  port.write(readFrame(id, { width: WIDTH }));
-  await sleep(SETTLE_MS);
-
-  const reply = frames.find(
-    (f) => f.isResponse && f.requestGroup === GROUP.READ && f.payload[0] === id,
-  );
-  if (reply) {
-    const value = reply.payload.subarray(1);
-    // Store hex: we do not know the encoding yet, and raw bytes diff cleanly.
-    if (value.length) values[id] = value.toString('hex');
+      const reply = frames.find(
+        (f) => f.isResponse && f.requestGroup === GROUP.READ && f.payload[0] === id,
+      );
+      if (!reply) continue;
+      const value = reply.payload.subarray(sel === null ? 1 : 2);
+      if (value.length) out[sel === null ? `${id}` : `${id}.${sel}`] = value.toString('hex');
+      if (id % 64 === 63) process.stdout.write('.');
+    }
   }
-  if (id % 32 === 31) process.stdout.write('.');
+  return out;
+}
+
+process.stdout.write(`pass 1 on ${hit.path} `);
+const passA = await sweep();
+process.stdout.write('\npass 2 ');
+const passB = await sweep();
+
+// Only values that held still across both passes are settings; the rest are
+// live readings and would otherwise show up as spurious changes.
+const values = {};
+const unstable = [];
+for (const key of new Set([...Object.keys(passA), ...Object.keys(passB)])) {
+  if (passA[key] === passB[key]) values[key] = passA[key];
+  else unstable.push(key);
 }
 
 clearInterval(heartbeat);
 await new Promise((res) => port.close(() => res()));
 
 mkdirSync(SCANS, { recursive: true });
-const out = { label, when: new Date().toISOString(), values };
-writeFileSync(join(SCANS, `${label}.json`), JSON.stringify(out, null, 1));
+writeFileSync(
+  join(SCANS, `${label}.json`),
+  JSON.stringify({ label, when: new Date().toISOString(), values, unstable }, null, 1),
+);
 
-console.log(`\n\n${Object.keys(values).length} commands answered with a value.`);
+console.log(`\n\n${Object.keys(values).length} stable value(s).`);
+console.log(`${unstable.length} drifted between passes and were dropped as live readings.`);
+if (unstable.length) console.log(`  ${unstable.map(hexId).join(' ')}`);
 console.log(`saved -> scripts/scans/${label}.json`);
 process.exit(0);
