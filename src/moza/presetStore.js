@@ -155,3 +155,83 @@ export function readSelection({ dir = resolvePitHouseDir() } = {}) {
 export function isPresetSelected(presetId, opts) {
   return Object.values(readSelection(opts).lastUsed).includes(presetId);
 }
+
+/**
+ * Every preset across all device types, labelled with the type.
+ *
+ * The property inspector cannot yet drive one dropdown from another, and a flat
+ * list reads better anyway — "Carter Brake [Pedals]" says everything needed.
+ */
+export function listAllPresets({ dir = resolvePitHouseDir(), device = null } = {}) {
+  const all = [];
+  for (const deviceType of DEVICE_TYPES) {
+    all.push(...listPresets({ dir, deviceType, device }));
+  }
+  return all.sort(
+    (a, b) => Number(a.isOfficial) - Number(b.isOfficial) || b.lastModified - a.lastModified,
+  );
+}
+
+/** Find a preset by id across every device type. */
+export function findPreset(id, { dir = resolvePitHouseDir() } = {}) {
+  if (!id) return null;
+  for (const deviceType of DEVICE_TYPES) {
+    const hit = readPreset(id, { dir, deviceType });
+    if (hit) return { ...hit, deviceType: hit.deviceType ?? deviceType };
+  }
+  return null;
+}
+
+/**
+ * Which games already have presets bound to them.
+ *
+ * Pit House chooses for you when several presets claim the same game — an
+ * Assetto Corsa trigger here applies GTR1994-Default, not whichever of the four
+ * AC-bound presets you meant. So a trigger game is only usable if exactly one
+ * preset (yours) claims it.
+ *
+ * MOZA's game ids do not match GameConfigInfo.xml's rank, but every bound
+ * preset also carries the game's name as a tag, so the mapping can be recovered
+ * from the library itself.
+ *
+ * @returns {Map<string, { name: string, presets: string[] }>} keyed by game id
+ */
+export function gameBindings({ dir = resolvePitHouseDir() } = {}) {
+  const out = new Map();
+  if (!dir) return out;
+
+  for (const deviceType of DEVICE_TYPES) {
+    const folder = join(dir, 'Presets', deviceType);
+    if (!existsSync(folder)) continue;
+    for (const file of readdirSync(folder)) {
+      if (!file.endsWith('.json')) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(readFileSync(join(folder, file), 'utf8'));
+      } catch {
+        continue;
+      }
+      const ids = Object.keys(parsed?.games ?? {});
+      if (!ids.length) continue;
+
+      // Tags carry the device plus, for bound presets, the game name.
+      const devices = new Set((parsed.devices ?? []).map((d) => String(d).toLowerCase()));
+      const gameTags = (parsed.tags ?? []).filter((t) => !devices.has(String(t).toLowerCase()));
+
+      for (const [i, id] of ids.entries()) {
+        const entry = out.get(id) ?? { name: gameTags[i] ?? gameTags[0] ?? '', presets: [] };
+        if (!entry.name && gameTags.length) entry.name = gameTags[0];
+        entry.presets.push(parsed.name);
+        out.set(id, entry);
+      }
+    }
+  }
+  return out;
+}
+
+/** Games claimed by exactly one preset — the only safe trigger candidates. */
+export function unambiguousGames(opts) {
+  return [...gameBindings(opts).entries()]
+    .filter(([, v]) => v.presets.length === 1)
+    .map(([id, v]) => ({ id, name: v.name, preset: v.presets[0] }));
+}
