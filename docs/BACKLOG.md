@@ -372,3 +372,25 @@ instead, and verify() caught it.
 Each profile therefore needs its own trigger game, each with that profile's
 preset set as the game default. Any game works — including ones with dozens of
 other presets bound — because the default slot is single-occupancy.
+
+## 8. Profiles were lost across a reboot
+
+After a Windows restart the plugin came back with only "Brian" and "Kai" — the
+two profiles in `config/profiles.yaml`. Everything created in the editor was
+gone.
+
+That points at Stream Deck's global settings not surviving the reboot, followed
+by `migrateIfNeeded` doing exactly what it is told: seeing an empty profile list
+and re-importing the YAML. The migration is not the bug, but it does disguise
+one, because the result looks like a working plugin with the wrong data rather
+than an obvious failure.
+
+Worth fixing regardless of the root cause, because profiles are now the most
+valuable state the plugin holds:
+
+- Write a copy of the profile list to the plugin data dir on every save, and
+  prefer it over `profiles.yaml` when global settings come back empty. The YAML
+  is a seed for first run; a backup is a restore.
+- Consider warning rather than silently importing when global settings are empty
+  but a backup exists and disagrees with the YAML.
+- Log loudly on any migration that overwrites a non-empty profile list.
