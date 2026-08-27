@@ -354,7 +354,13 @@ only real cost is that if you ever DO play that game, its bound preset applies.
 With "Brian Brake Hybrid" set as the Game Default Preset for Assetto Corsa,
 running the profile through the real orchestrator:
 
-
+```
+before  : Carter Brake
+applying via the orchestrator (stand-in runs ~6s)...
+status  : verified
+summary : all hardware confirmed
+after   : Brian Brake Hybrid
+```
 
 The full chain works and reports honestly: profile -> provider -> stand-in
 process -> Pit House -> pedal -> read-back from config.ini.
