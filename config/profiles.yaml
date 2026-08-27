@@ -1,0 +1,29 @@
+# ============================================================
+# profiles.yaml — streamdeck-rig-profiles
+# ============================================================
+# Editing this file re-imports it into the plugin on next start.
+# Leave it alone and the property inspector stays authoritative.
+#
+# fanatec_setup: which tuning setup slot (1-5) is stored on the
+# wheelbase. Dial the slots in via the Fanatec app first — this
+# plugin only selects between them, it never writes FFB values.
+# ============================================================
+
+profiles:
+  - id: brian
+    name: Brian
+    color: "#2255CC"
+    fanatec_setup: 1
+    # Adult profile: full torque. Requires a deliberate ~1s hold
+    # to activate, so a stray press cannot reach it.
+    restricted: true
+
+  - id: kai
+    name: Kai
+    color: "#22AA44"
+    fanatec_setup: 2
+
+settings:
+  default_profile: brian
+  govee_api_key: ""
+  govee_devices: null

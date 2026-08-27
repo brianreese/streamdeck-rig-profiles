@@ -42,6 +42,17 @@ function writeLegacy(contents = LEGACY_YAML) {
 }
 
 describe('convertProfile', () => {
+  it('maps a fanatec_setup slot onto the wheelbase provider', () => {
+    const out = convertProfile({ id: 'kai', fanatec_setup: 2 });
+    expect(out.providers['fanatec-base']).toEqual({ setup: 2 });
+    expect(out.needsWheelbaseSetup).toBe(false);
+  });
+
+  it('ignores an out-of-range fanatec_setup rather than sending a bad slot', () => {
+    const out = convertProfile({ id: 'x', fanatec_setup: 9 });
+    expect(out.providers['fanatec-base']).toBeUndefined();
+  });
+
   it('nests flat hardware keys under providers', () => {
     const out = convertProfile({
       id: 'kai',
@@ -98,13 +109,44 @@ describe('migrateIfNeeded', () => {
     expect(settings.written().profiles[0].providers.govee).toEqual({ scene: 'Racing' });
   });
 
-  it('never clobbers profiles that already exist', async () => {
-    const existing = { profiles: [{ id: 'mine', name: 'Mine' }] };
-    const settings = fakeSettings(existing);
-    const out = await migrateIfNeeded({ configPath: writeLegacy(), settings, log: () => {} });
+  it('does not re-import when the yaml is unchanged since last import', async () => {
+    const path = writeLegacy();
+    const settings = fakeSettings({});
 
+    await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+    const afterFirst = settings.written();
+
+    // Second run over the identical file must be a no-op.
+    const out = await migrateIfNeeded({ configPath: path, settings, log: () => {} });
     expect(out.migrated).toBe(false);
-    expect(settings.written()).toBe(existing);
+    expect(out.reason).toBe('already configured');
+    expect(settings.written()).toBe(afterFirst);
+  });
+
+  it('leaves property-inspector edits alone while the yaml is untouched', async () => {
+    const path = writeLegacy();
+    const settings = fakeSettings({});
+    await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+
+    // Simulate the user renaming a profile in the PI.
+    const edited = { ...settings.written() };
+    edited.profiles = [{ ...edited.profiles[0], name: 'Renamed In PI' }];
+    await settings.setGlobalSettings(edited);
+
+    await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+    expect(settings.written().profiles[0].name).toBe('Renamed In PI');
+  });
+
+  it('re-imports when the yaml has actually changed', async () => {
+    const path = writeLegacy();
+    const settings = fakeSettings({});
+    await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+
+    writeFileSync(path, LEGACY_YAML.replace('name: Primary', 'name: Renamed In Yaml'), 'utf8');
+    const out = await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+
+    expect(out.migrated).toBe(true);
+    expect(settings.written().profiles[0].name).toBe('Renamed In Yaml');
   });
 
   it('is a no-op when there is no legacy config', async () => {
