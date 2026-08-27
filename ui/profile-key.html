@@ -133,6 +133,18 @@
         Optional. Comma-separated device names, so scenes do not fire at lamps
         elsewhere in the house.
       </div>
+
+      <div class="row" style="margin-top:10px">
+        <label for="mozaClose">MOZA pedal</label>
+        <input type="checkbox" id="mozaClose" />
+        <span class="muted" style="flex:1">Close Pit House when switching</span>
+      </div>
+      <div class="hint">
+        The pedal's serial port is exclusive, so Pit House has to be closed for a
+        profile to reach it. Off by default — pressing a key should not close an
+        application unless you have said it may.
+      </div>
+
       <div class="actions">
         <button id="settingsSave" class="primary">Save settings</button>
         <button id="goveeDiscover">Discover devices</button>
@@ -496,6 +508,7 @@
         const devices = cfg.goveeDevices;
         document.getElementById('goveeDevices').value =
           Array.isArray(devices) ? devices.join(', ') : (devices ?? '');
+        document.getElementById('mozaClose').checked = Boolean(cfg.mozaClosePitHouse);
       }
 
       document.getElementById('goveeShow').addEventListener('click', () => {
@@ -509,6 +522,7 @@
           settings: {
             goveeApiKey: document.getElementById('goveeKey').value.trim(),
             goveeDevices: raw ? raw.split(',').map((x) => x.trim()).filter(Boolean) : null,
+            mozaClosePitHouse: document.getElementById('mozaClose').checked,
           },
         });
         const err = document.getElementById('goveeError');

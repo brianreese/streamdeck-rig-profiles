@@ -1,71 +1,42 @@
-# MOZA support (experimental)
+# MOZA mBooster support
 
-MOZA presets cannot be applied directly. The official SDK's entire pedal
-surface is seven output settings, while an mBooster preset carries ~91
-parameters, and the device serial protocol has not been reverse engineered
-(see `docs/BACKLOG.md` §6).
-
-What works instead is Pit House's own game binding. Pit House watches for a
-fixed set of game executables and applies whichever preset you bound to that
-game. It matches on process **name** alone, so a harmless stand-in process is
-enough, and the applied preset survives the process exiting.
-
-    profile switch  ->  run a fake game  ->  Pit House applies the preset
-
-## Files
+The pedal is controlled directly over its USB CDC serial port. Pit House is
+not involved at runtime.
 
 | File | Role |
 |---|---|
-| `presetStore.js` | Reads Pit House's preset library and `config.ini` |
-| `standIn.js` | Runs a short-lived process with a chosen executable name |
+| `frame.js` | Wire format: framing, checksum, value scaling |
+| `mbooster.js` | Serial session, confirmed parameters, Pit House control |
+| `presetStore.js` | Reads Pit House's preset library (reference only) |
 
-## Setup
+## Confirmed parameters
 
-1. In Pit House, bind the preset to a game you will never launch, then use
-   **Set as Game Default Preset**.
-2. Put that game's executable name in the provider's Trigger field.
+Read, written, read back and restored on real hardware:
 
-The second half of step 1 is the part that matters. Many presets can be bound
-to the same game — 44 ship bound to Assetto Corsa — and Pit House applies
-whichever is that game's *default*, not whichever you bound most recently. It
-warns when you replace an existing default, so the slot is explicitly
-single-occupancy.
+| Parameter | Command | Width | Scaling |
+|---|---|---|---|
+| Max force | `0xB3` | 4 | `kg × 65536 / 200` |
+| Travel start | `0x84` | 2 | `mm × 65536 / 53.5` |
+| Travel end | `0x85` | 2 | `mm × 65536 / 53.5` |
 
-The game list is compiled into Pit House's binary and cannot be extended —
-editing `GameConfigInfo.xml` has no effect, which was tested. So the trigger
-must be a name Pit House already knows.
+Friction (`0xAE`) and end-stop stiffness (`0xB2`) answer with a selector byte
+but their units do not match what Pit House stores, so they are not exposed.
 
-## Known rough edges
+The ~23 vibration effects are synthesised host-side and streamed as amplitude
+values; they are not one-shot settings and are out of scope.
 
-- Naming a profile after an unrelated game is poor UX. A custom trigger name
-  would fix it and is the main thing worth revisiting.
-- Pit House must be running.
-- If you ever genuinely launch the sacrificed game, its preset applies.
+## Two protocol details found by testing
 
-## Hard limitation: no game may be running
+- A read must reserve space for the answer. Sending only the command id gets a
+  valid reply with no value bytes.
+- Writes are acknowledged with the value echoed back (group `0xA4`), so a write
+  can be confirmed by the ack and again by a re-read.
 
-Tested directly. While **any** game Pit House knows is running, it ignores
-further game starts for preset purposes — the trigger is silently dropped.
+## Pit House
 
-```
-start : Brian Brake Hybrid
-1. launching iRacingSim64DX11.exe   -> iRacing-Brake-SebOne   (its default applied)
-2. launching AssettoCorsa.exe       -> unchanged              (trigger ignored)
-3. trigger exits                    -> unchanged
-4. game exits                       -> unchanged
-```
+The serial port is exclusive, so Pit House must be closed. The provider can
+close it, but only when the user opts in — killing an application because a
+button was pressed is not a reasonable default.
 
-The same held with an *unbound* game running (Wreckfest), so it is not "the
-first game wins its preset" — it is "a running game blocks any further switch".
-
-### What this means in practice
-
-- **Switch the profile, then launch the game.** Mid-session switching does not
-  work at all.
-- **The games you actually play must have no default preset**, or launching one
-  overrides the profile you just applied. A game with nothing bound to it was
-  confirmed to leave the pedal untouched.
-- Nothing reverts on exit, so once applied the profile persists.
-
-`verify()` catches the mid-session case and reports a mismatch, so a key never
-claims success over an unchanged pedal.
+Protocol facts come from Boxflat and AZOM documentation. No code is taken from
+either; AZOM is GPL-3.0 and this project is not.

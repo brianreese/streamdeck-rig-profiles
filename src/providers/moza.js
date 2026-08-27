@@ -1,143 +1,148 @@
-// providers/moza.js — MOZA preset switching (experimental).
+// providers/moza.js — MOZA mBooster pedal, over its own serial protocol.
 //
-// HOW THIS WORKS, AND WHY IT IS ODD
-// ---------------------------------
-// MOZA's SDK cannot apply presets for pedals (its whole pedal surface is seven
-// output settings, while an mBooster preset carries ~91 parameters), and the
-// device protocol has not been reverse engineered. See docs/BACKLOG.md §6.
+// Sets pedal parameters directly on the hardware and reads them back to
+// confirm. No Pit House game binding, no stand-in process, and no requirement
+// that no game be running — all of which the previous approach needed.
 //
-// What does work is Pit House's own "apply a preset when this game launches"
-// feature. It matches on process NAME alone, so briefly running a harmless
-// stand-in with a game's executable name makes Pit House apply the preset bound
-// to that game. The change sticks after the process exits.
+// The wire format is documented by Boxflat and AZOM; every command and scaling
+// used here has been read from, written to and restored on a real mBooster.
+// Only parameters confirmed that way are exposed: friction (0xAE) and end-stop
+// stiffness (0xB2) respond but their units do not match what Pit House stores,
+// so they are left out rather than guessed at.
 //
-// So a profile switch here is: run a fake game, let Pit House do the work.
-//
-// This is a workaround and is labelled experimental. It applies equally to any
-// MOZA peripheral — wheelbase, pedals, wheel — because the trigger has nothing
-// to do with the device; Pit House decides what to apply from its own binding.
-//
-// HARD LIMITATION: NO GAME MAY BE RUNNING
-// ---------------------------------------
-// Tested: while ANY game Pit House knows is running, it ignores further game
-// starts for preset purposes. A trigger fired mid-session does nothing — the
-// switch is silently dropped, not delayed.
-//
-// So the workable order is: switch the profile first, then launch the game.
-// And the games actually played must have NO default preset set, or starting
-// one overrides whatever the profile just applied. An unbound game was
-// confirmed to leave the pedal alone.
-//
-// verify() catches the mid-session case, so it fails loudly rather than
-// leaving a key claiming success over an unchanged pedal.
-//
-// SETUP, which is unavoidably manual
-// ----------------------------------
-//   1. In Pit House, bind the preset to a game you will never launch AND use
-//      "Set as Game Default Preset". The binding alone is not enough: many
-//      presets can claim one game, and Pit House applies whichever is that
-//      game's default. It warns when you replace an existing default.
-//   2. Put that game's executable name in this provider's Trigger field.
-// The game list is compiled into Pit House and cannot be extended, so the name
-// must be one it already knows.
+// One trade: the serial port is exclusive, so Pit House must not be running.
+// It can be closed automatically, but only if the user opts in — killing an
+// application because a button was pressed should never be a silent default.
 
-import { listAllPresets, findPreset, readSelection, resolvePitHouseDir } from '../moza/presetStore.js';
-import { runStandIn, validateExeName, DEFAULT_LINGER_MS } from '../moza/standIn.js';
+import { PARAMS, withDevice, closePitHouse, reopenPitHouse, isPitHouseRunning } from '../moza/mbooster.js';
 import { STATUS } from './status.js';
 
-function presetOptions(deps = {}) {
-  return listAllPresets(deps).map((p) => ({
-    value: p.id,
-    // Star marks your own presets; the type disambiguates same-named ones.
-    label: `${p.isOfficial ? '' : '★ '}${p.name} [${p.deviceType}]`,
-  }));
+/** How close a read-back must be to count as applied. */
+const TOLERANCE = { maxForceKg: 0.5, travelStartMm: 0.2, travelEndMm: 0.2 };
+
+/**
+ * Which parameters the profile actually sets.
+ *
+ * The blank check matters: `Number('')` is 0, which is finite, so treating an
+ * empty field as a value would silently write 0 — a travel end of 0mm on a
+ * brake pedal. A field left empty means "leave this alone".
+ */
+function configured(cfg) {
+  return Object.keys(PARAMS).filter((k) => {
+    const raw = cfg?.[k];
+    if (raw === undefined || raw === null || String(raw).trim() === '') return false;
+    return Number.isFinite(Number(raw));
+  });
 }
 
 export default {
   id: 'moza',
-  label: 'MOZA (experimental)',
-  // Pit House records what it applied, so this can genuinely be checked.
+  label: 'MOZA mBooster',
+  // Values are read back from the pedal itself.
   verifiable: true,
 
   schema() {
-    return [
-      {
-        key: 'presetId',
-        label: 'Preset',
-        type: 'select',
-        options: presetOptions(),
-        help: 'The preset you set as a game default in Pit House. ★ marks your own.',
-      },
-      {
-        key: 'triggerExe',
-        label: 'Trigger',
-        type: 'text',
-        placeholder: 'TokyoXtremeRacer.exe',
-        help:
-          'Executable of that game. A stand-in with this name runs briefly so Pit ' +
-          'House applies the preset. Must be a game Pit House already knows — its ' +
-          'list is compiled in and cannot be extended.',
-      },
-    ];
+    return Object.entries(PARAMS).map(([key, spec]) => ({
+      key,
+      label: `${spec.label} (${spec.unit})`,
+      type: 'text',
+      placeholder: `${spec.min}–${spec.max}`,
+      help: spec.help,
+    }));
   },
 
   validate(cfg) {
     const problems = [];
-    if (!cfg?.presetId) problems.push('MOZA is enabled but no preset is selected');
-    const exeProblem = validateExeName(cfg?.triggerExe);
-    if (exeProblem) problems.push(`MOZA trigger: ${exeProblem}`);
+    const set = configured(cfg);
+    if (!set.length) problems.push('MOZA is enabled but no pedal setting is filled in');
+
+    for (const [key, spec] of Object.entries(PARAMS)) {
+      const raw = cfg?.[key];
+      if (raw === undefined || raw === '' || raw === null) continue;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) {
+        problems.push(`MOZA ${spec.label.toLowerCase()} must be a number`);
+      } else if (value < spec.min || value > spec.max) {
+        problems.push(
+          `MOZA ${spec.label.toLowerCase()} must be ${spec.min}-${spec.max}${spec.unit}`,
+        );
+      }
+    }
     return problems;
   },
 
   describe(cfg) {
-    const preset = findPreset(cfg?.presetId);
-    const name = preset?.name ?? cfg?.presetId;
-    return name ? `MOZA preset "${name}" via ${cfg?.triggerExe ?? '?'}` : 'MOZA (not configured)';
-  },
-
-  async options(deps = {}) {
-    return presetOptions(deps);
+    const parts = configured(cfg).map((k) => `${PARAMS[k].label.toLowerCase()} ${cfg[k]}${PARAMS[k].unit}`);
+    return parts.length ? `pedal ${parts.join(', ')}` : 'pedal (not configured)';
   },
 
   async apply(cfg, ctx = {}) {
     const problems = this.validate(cfg);
     if (problems.length) throw new Error(problems[0]);
 
-    if (!resolvePitHouseDir()) {
-      throw new Error('MOZA Pit House preset library not found — is Pit House installed?');
+    // Opt-in only. Default is to fail with a clear message instead.
+    if (ctx.settings?.mozaClosePitHouse) {
+      const result = await closePitHouse();
+      if (result.wasRunning && !result.closed) {
+        throw new Error(`could not close Pit House: ${result.reason ?? 'still running'}`);
+      }
+      if (result.closed && ctx.settings?.mozaReopenPitHouse) {
+        ctx._reopenPitHouse = true;
+      }
     }
 
-    // Pit House must be running to notice the process at all.
-    await runStandIn(cfg.triggerExe, { lingerMs: ctx.lingerMs ?? DEFAULT_LINGER_MS, ...ctx });
+    try {
+      await withDevice(async (session) => {
+        for (const key of configured(cfg)) {
+          const acknowledged = await session.write(key, Number(cfg[key]));
+          if (!acknowledged) {
+            throw new Error(`${PARAMS[key].label} was not acknowledged by the pedal`);
+          }
+        }
+      }, ctx);
+    } finally {
+      if (ctx._reopenPitHouse) reopenPitHouse();
+    }
   },
 
   async verify(cfg, ctx = {}) {
-    const preset = findPreset(cfg?.presetId, ctx);
-    const name = preset?.name ?? cfg?.presetId;
-    const { lastUsed } = readSelection(ctx);
-    const appliedId = Object.values(lastUsed)[0];
-    const appliedName = appliedId ? (findPreset(appliedId, ctx)?.name ?? appliedId) : null;
+    const wanted = configured(cfg);
+    if (!wanted.length) return { status: STATUS.SKIPPED, detail: 'nothing configured' };
 
-    if (Object.values(lastUsed).includes(cfg?.presetId)) {
-      return { status: STATUS.VERIFIED, detail: `Pit House applied "${name}"` };
+    let readings;
+    try {
+      readings = await withDevice(async (session) => {
+        const out = {};
+        for (const key of wanted) out[key] = await session.read(key);
+        return out;
+      }, ctx);
+    } catch (err) {
+      return { status: STATUS.UNREACHABLE, detail: err.message };
     }
 
-    // Naming what DID get applied matters here: the usual cause is that the
-    // preset is bound to the game but is not that game's default, and Pit House
-    // silently applies the default instead.
-    return {
-      status: STATUS.MISMATCH,
-      detail:
-        `Pit House applied ${appliedName ? `"${appliedName}"` : 'something else'} ` +
-        `instead of "${name}" — in Pit House use "Set as Game Default Preset" ` +
-        `for the game behind ${cfg?.triggerExe}; binding alone is not enough`,
-    };
+    const wrong = [];
+    for (const key of wanted) {
+      const got = readings[key];
+      const want = Number(cfg[key]);
+      if (got === null || Math.abs(got - want) > (TOLERANCE[key] ?? 0.5)) {
+        wrong.push(`${PARAMS[key].label} is ${got === null ? 'unreadable' : got.toFixed(2)}, wanted ${want}`);
+      }
+    }
+
+    if (wrong.length) {
+      return { status: STATUS.MISMATCH, detail: wrong.join('; ') };
+    }
+    const summary = wanted.map((k) => `${PARAMS[k].label.toLowerCase()} ${readings[k].toFixed(2)}${PARAMS[k].unit}`);
+    return { status: STATUS.VERIFIED, detail: `pedal confirmed ${summary.join(', ')}` };
   },
 
-  health() {
-    if (!resolvePitHouseDir()) {
-      return { ok: false, reason: 'MOZA Pit House preset library not found' };
+  async health() {
+    if (await isPitHouseRunning()) {
+      return {
+        ok: false,
+        reason: 'MOZA Pit House is running and holds the pedal\'s serial port — close it, or enable "Close Pit House when switching"',
+      };
     }
-    return { ok: true, reason: `${listAllPresets().length} presets available` };
+    return { ok: true, reason: 'pedal reachable' };
   },
 };
