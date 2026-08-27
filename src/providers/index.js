@@ -24,6 +24,7 @@
 import fanatecBase from './fanatecBase.js';
 import govee from './govee.js';
 import apps from './apps.js';
+import mozaPedals from './mozaPedals.js';
 
 export { STATUS, worstOf, isConfirmed } from './status.js';
 
@@ -53,6 +54,7 @@ function registerBuiltins() {
   register(fanatecBase);
   register(govee);
   register(apps);
+  register(mozaPedals);
 }
 
 registerBuiltins();
