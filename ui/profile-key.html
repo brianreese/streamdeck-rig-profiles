@@ -70,6 +70,7 @@
       /* While the editor is open the key's own picker is redundant and the
          panel is short, so reclaim its rows. */
       body.editing #keypick { display: none; }
+      details#hardware { margin-top: 12px; }
       body.editing details#manage { border-top: none; margin-top: 0; padding-top: 0; }
 
       .prov-fields { display: block; }
@@ -102,32 +103,6 @@
       <div class="hint" id="saved" hidden>Saved.</div>
 
       <details style="margin-top:12px">
-        <summary>Hardware settings</summary>
-        <div class="row" style="margin-top:8px">
-          <label for="goveeKey">Govee key</label>
-          <input type="password" id="goveeKey" placeholder="not set" autocomplete="off" />
-          <button id="goveeShow" title="Show">👁</button>
-        </div>
-        <div class="hint" id="goveeState">
-          Free key from developer.govee.com. Stored locally; never included in a YAML export.
-        </div>
-        <div class="row">
-          <label for="goveeDevices">Only these</label>
-          <input type="text" id="goveeDevices" placeholder="all devices" />
-        </div>
-        <div class="hint">
-          Optional. Comma-separated device names, so scenes do not fire at lamps
-          elsewhere in the house.
-        </div>
-        <div class="actions">
-          <button id="settingsSave" class="primary">Save settings</button>
-          <button id="goveeDiscover">Discover devices</button>
-        </div>
-        <div class="hint" id="goveeResult" hidden></div>
-        <div class="err" id="goveeError" hidden></div>
-      </details>
-
-      <details style="margin-top:12px">
         <summary>Export / import YAML</summary>
         <p class="muted">
           Export for version control. Importing replaces every profile below —
@@ -138,6 +113,32 @@
           <button id="export">Export</button>
         </div>
       </details>
+    </details>
+
+    <details id="hardware">
+      <summary>Hardware settings</summary>
+      <div class="row" style="margin-top:8px">
+        <label for="goveeKey">Govee key</label>
+        <input type="password" id="goveeKey" placeholder="not set" autocomplete="off" />
+        <button id="goveeShow" title="Show">👁</button>
+      </div>
+      <div class="hint" id="goveeState">
+        Free key from developer.govee.com. Stored locally; never included in a YAML export.
+      </div>
+      <div class="row">
+        <label for="goveeDevices">Only these</label>
+        <input type="text" id="goveeDevices" placeholder="all devices" />
+      </div>
+      <div class="hint">
+        Optional. Comma-separated device names, so scenes do not fire at lamps
+        elsewhere in the house.
+      </div>
+      <div class="actions">
+        <button id="settingsSave" class="primary">Save settings</button>
+        <button id="goveeDiscover">Discover devices</button>
+      </div>
+      <div class="hint" id="goveeResult" hidden></div>
+      <div class="err" id="goveeError" hidden></div>
     </details>
 
     <script>
@@ -542,6 +543,10 @@
       document.getElementById('export').addEventListener('click', async () => {
         document.getElementById('yaml').value = (await ask('exportYaml')).yaml ?? '';
       });
+      document.getElementById('hardware').addEventListener('toggle', (e) => {
+        if (e.target.open) loadSettings();
+      });
+
       document.getElementById('manage').addEventListener('toggle', async (e) => {
         document.body.classList.toggle('editing', e.target.open);
         if (!e.target.open) return;
@@ -550,7 +555,6 @@
         const reply = await ask('getProviders');
         providers = reply.providers ?? [];
         renderCards();
-        loadSettings();
       });
 
       async function seedDraft() {
