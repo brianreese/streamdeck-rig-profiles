@@ -68,14 +68,6 @@ describe('saveProfiles', () => {
     expect(settings.written().profiles[0].color).toBe('#22AA44');
   });
 
-  it('clears the yaml import marker so an old file cannot overwrite edits', async () => {
-    const settings = fakeSettings({ profiles: [], importedFrom: 'abc123' });
-    await handlePiRequest(
-      { request: 'saveProfiles', profiles: [validProfile()], settings: {} },
-      { settings, logger: silent },
-    );
-    expect(settings.written().importedFrom).toBeNull();
-  });
 });
 
 describe('provider options', () => {
@@ -151,5 +143,18 @@ describe('avatars', () => {
     const { filename } = saveAvatar('kai', png.toString('base64'), 'a.png', { dir: d });
     expect(deleteAvatar('../outside.png', { dir: d })).toBe(false);
     expect(deleteAvatar(filename, { dir: d })).toBe(true);
+  });
+});
+
+describe('import marker', () => {
+  it('preserves importedFrom so a saved edit survives the next start', async () => {
+    // Clearing it made every restart look like a fresh yaml and silently
+    // re-imported over the top of the user's edits.
+    const settings = fakeSettings({ profiles: [], importedFrom: 'abc123' });
+    await handlePiRequest(
+      { request: 'saveProfiles', profiles: [validProfile()], settings: {} },
+      { settings, logger: silent },
+    );
+    expect(settings.written().importedFrom).toBe('abc123');
   });
 });

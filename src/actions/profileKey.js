@@ -111,18 +111,35 @@ export class ProfileKey extends SingletonAction {
     await repaintAll(await streamDeck.settings.getGlobalSettings());
   }
 
-  /** Property inspector requests: live hardware options, saves, avatars. */
+  /**
+   * Property inspector requests: live hardware options, saves, avatars.
+   *
+   * Replies go through streamDeck.ui, NOT ev.action — the action object has no
+   * sendToPropertyInspector. Calling it there threw after the work had already
+   * been done, so saves landed but the inspector never heard back and sat
+   * waiting forever on a reply that could not arrive.
+   */
   async onSendToPlugin(ev) {
-    const reply = await handlePiRequest(ev.payload, {
-      settings: streamDeck.settings,
-      logger: streamDeck.logger,
-    });
-    await ev.action.sendToPropertyInspector(reply);
+    const request = ev.payload?.request;
+    try {
+      const reply = await handlePiRequest(ev.payload, {
+        settings: streamDeck.settings,
+        logger: streamDeck.logger,
+      });
+      await streamDeck.ui.sendToPropertyInspector(reply);
+      streamDeck.logger.info(`[pi] ${request} -> ${JSON.stringify(reply).slice(0, 200)}`);
 
-    // A save or avatar change alters what the keys should look like.
-    if (['saveProfiles', 'uploadAvatar', 'deleteAvatar'].includes(ev.payload?.request)) {
-      avatarCache.clear();
-      await repaintAll(await streamDeck.settings.getGlobalSettings());
+      // A save or avatar change alters what the keys should look like.
+      if (['saveProfiles', 'uploadAvatar', 'deleteAvatar'].includes(request)) {
+        avatarCache.clear();
+        await repaintAll(await streamDeck.settings.getGlobalSettings());
+      }
+    } catch (err) {
+      // Never leave the inspector hanging: it awaits a reply per request.
+      streamDeck.logger.error(`[pi] ${request} failed: ${err.stack ?? err.message}`);
+      await streamDeck.ui
+        .sendToPropertyInspector({ request, ok: false, error: err.message })
+        .catch(() => {});
     }
   }
 

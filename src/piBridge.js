@@ -115,9 +115,12 @@ export async function handlePiRequest(msg, { settings, logger = console } = {}) 
         ...current,
         profiles: msg.profiles,
         settings: { ...current?.settings, ...msg.settings },
-        // Drop the import marker: once edited here, the editor owns the data
-        // and an unchanged profiles.yaml must not overwrite it on next start.
-        importedFrom: null,
+        // Keep the import marker exactly as it was. It records which YAML we
+        // last imported, so an untouched profiles.yaml still matches and these
+        // edits survive the next start; genuinely editing the YAML changes the
+        // hash and lets the file win again. Clearing it here made every
+        // restart look like a new file and silently re-imported over the top.
+        importedFrom: current?.importedFrom ?? null,
       });
       return { request, ok: true, count: msg.profiles.length };
     }

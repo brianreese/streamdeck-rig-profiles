@@ -91,6 +91,7 @@
       let globals = null;
       let settings = {};
       let draft = [];               // profiles being edited
+      let dirty = false;            // unsaved editor changes
       let providerOptions = {};     // providerId -> [{value,label}]
       const pending = new Map();    // request name -> resolver
 
@@ -211,6 +212,7 @@
         if (Number.isNaN(i) || !field) return;
         const p = draft[i];
 
+        dirty = true;
         if (field === 'name') { p.name = el.value; }
         else if (field === 'color') { p.color = el.value; }
         else if (field === 'restricted') { p.restricted = el.checked; }
@@ -273,6 +275,7 @@
           return;
         }
         errors.hidden = true;
+        dirty = false;
         saved.hidden = false;
         setTimeout(() => { saved.hidden = true; }, 2000);
         send('getGlobalSettings');
@@ -288,10 +291,12 @@
       document.getElementById('cards').addEventListener('change', onEditorInput);
       document.getElementById('cards').addEventListener('click', (e) => {
         if (e.target.dataset.act !== 'remove') return;
+        dirty = true;
         draft.splice(Number(e.target.dataset.i), 1);
         renderCards();
       });
       document.getElementById('add').addEventListener('click', () => {
+        dirty = true;
         draft.push({ id: '', name: 'New profile', color: '#2255cc', restricted: false, providers: {} });
         renderCards();
       });
@@ -309,6 +314,9 @@
       });
 
       async function seedDraft() {
+        // A global-settings broadcast must never discard work in progress —
+        // Stream Deck emits one whenever anything writes, including our own save.
+        if (dirty) return;
         draft = JSON.parse(JSON.stringify(globals?.profiles ?? []));
         for (const p of draft) {
           if (!p.avatar) continue;
