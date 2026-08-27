@@ -41,3 +41,31 @@ must be a name Pit House already knows.
   would fix it and is the main thing worth revisiting.
 - Pit House must be running.
 - If you ever genuinely launch the sacrificed game, its preset applies.
+
+## Hard limitation: no game may be running
+
+Tested directly. While **any** game Pit House knows is running, it ignores
+further game starts for preset purposes — the trigger is silently dropped.
+
+```
+start : Brian Brake Hybrid
+1. launching iRacingSim64DX11.exe   -> iRacing-Brake-SebOne   (its default applied)
+2. launching AssettoCorsa.exe       -> unchanged              (trigger ignored)
+3. trigger exits                    -> unchanged
+4. game exits                       -> unchanged
+```
+
+The same held with an *unbound* game running (Wreckfest), so it is not "the
+first game wins its preset" — it is "a running game blocks any further switch".
+
+### What this means in practice
+
+- **Switch the profile, then launch the game.** Mid-session switching does not
+  work at all.
+- **The games you actually play must have no default preset**, or launching one
+  overrides the profile you just applied. A game with nothing bound to it was
+  confirmed to leave the pedal untouched.
+- Nothing reverts on exit, so once applied the profile persists.
+
+`verify()` catches the mid-session case and reports a mismatch, so a key never
+claims success over an unchanged pedal.

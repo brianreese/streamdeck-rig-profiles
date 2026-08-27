@@ -17,6 +17,20 @@
 // MOZA peripheral — wheelbase, pedals, wheel — because the trigger has nothing
 // to do with the device; Pit House decides what to apply from its own binding.
 //
+// HARD LIMITATION: NO GAME MAY BE RUNNING
+// ---------------------------------------
+// Tested: while ANY game Pit House knows is running, it ignores further game
+// starts for preset purposes. A trigger fired mid-session does nothing — the
+// switch is silently dropped, not delayed.
+//
+// So the workable order is: switch the profile first, then launch the game.
+// And the games actually played must have NO default preset set, or starting
+// one overrides whatever the profile just applied. An unbound game was
+// confirmed to leave the pedal alone.
+//
+// verify() catches the mid-session case, so it fails loudly rather than
+// leaving a key claiming success over an unchanged pedal.
+//
 // SETUP, which is unavoidably manual
 // ----------------------------------
 //   1. In Pit House, bind the preset to a game you will never launch AND use
