@@ -61,3 +61,35 @@ What `0xB3` genuinely does is set the load at which output reaches 100%. Lower
 it and full braking arrives with less pressure — the resistance is unchanged.
 For a child that is arguably the more useful control, but it is not a softer
 pedal and should not be described as one.
+
+## The force limit is not readable — three-point proof
+
+Pit House's right-hand Pedal Feel slider sets `brake_forcelimit_max`, and it is
+unmistakably the control that matters: at 79kg the pedal was too stiff to press
+comfortably, at 43kg it felt normal. The left-hand slider is
+`brake_forcelimit_min`, the pressure required before travel begins.
+
+Neither is reachable by reading the device. Scans were taken at three slider
+positions — 24kg, 79kg and 43kg — sweeping every command id with and without
+selector bytes, and discarding values that drifted between two passes:
+
+```
+keys present and stable in all three scans: 228
+of those, varying across the three:           0
+```
+
+Not one command moved. Also absent from 458 stable values: the literal numbers
+24, 79 and 43 in any plausible encoding, and every point of `forces_curve`.
+
+For the avoidance of a repeat: `0xB3` is **not** the force limit. It reads 50.00
+in all three scans, matching `force_max_coef` in the preset, and did not move
+while the slider went 24 -> 79.
+
+Confirmed unrelated to feel, by testing both extremes at a normal stiffness:
+natural friction (`0xAE`), end-stop stiffness (`0xB2`) and segmented damping
+(`0xB7`) all write and read back correctly but produce no perceptible change.
+
+What remains is to capture what Pit House actually sends. That is now a small
+job rather than a reverse-engineering project, because the frame format is
+already implemented — a capture decodes straight into command ids with
+`src/moza/frame.js`.
