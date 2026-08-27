@@ -13,6 +13,7 @@
 // Verified end to end on a ClubSport DD+.
 
 import { getBus, ACTIONS } from '../mqtt/fanatecBus.js';
+import { ensureServiceRunning } from '../mqtt/fanatecService.js';
 import { STATUS } from './status.js';
 
 export const SLOT_MIN = 1;
@@ -109,12 +110,44 @@ export default {
     return opts;
   },
 
-  async apply(cfg, { bus = getBus() } = {}) {
+  async apply(cfg, ctx = {}) {
+    const { bus = getBus() } = ctx;
     const slot = normaliseSlot(cfg);
     if (slot === null) throw new Error(`setup must be ${SLOT_MIN}-${SLOT_MAX}, got ${cfg?.setup}`);
+
+    // Without FanatecService running, this publish succeeds into a void — the
+    // broker accepts it and nothing applies it. Start the service first; it
+    // runs headless, so this costs nothing when it is already up.
+    let coldStart = false;
+    if (ctx.settings?.fanatecAutoStart !== false) {
+      const svc = await ensureServiceRunning(ctx);
+      if (!svc.ok) throw new Error(svc.reason);
+      coldStart = svc.started;
+      if (svc.started) {
+        // The service takes several seconds to attach to the wheelbase after
+        // launching, and a command sent before then is accepted and ignored.
+        // Wait for it to actually answer rather than guessing a delay — a
+        // fixed 2s was not enough and produced a false "unreachable".
+        await bus.readState({ timeoutMs: ctx.serviceSettleMs ?? 15000 }).catch(() => null);
+      }
+    }
+
     // Payload shape confirmed against the hardware; the Fanatec UI's own model
     // is `TuningSetting{UserSetupIndex: ...}`.
-    await bus.post(ACTIONS.TUNING_INDEX_CHANGED, { UserSetupIndex: slot });
+    //
+    // A freshly started service begins publishing state before it will accept a
+    // tuning change, so the first command after a cold start is silently
+    // dropped. Retry only in that case — a warm switch stays a single publish
+    // and completes in about a tenth of a second.
+    const attempts = coldStart ? 3 : 1;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      await bus.post(ACTIONS.TUNING_INDEX_CHANGED, { UserSetupIndex: slot });
+      if (attempt === attempts) break;
+      const landed = await bus
+        .awaitState((s) => currentSlot(s) === slot, { timeoutMs: 2500 })
+        .catch(() => null);
+      if (landed) break;
+    }
   },
 
   async verify(cfg, { bus = getBus() } = {}) {
@@ -138,7 +171,7 @@ export default {
     if (seen === undefined) {
       return {
         status: STATUS.UNREACHABLE,
-        detail: 'no reply from wheelbase — powered off, or FanatecService not running',
+        detail: 'no reply from wheelbase — is it powered on?',
       };
     }
     return {

@@ -92,7 +92,9 @@ describe('verify', () => {
   it('reports unreachable when the base does not answer', async () => {
     const out = await fanatecBase.verify({ setup: 2 }, { bus: fakeBus(null) });
     expect(out.status).toBe(STATUS.UNREACHABLE);
-    expect(out.detail).toMatch(/powered off|not running/);
+    // The message no longer mentions FanatecService: apply() starts it, so if
+    // there is still no reply the wheelbase itself is the remaining suspect.
+    expect(out.detail).toMatch(/powered on/);
   });
 
   it('does not confirm on an unreadable payload', async () => {
