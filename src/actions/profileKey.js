@@ -73,36 +73,72 @@ export class ProfileKey extends SingletonAction {
 
   onWillDisappear(ev) {
     visible.delete(ev.action.id);
-    const timer = this.#timers.get(ev.action.id);
-    if (timer) clearTimeout(timer);
-    this.#timers.delete(ev.action.id);
+    this.#clear(ev.action.id);
   }
 
-  async onKeyDown(ev) {
-    const settings = await streamDeck.settings.getGlobalSettings();
-    const profile = findProfile(settings, ev.payload.settings?.profileId);
-    if (!profile) return ev.action.showAlert();
+  /**
+   * Note the ordering here: the hold clock starts SYNCHRONOUSLY, before any
+   * await. Fetching global settings is a websocket round-trip, and starting
+   * the timer after it meant a genuine one-second hold released before the
+   * timer had run its course — the key looked dead.
+   */
+  onKeyDown(ev) {
+    const held = { cancelled: false };
+    this.#timers.set(ev.action.id, held);
 
-    if (!profile.restricted) return this.#switch(ev, profile, settings);
+    const startedAt = Date.now();
+    const settingsPromise = streamDeck.settings.getGlobalSettings();
 
-    // Restricted: only a deliberate hold counts.
-    this.#timers.set(
-      ev.action.id,
-      setTimeout(() => {
-        this.#timers.delete(ev.action.id);
+    // Paint the hold filling up so the gate reads as deliberate, not broken.
+    held.tick = setInterval(async () => {
+      if (held.cancelled) return;
+      const profile = findProfile(await settingsPromise, ev.payload.settings?.profileId);
+      if (!profile) return;
+      const progress = Math.min(1, (Date.now() - startedAt) / HOLD_MS);
+      await ev.action.setImage(renderProfileKey({ profile, active: false, holdProgress: progress }));
+    }, 100);
+
+    (async () => {
+      const settings = await settingsPromise;
+      const profile = findProfile(settings, ev.payload.settings?.profileId);
+
+      if (!profile) {
+        this.#clear(ev.action.id);
+        return ev.action.showAlert();
+      }
+
+      if (!profile.restricted) {
+        this.#clear(ev.action.id);
+        return this.#switch(ev, profile, settings);
+      }
+
+      const remaining = Math.max(0, HOLD_MS - (Date.now() - startedAt));
+      held.timer = setTimeout(() => {
+        if (held.cancelled) return;
+        this.#clear(ev.action.id);
         this.#switch(ev, profile, settings);
-      }, HOLD_MS),
-    );
+      }, remaining);
+    })();
   }
 
   async onKeyUp(ev) {
-    const timer = this.#timers.get(ev.action.id);
-    if (timer) {
-      // Released before the hold completed — nothing was applied.
-      clearTimeout(timer);
-      this.#timers.delete(ev.action.id);
-      await ev.action.showAlert();
-    }
+    const held = this.#timers.get(ev.action.id);
+    if (!held) return; // already fired
+    // Released before the hold completed — nothing was applied.
+    this.#clear(ev.action.id);
+    await ev.action.showAlert();
+
+    const settings = await streamDeck.settings.getGlobalSettings();
+    await repaintAll(settings);
+  }
+
+  #clear(id) {
+    const held = this.#timers.get(id);
+    if (!held) return;
+    held.cancelled = true;
+    clearInterval(held.tick);
+    clearTimeout(held.timer);
+    this.#timers.delete(id);
   }
 
   async #switch(ev, profile, settings) {

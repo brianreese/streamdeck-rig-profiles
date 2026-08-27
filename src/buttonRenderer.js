@@ -65,13 +65,38 @@ function dim(hex, amount) {
  * @param {string} [opts.status]       aggregate STATUS when active
  * @param {boolean} [opts.switching]   mid-transition
  * @param {boolean} [opts.unknown]     state could not be read at all
+ * @param {number}  [opts.holdProgress] 0..1 while a restricted key is held
  */
-export function renderProfileKey({ profile, active, status, switching = false, unknown = false }) {
+export function renderProfileKey({
+  profile,
+  active,
+  status,
+  switching = false,
+  unknown = false,
+  holdProgress = null,
+}) {
   const name = escapeXml(profile?.name ?? '');
   const color = profile?.color ?? '#2255CC';
   const avatar = profile?.avatarDataUri;
 
   if (unknown) return svg(unknownKey(name));
+
+  // A hold gate with no feedback is indistinguishable from a broken key, so
+  // show the profile lighting up as the hold completes.
+  if (holdProgress !== null) {
+    const p = Math.max(0, Math.min(1, holdProgress));
+    return svg(
+      bodyKey({
+        name,
+        bg: dim(color, 0.75 - p * 0.75),
+        fg: '#FFFFFF',
+        avatar,
+        fade: 0.4 + p * 0.6,
+        progress: p,
+      }),
+    );
+  }
+
   if (switching) return svg(bodyKey({ name, bg: dim(color, 0.55), fg: '#C8C8C8', avatar, fade: 0.6 }));
 
   if (!active) {
@@ -94,7 +119,7 @@ export function renderProfileKey({ profile, active, status, switching = false, u
   );
 }
 
-function bodyKey({ name, bg, fg, avatar, fade, stripe, dot, swatch }) {
+function bodyKey({ name, bg, fg, avatar, fade, stripe, dot, swatch, progress }) {
   const parts = [`<rect width="${SIZE}" height="${SIZE}" fill="${bg}"/>`];
 
   if (avatar) {
@@ -128,6 +153,12 @@ function bodyKey({ name, bg, fg, avatar, fade, stripe, dot, swatch }) {
 
   if (stripe) {
     parts.push(`<rect x="0" y="${SIZE - 6}" width="${SIZE}" height="6" fill="${stripe}"/>`);
+  }
+  if (progress !== undefined && progress !== null) {
+    parts.push(
+      `<rect x="0" y="${SIZE - 6}" width="${SIZE}" height="6" fill="#000000" opacity="0.5"/>`,
+      `<rect x="0" y="${SIZE - 6}" width="${Math.round(SIZE * progress)}" height="6" fill="#FFFFFF"/>`,
+    );
   }
   return parts.join('');
 }
