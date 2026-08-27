@@ -83,6 +83,23 @@ export class ProfileKey extends SingletonAction {
   }
 
   /**
+   * Keep the visible-key cache in step with the property inspector.
+   *
+   * Without this, a key registered at willAppear with no profile keeps that
+   * stale binding for the rest of the session: pressing it works (the event
+   * payload carries live settings) but every repaint afterwards falls back to
+   * the unassigned image.
+   */
+  async onDidReceiveSettings(ev) {
+    const profileId = ev.payload.settings?.profileId;
+    visible.set(ev.action.id, { action: ev.action, profileId });
+    streamDeck.logger.info(
+      `[profileKey] didReceiveSettings key=${ev.action.id} profileId=${JSON.stringify(profileId)}`,
+    );
+    await repaintAll(await streamDeck.settings.getGlobalSettings());
+  }
+
+  /**
    * Note the ordering here: the hold clock starts SYNCHRONOUSLY, before any
    * await. Fetching global settings is a websocket round-trip, and starting
    * the timer after it meant a genuine one-second hold released before the
@@ -91,6 +108,9 @@ export class ProfileKey extends SingletonAction {
   onKeyDown(ev) {
     const held = { cancelled: false };
     this.#timers.set(ev.action.id, held);
+
+    // The key event carries live settings; trust them over anything cached.
+    visible.set(ev.action.id, { action: ev.action, profileId: ev.payload.settings?.profileId });
 
     const startedAt = Date.now();
     const settingsPromise = streamDeck.settings.getGlobalSettings();
