@@ -6,36 +6,45 @@
 // This file is the one piece that cannot be finished yet, and it is isolated
 // here deliberately so that finishing it touches nothing else.
 //
-// WHAT IS KNOWN
-// -------------
-// MOZA ships an official SDK (https://mozaracing.com/pages/sdk) with native C
-// and C# libraries, and its device support explicitly includes mBooster pedal
-// parameters. The community plugin d-b-c-e/moza-streamdeck-plugin bundles
-// MOZA_API_C.dll / MOZA_API_CSharp.dll / MOZA_SDK.dll and applies motor presets
-// by replaying a preset's deviceParams through the SDK, ~50ms apart.
+// THE OFFICIAL SDK CANNOT DO THIS — checked against SDK 1.0.1.8
+// ------------------------------------------------------------
+// MOZA's SDK page advertises pedal support "including mBooster", which is
+// misleading. `mozaAPI.h` declares 119 functions, of which the *entire* pedal
+// surface is seven settable values:
 //
-// Its C# wrapper imports namespace `mozaAPI` and calls installMozaSDK() /
-// removeMozaSDK() around getters and setters named after the parameter, e.g.
-// getMotorFfbStrength(), setPedalBrakeOutDir().
+//   setPedalBrakeOutDir      setPedalBrakeNonLinear   setPedalBrakePressCombine
+//   setPedalAccOutDir        setPedalAccNonLinear
+//   setPedalClutchOutDir     setPedalClutchNonLinear
+//   (+ calibration start/finish)
 //
-// WHAT IS MISSING
-// ---------------
-// The SDK is not installed on this machine, and the community wrapper only
-// exposes pedal *output direction* — not the ~90 brake_* parameters an
-// mBooster preset actually carries. Writing FFI bindings now would mean
-// inventing function names, so this deliberately reports itself unavailable
-// rather than pretending.
+// An mBooster preset carries ~91 parameters — brake_forcelimit_max,
+// brake_damping_press, brake_abs_amp, brake_forces_curve, brake_stroke_curve
+// and so on. None of them are reachable. There is no generic set-by-name
+// function, and the string "mBooster" does not appear in any header.
+//
+// This also explains the community plugin: it applies *motor* presets only.
+// Not an oversight — the SDK simply cannot carry pedal presets.
+//
+// WHAT PIT HOUSE ACTUALLY DOES (observed via moza-watch.mjs)
+// ---------------------------------------------------------
+// On applying a pedal preset it rewrites, within the same second:
+//   LocalParameters\MBoost\<serial>.json   every changed value
+//   Presets\config.ini                     [LastUsedPreset] <deviceId>=<uuid>
+//
+// LocalParameters entries are plain `{ enabled, value }` — a mirror of applied
+// state, carrying no register or address information, so it is not a shortcut
+// into the wire protocol.
+//
+// The parameters must therefore reach the pedal over MOZA's own device
+// protocol, which runs on the per-device USB serial port (mBooster is
+// VID_346E PID_0008, serial 3f003d001951343132393730).
 //
 // TO FINISH
 // ---------
-//  1. Install the MOZA SDK and point MOZA_SDK_DIR at it (or drop the DLLs in
-//     one of the searched locations below).
-//  2. Read its header for the pedal parameter API. Two shapes are plausible:
-//     a generic setter keyed by parameter name, or one setter per parameter.
-//     A preset's deviceParams keys (brake_forcelimit_max, brake_damping_press,
-//     …) are the names to map onto.
-//  3. Bind MOZA_API_C.dll with koffi (prebuilt; no compiler needed) and
-//     implement applyParams() below.
+// Capture the COM traffic while a preset is applied by hand in Pit House, and
+// reproduce the frames. That is the same method that cracked the Fanatec
+// wheelbase, and it is the only route left — Boxflat (open source, Linux) is
+// the best existing reference for MOZA's serial framing.
 
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -80,8 +89,10 @@ export function backendStatus(env = process.env) {
     available: false,
     sdkPath,
     reason:
-      `Found ${SDK_DLL} but the pedal parameter bindings are not written yet — ` +
-      'the SDK header is needed to map preset deviceParams onto SDK calls.',
+      `Found ${SDK_DLL}, but its pedal API exposes only output direction, ` +
+      'non-linearity and pressure-combine — none of the ~91 mBooster preset ' +
+      'parameters. The SDK cannot apply pedal presets; the device serial ' +
+      'protocol is required.',
   };
 }
 
