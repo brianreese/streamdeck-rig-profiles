@@ -80,6 +80,7 @@ export function renderProfileKey({
   const avatar = profile?.avatarDataUri;
 
   if (unknown) return svg(unknownKey(name));
+  if (!profile) return svg(unconfiguredKey());
 
   // A hold gate with no feedback is indistinguishable from a broken key, so
   // show the profile lighting up as the hold completes.
@@ -161,6 +162,27 @@ function bodyKey({ name, bg, fg, avatar, fade, stripe, dot, swatch, progress }) 
     );
   }
   return parts.join('');
+}
+
+/**
+ * A key with no profile assigned yet.
+ *
+ * This has to be visibly distinct rather than falling back to the manifest
+ * icon: an unassigned key that looks identical to a working one is how a
+ * silently-unset dropdown went unnoticed until a press did nothing.
+ */
+function unconfiguredKey() {
+  return (
+    `<rect width="${SIZE}" height="${SIZE}" fill="#1E1E1E"/>` +
+    `<rect x="6" y="6" width="${SIZE - 12}" height="${SIZE - 12}" rx="8" fill="none" ` +
+    `stroke="#E8A317" stroke-width="3" stroke-dasharray="8 6"/>` +
+    `<text x="${SIZE / 2}" y="${SIZE / 2 - 10}" font-family="sans-serif" font-size="44" ` +
+    `font-weight="bold" fill="#E8A317" text-anchor="middle" dominant-baseline="central">!</text>` +
+    `<text x="${SIZE / 2}" y="${SIZE - 30}" font-family="sans-serif" font-size="14" ` +
+    `font-weight="600" fill="#E8A317" text-anchor="middle">Pick a</text>` +
+    `<text x="${SIZE / 2}" y="${SIZE - 14}" font-family="sans-serif" font-size="14" ` +
+    `font-weight="600" fill="#E8A317" text-anchor="middle">profile</text>`
+  );
 }
 
 function unknownKey(name) {

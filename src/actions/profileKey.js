@@ -38,7 +38,9 @@ async function repaintAll(settings) {
   await Promise.all(
     [...visible.values()].map(({ action, profileId }) => {
       const profile = findProfile(settings, profileId);
-      if (!profile) return Promise.resolve();
+      // Paint unassigned keys too — leaving the manifest icon in place makes
+      // an unconfigured key look identical to a working one.
+      if (!profile) return action.setImage(renderProfileKey({ profile: null, active: false }));
       return action.setImage(
         renderProfileKey({
           profile,
@@ -59,6 +61,10 @@ export class ProfileKey extends SingletonAction {
     const settings = await streamDeck.settings.getGlobalSettings();
     const profileId = ev.payload.settings?.profileId;
     visible.set(ev.action.id, { action: ev.action, profileId });
+    streamDeck.logger.info(
+      `[profileKey] willAppear key=${ev.action.id} profileId=${JSON.stringify(profileId)} ` +
+        `knownProfiles=${(settings?.profiles ?? []).map((p) => p.id).join(',') || 'none'}`,
+    );
 
     if (!hydrated) {
       hydrated = true;
@@ -100,10 +106,19 @@ export class ProfileKey extends SingletonAction {
 
     (async () => {
       const settings = await settingsPromise;
-      const profile = findProfile(settings, ev.payload.settings?.profileId);
+      const wanted = ev.payload.settings?.profileId;
+      const profile = findProfile(settings, wanted);
+
+      streamDeck.logger.info(
+        `[profileKey] keyDown key=${ev.action.id} profileId=${JSON.stringify(wanted)} ` +
+          `resolved=${profile ? profile.name : 'NONE'} restricted=${profile?.restricted ?? '-'}`,
+      );
 
       if (!profile) {
         this.#clear(ev.action.id);
+        streamDeck.logger.warn(
+          `[profileKey] this key has no profile assigned — pick one in the property inspector`,
+        );
         return ev.action.showAlert();
       }
 
@@ -123,6 +138,9 @@ export class ProfileKey extends SingletonAction {
 
   async onKeyUp(ev) {
     const held = this.#timers.get(ev.action.id);
+    streamDeck.logger.info(
+      `[profileKey] keyUp key=${ev.action.id} pending=${Boolean(held)}`,
+    );
     if (!held) return; // already fired
     // Released before the hold completed — nothing was applied.
     this.#clear(ev.action.id);

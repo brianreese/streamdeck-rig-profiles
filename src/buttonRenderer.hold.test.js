@@ -29,3 +29,19 @@ describe('hold feedback', () => {
     expect(svg).not.toContain('y="138"');
   });
 });
+
+describe('unconfigured key', () => {
+  it('renders a distinct "pick a profile" key when none is assigned', () => {
+    const svg = svgOf(renderProfileKey({ profile: null, active: false }));
+    expect(svg).toContain('Pick a');
+    expect(svg).toContain('profile');
+    expect(svg).toContain('#E8A317');
+  });
+
+  it('does not look like a working profile key', () => {
+    const unset = svgOf(renderProfileKey({ profile: null, active: false }));
+    const set = svgOf(renderProfileKey({ profile, active: false }));
+    expect(unset).not.toBe(set);
+    expect(unset).not.toContain('#2255CC');
+  });
+});

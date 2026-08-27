@@ -10,8 +10,9 @@
       }
       .row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
       label { flex: 0 0 92px; text-align: right; color: #969696; }
-      select, input { flex: 1; background: #3d3d3d; color: #d8d8d8;
+      select { flex: 1; background: #3d3d3d; color: #d8d8d8;
         border: 1px solid #4d4d4d; border-radius: 4px; padding: 4px 6px; }
+      select.unset { border-color: #e8a317; }
       .hint { margin-left: 100px; color: #7a7a7a; font-size: 11px; }
       .warn { margin-left: 100px; color: #e8a317; font-size: 11px; }
     </style>
@@ -28,72 +29,96 @@
       // Hand-rolled property inspector against the documented SDK v2 socket
       // contract. No component library: the plugin has no build step, and the
       // page must work offline with no CDN.
-      let ws, uuid, actionInfo;
+      let ws, uuid;
+      let globals = null;
+      let settings = {};
 
       function send(event, payload) {
         if (ws?.readyState !== 1) return;
         ws.send(JSON.stringify({ event, context: uuid, payload }));
       }
 
-      const setSettings = (payload) =>
-        ws.send(JSON.stringify({ event: 'setSettings', context: uuid, payload }));
+      function saveSettings(next) {
+        settings = { ...settings, ...next };
+        ws.send(JSON.stringify({ event: 'setSettings', context: uuid, payload: settings }));
+      }
 
-      function render(globals, settings) {
+      function render() {
         const select = document.getElementById('profile');
+        const summary = document.getElementById('summary');
+        const warn = document.getElementById('warn');
         const profiles = globals?.profiles ?? [];
         const chosen = settings?.profileId ?? '';
 
         if (!profiles.length) {
           select.innerHTML = '<option value="">No profiles configured yet</option>';
-          document.getElementById('summary').textContent =
-            'Add profiles in the Rig Profiles plugin settings first.';
+          summary.textContent = 'Edit config/profiles.yaml, then restart Stream Deck.';
           return;
         }
 
-        select.innerHTML = profiles
-          .map(
-            (p) =>
-              `<option value="${p.id}" ${p.id === chosen ? 'selected' : ''}>${p.name}</option>`,
-          )
-          .join('');
+        // A placeholder is essential when nothing is saved. Without it the
+        // browser shows the first profile as though it were selected, the user
+        // never fires a change event, and the key stays silently unassigned —
+        // looking configured while doing nothing on press.
+        const placeholder = chosen
+          ? ''
+          : '<option value="" selected>— Select a profile —</option>';
 
-        const active = profiles.find((p) => p.id === chosen);
-        const warn = document.getElementById('warn');
-        // Surfaced by the migration: the old FanaLab hotkey has no wheelbase
-        // slot equivalent, so the user has to pick one.
-        if (active?.needsWheelbaseSetup) {
-          warn.hidden = false;
-          warn.textContent = 'This profile still needs a wheelbase setup slot.';
-        } else {
+        select.innerHTML =
+          placeholder +
+          profiles
+            .map(
+              (p) =>
+                `<option value="${p.id}"${p.id === chosen ? ' selected' : ''}>${p.name}</option>`,
+            )
+            .join('');
+        select.classList.toggle('unset', !chosen);
+
+        if (!chosen) {
+          summary.textContent = 'This key does nothing until you pick a profile.';
           warn.hidden = true;
+          return;
         }
 
+        const active = profiles.find((p) => p.id === chosen);
         const providers = Object.keys(active?.providers ?? {});
-        document.getElementById('summary').textContent = providers.length
-          ? `Applies: ${providers.join(', ')}`
+        summary.textContent = providers.length
+          ? `Applies: ${providers.join(', ')}${active.restricted ? ' — hold to activate' : ''}`
           : 'This profile does not configure any hardware yet.';
+
+        // Surfaced by the migration: a legacy FanaLab hotkey has no wheelbase
+        // slot equivalent, so the user has to pick one.
+        warn.hidden = !active?.needsWheelbaseSetup;
+        warn.textContent = 'This profile still needs a wheelbase setup slot.';
       }
 
       document.getElementById('profile').addEventListener('change', (e) => {
-        setSettings({ profileId: e.target.value });
-        send('getGlobalSettings');
+        saveSettings({ profileId: e.target.value });
+        render();
       });
 
-      // eslint-disable-next-line no-unused-vars
       function connectElgatoStreamDeckSocket(port, propertyInspectorUUID, registerEvent, info, actionInfoJson) {
         uuid = propertyInspectorUUID;
-        actionInfo = JSON.parse(actionInfoJson);
+        settings = JSON.parse(actionInfoJson)?.payload?.settings ?? {};
         ws = new WebSocket(`ws://127.0.0.1:${port}`);
 
         ws.onopen = () => {
           ws.send(JSON.stringify({ event: registerEvent, uuid }));
           send('getGlobalSettings');
+          send('getSettings');
         };
 
         ws.onmessage = (evt) => {
           const msg = JSON.parse(evt.data);
           if (msg.event === 'didReceiveGlobalSettings') {
-            render(msg.payload.settings, actionInfo.payload.settings);
+            globals = msg.payload.settings;
+            render();
+          }
+          // Track the live per-key settings rather than the actionInfo snapshot,
+          // which goes stale the moment anything is saved.
+          if (msg.event === 'didReceiveSettings') {
+            settings = msg.payload.settings ?? {};
+            render();
           }
         };
       }
