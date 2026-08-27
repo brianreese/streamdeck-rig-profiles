@@ -265,7 +265,7 @@ Realistically this is a larger job than the Fanatec provider was, and the
 "apply a named preset" semantic does not exist at device level — expect to be
 applying parameter sets, with weaker verification.
 
-## 7. MOZA workaround — game-binding stand-in process (WORKS)
+## 7. MOZA workaround — game-binding stand-in process (SHIPPED, VERIFIED)
 
 Two experiments, 2026-08-27.
 
@@ -347,3 +347,22 @@ only real cost is that if you ever DO play that game, its bound preset applies.
   games that already carry a `program` so the file is never touched.
 - This does not replace the serial protocol work (section 6) — it is a
   workaround that happens to be reliable and cheap.
+
+
+### End-to-end confirmation (2026-08-27)
+
+With "Brian Brake Hybrid" set as the Game Default Preset for Assetto Corsa,
+running the profile through the real orchestrator:
+
+
+
+The full chain works and reports honestly: profile -> provider -> stand-in
+process -> Pit House -> pedal -> read-back from config.ini.
+
+The operative setup step is **Set as Game Default Preset**, not merely binding.
+An earlier run with the preset bound but not defaulted applied GTR1994-Default
+instead, and verify() caught it.
+
+Each profile therefore needs its own trigger game, each with that profile's
+preset set as the game default. Any game works — including ones with dozens of
+other presets bound — because the default slot is single-occupancy.
