@@ -50,7 +50,8 @@ export default {
         // to the profile colour, which is not implemented — the editor let it
         // be chosen and the save was then refused. Turn Govee off for a profile
         // that should not touch the lights.
-        help: 'Which Govee scene this profile activates.',
+        // Shown on profiles and on scenes alike, so it must not say either.
+        help: 'Which Govee scene to activate.',
       },
     ];
   },

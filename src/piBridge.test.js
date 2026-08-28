@@ -3,7 +3,7 @@ import { mkdtempSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import yaml from 'js-yaml';
-import { handlePiRequest, validateProfiles, profilesToYaml } from './piBridge.js';
+import { handlePiRequest, validateProfiles, validateScenes, profilesToYaml } from './piBridge.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar, MAX_BYTES } from './avatars.js';
 import { _resetForTesting } from './providers/index.js';
 
@@ -70,6 +70,154 @@ describe('saveProfiles', () => {
 
 });
 
+describe('validateScenes', () => {
+  const validScene = (over = {}) => ({
+    id: 'sunset', name: 'Sunset', color: '#7C5CFF',
+    providers: { govee: { scene: 'Sunset' } }, ...over,
+  });
+
+  it('accepts a well-formed scene', () => {
+    expect(validateScenes([validScene()]).ok).toBe(true);
+  });
+
+  it('holds a scene to the same structural rules as a profile', () => {
+    expect(validateScenes([validScene({ color: 'violet' })]).ok).toBe(false);
+    expect(validateScenes([validScene({ name: '  ' })]).ok).toBe(false);
+    expect(validateScenes([validScene(), validScene({ name: 'Sunset 2' })]).ok).toBe(false);
+  });
+
+  it('applies each provider validate() to scene config exactly as to a profile', () => {
+    const bad = validScene({ providers: { 'fanatec-base': { setup: 99 } } });
+    const { ok, errors } = validateScenes([bad]);
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/wheelbase setup must be 1-5/);
+  });
+
+  it('refuses a restricted scene — a hold gate in front of nothing', () => {
+    // A scene never writes the shared active-profile state, so it cannot hand
+    // a child full force feedback and has nothing to gate. Storing the flag
+    // would also suggest scenes carry the authority profiles do.
+    const { ok, errors } = validateScenes([validScene({ restricted: true })]);
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/nothing to gate/);
+  });
+
+  it('rejects a scene list that is not a list', () => {
+    expect(validateScenes(undefined).ok).toBe(false);
+  });
+});
+
+describe('scene references on a profile', () => {
+  it('accepts a profile referencing a scene that exists', () => {
+    const p = validProfile({ scenes: ['sunset'] });
+    expect(validateProfiles([p], { sceneIds: ['sunset'] }).ok).toBe(true);
+  });
+
+  it('refuses a profile referencing a scene that does not', () => {
+    // Not cosmetic: the runtime skips the missing scene with a log line nobody
+    // reads, so the lights quietly do not come on.
+    const p = validProfile({ scenes: ['gone'] });
+    const { ok, errors } = validateProfiles([p], { sceneIds: ['sunset'] });
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/references a scene that does not exist \("gone"\)/);
+  });
+
+  it('does not check references at all when no scene list is given', () => {
+    // A caller that only has profiles to hand must not be made to invent an
+    // empty scene list, which would reject every reference.
+    expect(validateProfiles([validProfile({ scenes: ['sunset'] })]).ok).toBe(true);
+  });
+});
+
+describe('saveProfiles with scenes', () => {
+  const aScene = { id: 'sunset', name: 'Sunset', color: '#7C5CFF', providers: {} };
+
+  it('stores scenes as a sibling of profiles', async () => {
+    const settings = fakeSettings({ profiles: [] });
+    const reply = await handlePiRequest(
+      { request: 'saveProfiles', profiles: [validProfile()], scenes: [aScene] },
+      { settings, logger: silent },
+    );
+    expect(reply.ok).toBe(true);
+    expect(settings.written().scenes).toEqual([aScene]);
+    expect(settings.written().profiles).toHaveLength(1);
+  });
+
+  it('carries stored scenes through a save that does not mention them', async () => {
+    // The property inspector knows nothing about scenes. Its save must not be
+    // able to erase them.
+    const settings = fakeSettings({ profiles: [], scenes: [aScene] });
+    await handlePiRequest(
+      { request: 'saveProfiles', profiles: [validProfile()] },
+      { settings, logger: silent },
+    );
+    expect(settings.written().scenes).toEqual([aScene]);
+  });
+
+  it('refuses the whole save when a scene is malformed, leaving both lists alone', async () => {
+    const settings = fakeSettings({ profiles: [validProfile()], scenes: [aScene] });
+    const reply = await handlePiRequest(
+      {
+        request: 'saveProfiles',
+        profiles: [validProfile({ name: 'Renamed' })],
+        scenes: [{ ...aScene, color: 'violet' }],
+      },
+      { settings, logger: silent },
+    );
+    expect(reply.ok).toBe(false);
+    expect(reply.sceneErrors.join()).toMatch(/colour/);
+    expect(settings.written().profiles[0].name).toBe('Kai');
+    expect(settings.written().scenes).toEqual([aScene]);
+  });
+
+  it('validates a profile reference against the scenes in the same request', async () => {
+    // One request, so the pair is judged together — there is no window where a
+    // stored profile names a scene that has not been written yet.
+    const settings = fakeSettings({ profiles: [] });
+    const reply = await handlePiRequest(
+      {
+        request: 'saveProfiles',
+        profiles: [validProfile({ scenes: ['sunset'] })],
+        scenes: [aScene],
+      },
+      { settings, logger: silent },
+    );
+    expect(reply.ok).toBe(true);
+    expect(settings.written().profiles[0].scenes).toEqual(['sunset']);
+  });
+
+  it('reports profile and scene problems separately, so the editor can place them', async () => {
+    const settings = fakeSettings({ profiles: [] });
+    const reply = await handlePiRequest(
+      {
+        request: 'saveProfiles',
+        profiles: [validProfile({ scenes: ['nope'] })],
+        scenes: [aScene],
+      },
+      { settings, logger: silent },
+    );
+    expect(reply.ok).toBe(false);
+    expect(reply.errors.join()).toMatch(/references a scene/);
+    expect(reply.sceneErrors).toEqual([]);
+  });
+
+  it('lists scenes back to the editor', async () => {
+    const reply = await handlePiRequest(
+      { request: 'getProfiles' },
+      { settings: fakeSettings({ profiles: [], scenes: [aScene] }), logger: silent },
+    );
+    expect(reply.scenes).toEqual([aScene]);
+  });
+
+  it('returns an empty scene list rather than undefined on a config that predates scenes', async () => {
+    const reply = await handlePiRequest(
+      { request: 'getProfiles' },
+      { settings: fakeSettings({ profiles: [validProfile()] }), logger: silent },
+    );
+    expect(reply.scenes).toEqual([]);
+  });
+});
+
 describe('provider options', () => {
   it('returns an empty list rather than throwing when hardware is absent', async () => {
     const reply = await handlePiRequest(
@@ -99,6 +247,26 @@ describe('profilesToYaml', () => {
     });
     const out = yaml.load(profilesToYaml({ profiles: [exotic], settings: {} }));
     expect(out.profiles[0].providers['warp-drive']).toEqual({ coils: 3, mode: 'cruise' });
+  });
+
+  it('exports scenes and the profile references that name them', () => {
+    // A committed YAML that has the references but not the scenes is a file
+    // describing profiles that do less than they say.
+    const out = yaml.load(profilesToYaml({
+      profiles: [validProfile({ scenes: ['sunset'] })],
+      scenes: [{ id: 'sunset', name: 'Sunset', color: '#7C5CFF', providers: { govee: { scene: 'Sunset' } } }],
+      settings: {},
+    }));
+    expect(out.profiles[0].scenes).toEqual(['sunset']);
+    expect(out.scenes[0]).toMatchObject({
+      id: 'sunset', name: 'Sunset', providers: { govee: { scene: 'Sunset' } },
+    });
+  });
+
+  it('omits the scenes key entirely when there are none', () => {
+    const out = yaml.load(profilesToYaml({ profiles: [validProfile()], settings: {} }));
+    expect(out.scenes).toBeUndefined();
+    expect(out.profiles[0].scenes).toBeUndefined();
   });
 
   it('omits the providers key entirely when a profile configures nothing', () => {

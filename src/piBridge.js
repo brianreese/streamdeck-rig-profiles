@@ -17,7 +17,7 @@
 import yaml from 'js-yaml';
 import { getProvider, allProviders, STATUS } from './providers/index.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar } from './avatars.js';
-import { renderProfileKey } from './buttonRenderer.js';
+import { renderProfileKey, renderSceneKey } from './buttonRenderer.js';
 import { _resetForTesting as resetGoveeCatalog } from './providers/govee.js';
 
 /** Turn a stored profile list into the legacy-shaped YAML we can re-import. */
@@ -29,11 +29,25 @@ export function profilesToYaml(globals) {
     // Dump the providers map verbatim rather than translating known keys:
     // a provider added later must round-trip without touching this function.
     if (Object.keys(p.providers ?? {}).length) out.providers = p.providers;
+    // The scenes this profile also runs, by id. Emitted after providers because
+    // that is the order they apply in: the profile's own hardware first, the
+    // referenced scenes filling in what it did not set.
+    if (p.scenes?.length) out.scenes = p.scenes;
+    return out;
+  });
+
+  // Scenes are exported so a committed YAML is a complete picture. A profile
+  // referencing a scene the file does not contain is a profile that does less
+  // than it says, and leaving them out would make that the normal case.
+  const scenes = (globals?.scenes ?? []).map((s) => {
+    const out = { id: s.id, name: s.name, color: s.color };
+    if (Object.keys(s.providers ?? {}).length) out.providers = s.providers;
     return out;
   });
 
   return yaml.dump({
     profiles,
+    ...(scenes.length ? { scenes } : {}),
     settings: {
       default_profile: globals?.settings?.defaultProfile ?? profiles[0]?.id ?? null,
       // The Govee API key is deliberately NOT exported. Export exists so this
@@ -45,16 +59,22 @@ export function profilesToYaml(globals) {
 }
 
 /**
- * Validate a profile list coming from the editor.
- * Returns { ok, errors } — the caller refuses to save when not ok, because a
- * malformed profile means a key that silently does nothing.
+ * The rules a profile and a scene share, which is everything structural.
+ *
+ * Both are `{ id, name, color, providers }`, so both need an id that can be a
+ * config key, a name a human can find it by, a colour the renderer will not
+ * choke on, and provider config each provider agrees to. The differences
+ * between the two are semantic and live in the callers below.
+ *
+ * @param {object[]} records
+ * @param {string} noun         what to call one of these in an error
+ * @returns {string[]} errors, each prefixed `<name or id>: `
  */
-export function validateProfiles(profiles) {
+function validateRecords(records, noun) {
   const errors = [];
-  if (!Array.isArray(profiles)) return { ok: false, errors: ['profiles must be a list'] };
-
   const seen = new Set();
-  for (const [i, p] of profiles.entries()) {
+
+  for (const [i, p] of records.entries()) {
     const where = p?.name || p?.id || `#${i + 1}`;
     if (!p?.id || !/^[a-z0-9_-]+$/i.test(p.id)) {
       errors.push(`${where}: id must be letters, numbers, dashes or underscores`);
@@ -69,12 +89,77 @@ export function validateProfiles(profiles) {
     for (const [providerId, cfg] of Object.entries(p?.providers ?? {})) {
       const provider = getProvider(providerId);
       if (!provider) continue; // unknown ids are tolerated: config outlives code
-      // Each provider owns its own rules; the core knows none of them.
+      // Each provider owns its own rules; the core knows none of them, and a
+      // scene's provider config is judged by exactly the same rules as a
+      // profile's — a Govee scene with no scene selected is broken either way.
       for (const problem of provider.validate?.(cfg) ?? []) {
         errors.push(`${where}: ${problem}`);
       }
     }
   }
+  return errors;
+}
+
+/**
+ * Validate a profile list coming from the editor.
+ * Returns { ok, errors } — the caller refuses to save when not ok, because a
+ * malformed profile means a key that silently does nothing.
+ *
+ * @param {object[]} profiles
+ * @param {object} [opts]
+ * @param {string[]} [opts.sceneIds]  ids that exist in the scene list. When
+ *   given, a profile naming a scene outside it is an error. Omitted means "do
+ *   not check", which keeps a caller that only has profiles to hand honest
+ *   rather than making it invent an empty scene list and reject every
+ *   reference.
+ */
+export function validateProfiles(profiles, { sceneIds } = {}) {
+  if (!Array.isArray(profiles)) return { ok: false, errors: ['profiles must be a list'] };
+
+  const errors = validateRecords(profiles, 'profile');
+
+  // A dangling reference is not cosmetic: the profile claims to run a scene and
+  // the runtime skips it with a log line nobody reads, so the lights quietly do
+  // not come on. Refusing the save is what stops that shipping. The editor
+  // detaches references when a scene is deleted, so reaching this normally
+  // means a hand-edited config.
+  if (Array.isArray(sceneIds)) {
+    const known = new Set(sceneIds);
+    for (const [i, p] of profiles.entries()) {
+      const where = p?.name || p?.id || `#${i + 1}`;
+      for (const ref of p?.scenes ?? []) {
+        if (!known.has(ref)) errors.push(`${where}: references a scene that does not exist ("${ref}")`);
+      }
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+/**
+ * Validate a scene list coming from the editor.
+ *
+ * Structurally identical to a profile, with one rule of its own: a scene must
+ * not carry `restricted`. The hold gate exists so a child cannot press a key
+ * and be handed full force feedback; a scene cannot hand them anything, because
+ * it never writes the shared active-profile state that decides what they are
+ * allowed to launch. A `restricted` scene would therefore be a gate in front of
+ * nothing, and — worse — would read to the next person as though scenes carried
+ * the same authority profiles do. Rejecting it keeps the two concepts apart in
+ * the stored data, not just in the editor.
+ */
+export function validateScenes(scenes) {
+  if (!Array.isArray(scenes)) return { ok: false, errors: ['scenes must be a list'] };
+
+  const errors = validateRecords(scenes, 'scene');
+
+  for (const [i, s] of scenes.entries()) {
+    const where = s?.name || s?.id || `#${i + 1}`;
+    if (s?.restricted) {
+      errors.push(`${where}: a scene has nothing to gate, so it cannot be "hold to switch"`);
+    }
+  }
+
   return { ok: errors.length === 0, errors };
 }
 
@@ -97,6 +182,11 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       return {
         request,
         profiles: current?.profiles ?? [],
+        // Sent alongside rather than behind a request of its own: the editor
+        // cannot draw a profile's scene references without the scene list, so
+        // fetching them separately would only add a state where the page has
+        // half its draft.
+        scenes: current?.scenes ?? [],
         settings: {
           ...current?.settings,
           // Same rule as getSettings: the key is never echoed to a page.
@@ -143,13 +233,33 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       }
     }
 
+    // Profiles and scenes save together, in one request, deliberately.
+    //
+    // They are not independent: a profile references scenes by id, so writing
+    // the two halves separately opens a window where a saved profile names a
+    // scene that has not been stored yet. One request means one validation of
+    // the pair and one write, and a rejected save leaves BOTH lists exactly as
+    // they were — which is what lets the editor autosave at all.
+    //
+    // `scenes` is optional. A caller that only knows about profiles (the
+    // property inspector, an older page held in a stale tab) omits it and the
+    // stored scenes are carried through untouched rather than erased.
     case 'saveProfiles': {
-      const { ok, errors } = validateProfiles(msg.profiles);
-      if (!ok) return { request, ok: false, errors };
       const current = await settings.getGlobalSettings();
+      const scenes = msg.scenes ?? current?.scenes ?? [];
+
+      if (msg.scenes) {
+        const sceneCheck = validateScenes(msg.scenes);
+        if (!sceneCheck.ok) return { request, ok: false, errors: [], sceneErrors: sceneCheck.errors };
+      }
+
+      const { ok, errors } = validateProfiles(msg.profiles, { sceneIds: scenes.map((s) => s.id) });
+      if (!ok) return { request, ok: false, errors, sceneErrors: [] };
+
       await settings.setGlobalSettings({
         ...current,
         profiles: msg.profiles,
+        scenes,
         settings: { ...current?.settings, ...msg.settings },
         // Keep the import marker exactly as it was. It records which YAML we
         // last imported, so an untouched profiles.yaml still matches and these
@@ -158,7 +268,7 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         // restart look like a new file and silently re-imported over the top.
         importedFrom: current?.importedFrom ?? null,
       });
-      return { request, ok: true, count: msg.profiles.length };
+      return { request, ok: true, count: msg.profiles.length, sceneCount: scenes.length };
     }
 
     case 'uploadAvatar': {
@@ -198,6 +308,24 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         // Worth previewing, because it is the one the kids see most.
         busy: renderProfileKey({ profile, active: false, switching: true, dotFrame: 1 }),
         on: renderProfileKey({ profile, active: true, status: STATUS.VERIFIED }),
+      };
+    }
+
+    // A scene has neither of the profile's states, so it gets its own preview
+    // rather than borrowing a look that would claim something untrue.
+    case 'previewSceneKey': {
+      const draft = msg.scene ?? {};
+      const scene = {
+        name: String(draft.name ?? '').slice(0, 40),
+        // The page is untrusted input and the renderer drops an unrecognised
+        // colour straight into the SVG, so it is filtered here at the boundary.
+        color: /^#[0-9a-f]{6}$/i.test(draft.color ?? '') ? draft.color : '#2255CC',
+        avatarDataUri: loadAvatarDataUri(draft.avatar) ?? undefined,
+      };
+      return {
+        request,
+        idle: renderSceneKey({ scene }),
+        running: renderSceneKey({ scene, running: true, dotFrame: 1 }),
       };
     }
 

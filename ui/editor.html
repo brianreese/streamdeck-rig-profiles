@@ -31,6 +31,14 @@
         --amber: #e3b341;
         --red: #f16a60;
 
+        /* Scenes get their own accent, and it is not decoration. A profile and
+           a scene are the same shape and behave completely differently — one
+           says who is at the rig, the other flashes some lights — so the
+           editor never lets you be unsure which one is under the cursor. The
+           segmented control says it in words; the violet says it at a glance. */
+        --scene: #a077ff;
+        --scene-deep: #7a4fe0;
+
         --r: 10px;
         --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
       }
@@ -85,6 +93,29 @@
       .rail-group > h4 {
         margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
         text-transform: uppercase; color: var(--faint);
+      }
+
+      /* --------------------------------------------------- kind selector */
+      /* One list at a time, and a permanent label saying which. Two stacked
+         lists were the alternative and were rejected: with both on screen the
+         only thing distinguishing "delete this profile" from "delete this
+         scene" is which heading you scrolled past, and these two do not
+         deserve to be told apart by memory. */
+      .seg {
+        display: flex; gap: 2px; margin: 0 12px 8px; padding: 2px;
+        background: #202227; border: 1px solid var(--hair); border-radius: 9px;
+      }
+      .seg button {
+        flex: 1; background: none; border: 1px solid transparent; color: var(--dim);
+        padding: 6px 8px; border-radius: 7px; font: inherit; font-size: 12.5px;
+        font-weight: 600; cursor: pointer;
+      }
+      .seg button:hover { background: #292c32; color: var(--fg); }
+      .seg button.on { background: var(--accent-deep); border-color: #3f7ae8; color: #fff; }
+      .seg button.on[data-kind="scenes"] { background: var(--scene-deep); border-color: #8d63ea; }
+      /* The one line that explains the difference, where the choice is made. */
+      .segnote {
+        padding: 0 13px 10px; color: var(--faint); font-size: 11.5px; line-height: 1.45;
       }
 
       /* ---------------------------------------------------- profile list */
@@ -293,6 +324,52 @@
         border: 1px solid #3a3d44; background: #1b1d21; flex: 0 0 auto;
       }
 
+      /* ------------------------------------------------------------ scenes */
+      /* While a scene is what is being edited, everything that is "this thing"
+         carries the scene accent: the selected row, the card edges, the plus on
+         the add buttons. Nothing moves, nothing is renamed — only the colour
+         changes, which is enough to make a mis-click on the wrong list obvious
+         before it is made. */
+      body.scenemode #list li.sel { background: #302747; border-color: #55408a; }
+      body.scenemode .hw::before { background: var(--scene-deep); }
+      body.scenemode .addbtn .plus { color: var(--scene); }
+      body.scenemode .cfglink { color: var(--scene); }
+      body.scenemode .cfglink:hover { background: rgba(160, 119, 255, 0.14); }
+      body.scenemode #pane h2::after {
+        content: "Scene"; margin-left: 10px; vertical-align: 3px;
+        font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+        color: var(--scene); border: 1px solid #55408a; border-radius: 20px;
+        padding: 2px 8px; background: rgba(160, 119, 255, 0.1);
+      }
+
+      /* One row per scene a profile can also run. A label, so the whole row is
+         the hit target rather than a 16px box. */
+      .scenepick {
+        display: flex; align-items: center; gap: 10px; padding: 7px 8px;
+        border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+      }
+      .scenepick:hover { background: #282b31; }
+      .scenepick.on { background: #2a2440; border-color: #453567; }
+      .scenepick .who { flex: 1; min-width: 0; }
+      .scenepick .who b { display: block; font-weight: 600; font-size: 13px; }
+      .scenepick .who span { display: block; color: var(--faint); font-size: 11px; }
+      .scenepick.dim { opacity: 0.5; cursor: default; }
+      .scenepick.dim:hover { background: none; }
+      /* A scene that would set hardware the profile already sets itself. The
+         runtime keeps the profile's, which is right and invisible — so say so. */
+      .clash { color: var(--amber); font-size: 11px; display: block; }
+
+      /* Profiles that reference the scene on screen, so deleting it is never a
+         guess about what else it would take with it. */
+      .users { display: flex; flex-wrap: wrap; gap: 6px; }
+      .userchip {
+        display: flex; align-items: center; gap: 7px; background: #212328;
+        border: 1px solid var(--hair); border-radius: 20px; padding: 3px 11px 3px 4px;
+        font-size: 12px; color: var(--fg); cursor: pointer; font-family: inherit;
+      }
+      .userchip:hover { background: #2b2e35; border-color: #464a53; }
+      .userchip .swatch { width: 20px; height: 20px; border-radius: 6px; font-size: 10px; }
+
       /* ----------------------------------------------------------- issues */
       #issues:empty { display: none; }
       .issues {
@@ -337,9 +414,14 @@
     <main>
       <aside id="railLeft">
         <div class="rail-head">
-          <span class="rail-title">Profiles</span>
+          <span class="rail-title" id="railTitle">Profiles</span>
           <button id="add" title="Create a new profile">+ New</button>
         </div>
+        <div class="seg" id="seg">
+          <button data-kind="profiles" class="on">Profiles</button>
+          <button data-kind="scenes">Scenes</button>
+        </div>
+        <div class="segnote" id="segnote"></div>
         <div class="pad">
           <input type="search" id="search" placeholder="Search profiles" autocomplete="off" />
         </div>
@@ -375,21 +457,50 @@
       // Dynamic rather than plain imports so the token travels with them: every
       // route on this server takes the same key, with no exception to remember.
       const {
-        addProfile, removeProfile, moveProfile, keepSelection,
+        addProfile, addScene, removeProfile, moveProfile, keepSelection,
         matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
+        referencesScene, setSceneRef, profilesUsingScene, detachScene, sceneOverlap,
       } = await import(`./editorState.js${q}`);
       // Same module the key renderer uses, so "readable" means one thing here
       // and on the deck.
       const { readableTextColor } = await import(`./contrast.js${q}`);
 
+      // Two lists, one editor.
+      //
+      // Profiles and scenes are the same shape and mean opposite things: a
+      // profile is a claim about who is at the rig — exclusive, persistent,
+      // gated when it is dangerous — and a scene is a moment of ambience that
+      // must never be able to say a different human sat down. They are edited
+      // side by side because they are configured the same way, and they are
+      // never on screen at the same time because they must never be confused
+      // for one another.
       let profiles = [];      // the draft being edited
+      let scenes = [];        // the scene draft, saved in the same request
       let providers = [];     // [{id,label,verifiable,fields}] from the plugin
       let hardware = {};      // global settings draft (never holds the Govee key)
-      // The profile being edited, held by reference rather than by id — see
-      // editorState.js for why an id is the wrong handle here.
-      let selected = null;
-      let view = 'profile';   // 'profile' | 'settings'
+      // What is being edited, held by reference rather than by id — see
+      // editorState.js for why an id is the wrong handle here. One selection per
+      // list, so flipping to Scenes and back lands on the profile you left.
+      let selectedProfile = null;
+      let selectedScene = null;
+      let kind = 'profiles';  // which list the sidebar shows: 'profiles' | 'scenes'
+      let view = 'editor';    // 'editor' | 'settings'
       let previewTimer = null;
+
+      /** The list the sidebar is showing. */
+      const listOf = () => (kind === 'scenes' ? scenes : profiles);
+      /** Is a scene the thing being edited right now? */
+      const editingScene = () => kind === 'scenes' && view === 'editor';
+
+      /** What the two lists are, in one line each, shown under the selector. */
+      const KIND_NOTE = {
+        profiles:
+          'Who is at the rig. One at a time — pressing one turns the others off — ' +
+          'and it is remembered until something else is pressed.',
+        scenes:
+          'A moment: lights, a playlist, a script. Fires and forgets. A scene never ' +
+          'changes who the rig thinks is at it.',
+      };
 
       const $ = (id) => document.getElementById(id);
       const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
@@ -431,7 +542,17 @@
         el.textContent = text;
       }
 
-      const current = () => (profiles.includes(selected) ? selected : null);
+      /** The record on screen — a profile or a scene, depending on the tab. */
+      const current = () => {
+        const sel = kind === 'scenes' ? selectedScene : selectedProfile;
+        return listOf().includes(sel) ? sel : null;
+      };
+
+      /** Set the selection for whichever list is showing. */
+      function select(record) {
+        if (kind === 'scenes') selectedScene = record;
+        else selectedProfile = record;
+      }
 
       // =====================================================================
       // Saving
@@ -459,19 +580,28 @@
       //     field commits on blur rather than on every keystroke.
 
       const AUTOSAVE_MS = 700;
-      let dirtyProfiles = false;
+      // Profiles and scenes are one draft with one dirty flag, because they are
+      // saved in one request: a profile references scenes by id, so storing the
+      // two halves separately would open a window where a saved profile names a
+      // scene that is not stored yet.
+      let dirtyDraft = false;
       let dirtySettings = false;
       let saveTimer = null;
       let saving = false;
       let saveAgain = false;
       let saveErrors = [];
+      // record object -> its problems. Keyed by object rather than by id
+      // because an unsaved record has no id, and those are exactly the ones
+      // most likely to be rejected.
+      let broken = new Map();
       let savedOnce = false;
 
       /** Mark a draft changed and schedule the save. */
       function touch(what, { now = false, defer = false } = {}) {
         if (what === 'settings') dirtySettings = true;
-        else dirtyProfiles = true;
+        else dirtyDraft = true;
         saveErrors = [];
+        broken = new Map();
         renderSaveState();
         renderIssues();
         clearTimeout(saveTimer);
@@ -479,11 +609,17 @@
         saveTimer = setTimeout(commit, now ? 0 : AUTOSAVE_MS);
       }
 
-      const isDirty = () => dirtyProfiles || dirtySettings;
+      const isDirty = () => dirtyDraft || dirtySettings;
 
-      /** Is the caret currently in a not-yet-saved profile's name field? */
+      /**
+       * Is the caret currently in a not-yet-saved record's name field?
+       *
+       * Both lists, because both slug a permanent id out of the name on their
+       * first save — a scene called "Kai's lights" would freeze as `ka` just as
+       * readily as a profile would.
+       */
       function namingInProgress() {
-        return holdForNaming(profiles, document.activeElement?.dataset?.f);
+        return holdForNaming([...profiles, ...scenes], document.activeElement?.dataset?.f);
       }
 
       async function commit() {
@@ -542,26 +678,39 @@
           }
         }
 
-        if (dirtyProfiles) {
+        const nextBroken = new Map();
+
+        if (dirtyDraft) {
+          // Scenes first: a profile may reference one by id, and an id only
+          // exists once its record has been slugged.
+          withIds(scenes, 'scene');
           withIds(profiles);
           // avatarDataUri is a render-time convenience; never persist the bytes.
           // Global settings are deliberately not sent here: saveProfiles merges
           // what it is given over the stored blob, and this page is never told
           // the Govee key, so sending "the settings" back would erase it.
           const payload = profiles.map(({ avatarDataUri, ...rest }) => rest);
-          const reply = await ask('saveProfiles', { profiles: payload });
+          const reply = await ask('saveProfiles', { profiles: payload, scenes });
           if (!reply.ok) {
-            // Every problem, not just the first: they are named per profile,
-            // and showing one at a time means a fix per round-trip.
-            problems.push(...(reply.errors ?? [reply.error ?? 'save failed']));
+            // Every problem, not just the first: they are named per record, and
+            // showing one at a time means a fix per round-trip. Scene problems
+            // are labelled, because "Sunset: needs a name" is otherwise a
+            // profile as far as the reader is concerned.
+            const mine = reply.errors ?? [];
+            const theirs = reply.sceneErrors ?? [];
+            if (!mine.length && !theirs.length) problems.push(reply.error ?? 'save failed');
+            problems.push(...mine, ...theirs.map((m) => `Scene ${m}`));
+            attribute(mine, profiles, nextBroken);
+            attribute(theirs, scenes, nextBroken);
           } else {
-            dirtyProfiles = false;
+            dirtyDraft = false;
             savedOnce = true;
           }
         }
 
         saving = false;
         saveErrors = problems;
+        broken = nextBroken;
 
         if (problems.length) say(problems.join('\n'), 'err');
         else if ($('msg').className === 'err') say('');
@@ -590,7 +739,7 @@
             cls: 'pending',
             text: 'Unsaved changes',
             note: namingInProgress()
-              ? 'Saving as soon as you finish naming this profile.'
+              ? `Saving as soon as you finish naming this ${editingScene() ? 'scene' : 'profile'}.`
               : 'Saving automatically…',
           };
         }
@@ -612,27 +761,33 @@
           (s.retry ? '<button id="saveNow" class="wide">Try saving again</button>' : '');
       }
 
-      /** Split save errors back out to the profiles they name. */
-      function problemsByProfile() {
-        const map = new Map();
-        for (const message of saveErrors) {
+      /**
+       * Split save errors back out to the records they name.
+       *
+       * The server prefixes each message with the record's name or id, so this
+       * is the inverse. Done against one list at a time: a profile and a scene
+       * are allowed to share a name, and attributing "Sunset: needs a name" to
+       * whichever list happened to be searched first would put the error on the
+       * wrong screen.
+       */
+      function attribute(messages, records, into) {
+        for (const message of messages) {
           const at = message.indexOf(': ');
           const where = at > 0 ? message.slice(0, at) : '';
-          const owner = profiles.find((p) => (p.name || p.id) === where || p.id === where);
+          const owner = records.find((r) => (r.name || r.id) === where || r.id === where);
           if (!owner) continue;
-          map.set(owner, [...(map.get(owner) ?? []), message.slice(at + 2)]);
+          into.set(owner, [...(into.get(owner) ?? []), message.slice(at + 2)]);
         }
-        return map;
       }
 
-      /** Problems with the profile on screen, shown above it rather than only
+      /** Problems with the record on screen, shown above it rather than only
        *  in the footer — an error about a field you cannot see is a puzzle. */
       function renderIssues() {
         const host = $('issues');
         if (!host) return;
-        const mine = problemsByProfile().get(current()) ?? [];
+        const mine = broken.get(current()) ?? [];
         host.innerHTML = mine.length
-          ? `<div class="issues"><b>This profile cannot be saved yet</b><ul>${
+          ? `<div class="issues"><b>This ${editingScene() ? 'scene' : 'profile'} cannot be saved yet</b><ul>${
               mine.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>`
           : '';
       }
@@ -643,12 +798,19 @@
 
       function renderList() {
         const host = $('list');
-        const matches = profiles.filter((p) => matchesSearch(p, $('search').value));
-        const broken = problemsByProfile();
+        const all = listOf();
+        const matches = all.filter((p) => matchesSearch(p, $('search').value));
+        const scenery = kind === 'scenes';
 
         host.innerHTML = matches.map((p) => {
           const names = Object.keys(p.providers ?? {})
             .map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
+          // A profile's subtitle lists its hardware; a scene's says how many
+          // profiles lean on it, because that is the number that decides
+          // whether deleting it is safe.
+          const used = scenery ? profilesUsingScene(profiles, p.id).length : 0;
+          if (scenery && used) names.push(`used by ${used} profile${used === 1 ? '' : 's'}`);
+          else if (!scenery && p.scenes?.length) names.push(`+${p.scenes.length} scene${p.scenes.length === 1 ? '' : 's'}`);
           // The initial is drawn in whichever ink actually reads on the chosen
           // colour — see contrast.js. A pale profile colour used to get white
           // text on white.
@@ -658,11 +820,11 @@
           // Rows carry their index in the full list, not their id: search
           // filters the rows, and an unsaved profile has no id to carry.
           //
-          // A row is only "selected" while a profile is what the pane is
+          // A row is only "selected" while this list is what the pane is
           // showing. On the settings screen nothing in this list is being
           // edited, so nothing in it is highlighted.
-          const isSel = p === selected && view === 'profile';
-          return `<li draggable="true" data-i="${profiles.indexOf(p)}" class="${isSel ? 'sel' : ''}">
+          const isSel = p === current() && view === 'editor';
+          return `<li draggable="true" data-i="${all.indexOf(p)}" class="${isSel ? 'sel' : ''}">
             <span class="grip">⠿</span>
             <span class="swatch${p.avatarDataUri ? ' photo' : ''}" style="${face}"
               >${esc((p.name || '?').trim().charAt(0).toUpperCase())}</span>
@@ -676,8 +838,24 @@
 
         if (!matches.length) {
           host.innerHTML = `<li class="empty">${
-            profiles.length ? 'Nothing matches that search.' : 'No profiles yet — start with “+ New”.'}</li>`;
+            all.length
+              ? 'Nothing matches that search.'
+              : scenery
+                ? 'No scenes yet — start with “+ New”. A scene is a lighting preset, a playlist, a script.'
+                : 'No profiles yet — start with “+ New”.'}</li>`;
         }
+      }
+
+      /** Point the sidebar at one list or the other. */
+      function setKind(next) {
+        kind = next;
+        view = 'editor';
+        $('railTitle').textContent = next === 'scenes' ? 'Scenes' : 'Profiles';
+        $('segnote').textContent = KIND_NOTE[next];
+        $('search').placeholder = next === 'scenes' ? 'Search scenes' : 'Search profiles';
+        $('add').title = next === 'scenes' ? 'Create a new scene' : 'Create a new profile';
+        for (const b of $('seg').children) b.classList.toggle('on', b.dataset.kind === next);
+        render();
       }
 
       // =====================================================================
@@ -741,8 +919,9 @@
 
         if (!enabled.length) {
           return `<div class="card plain"><div class="muted">
-            Nothing here yet — this profile will not change anything when its key is
-            pressed. Add hardware, lights, apps or scripts from the right.
+            Nothing here yet — this ${editingScene() ? 'scene' : 'profile'} will not change
+            anything when its key is pressed. Add hardware, lights, apps or scripts from
+            the right.
           </div></div>`;
         }
 
@@ -771,12 +950,129 @@
       // =====================================================================
 
       function render() {
+        // The scene accent applies to the thing being edited, so it comes off
+        // on the settings screen — otherwise Settings would wear a "Scene" pill.
+        document.body.classList.toggle('scenemode', editingScene());
         renderList();
         $('navSettings').classList.toggle('sel', view === 'settings');
         if (view === 'settings') renderSettings();
+        else if (kind === 'scenes') renderScene();
         else renderProfile();
         renderRail();
         renderIssues();
+      }
+
+      /**
+       * The scenes a profile also runs.
+       *
+       * Placed after the provider cards, and worded as an addition, because
+       * that is what it is: the profile's own hardware applies, then each
+       * referenced scene fills in what the profile did not set. Where the two
+       * overlap the profile wins — see `withScenes` in profileSwitch.js — which
+       * is the right rule and completely invisible from the outside, so the
+       * clash is called out on the row that causes it.
+       */
+      function sceneRefsHtml(p) {
+        const rows = scenes.map((s) => {
+          const on = referencesScene(p, s.id);
+          // A scene with no id has never been saved, so there is nothing for a
+          // profile to reference yet. It saves itself within the second.
+          if (!s.id) {
+            return `<div class="scenepick dim">
+              <input type="checkbox" disabled />
+              <span class="who"><b>${esc(s.name || '(unnamed)')}</b>
+                <span>saving… it can be picked once it has an id</span></span></div>`;
+          }
+          const clash = on ? sceneOverlap(p, s) : [];
+          const what = Object.keys(s.providers ?? {})
+            .map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
+          return `<label class="scenepick${on ? ' on' : ''}">
+            <input type="checkbox" data-sceneref="${esc(s.id)}"${on ? ' checked' : ''} />
+            <span class="swatch" style="background:${esc(s.color)};color:${readableTextColor(s.color)}"
+              >${esc((s.name || '?').trim().charAt(0).toUpperCase())}</span>
+            <span class="who"><b>${esc(s.name || '(unnamed)')}</b>
+              <span>${esc(what.length ? what.join(', ') : 'nothing configured')}</span>
+              ${clash.length
+                ? `<span class="clash">Also sets ${esc(clash
+                    .map((id) => providers.find((prov) => prov.id === id)?.label ?? id)
+                    .join(', '))}, which this profile sets itself — the profile's setting wins.</span>`
+                : ''}
+            </span></label>`;
+        }).join('');
+
+        return `<div class="card" data-hw="scene-refs">
+          <h3>Also run these scenes</h3>
+          <p class="muted" style="margin:-4px 0 10px">
+            In addition to everything above, not instead of it. Scenes are momentary —
+            adding one here does not change who the rig thinks is at it.
+          </p>
+          ${scenes.length ? rows : `<div class="muted">No scenes yet. Make one under
+            <b>Scenes</b> in the sidebar and it will be offered here.</div>`}
+        </div>`;
+      }
+
+      /** Who leans on the scene on screen, so deleting it is never a surprise. */
+      function sceneUsersHtml(s) {
+        const users = s.id ? profilesUsingScene(profiles, s.id) : [];
+        return `<div class="card plain">
+          <h3>Used by</h3>
+          ${users.length
+            ? `<div class="users">${users.map((p) => `<button class="userchip" data-useby="${
+                esc(p.id)}"><span class="swatch" style="background:${esc(p.color)};color:${
+                readableTextColor(p.color)}">${esc((p.name || '?').trim().charAt(0).toUpperCase())
+                }</span>${esc(p.name || '(unnamed)')}</button>`).join('')}</div>
+               <div class="savenote">These profiles run this scene as well as their own hardware.
+                 Deleting it removes it from them.</div>`
+            : `<div class="muted">No profile runs this scene. It still works on its own
+                 key — that is what a scene is for.</div>`}
+        </div>`;
+      }
+
+      function renderScene() {
+        const s = current();
+        if (!s) {
+          $('pane').innerHTML = `<div class="pane-inner">
+            <h2>No scene selected</h2>
+            <p class="sub">Pick one on the left, or make a new one with “+ New”.
+              A scene is a lighting preset, a playlist, a script — anything you want to
+              fire without changing who is at the rig.</p></div>`;
+          return;
+        }
+
+        $('pane').innerHTML = `<div class="pane-inner">
+          <h2>${esc(s.name || '(unnamed)')}</h2>
+          <p class="sub">${esc(s.id ? `id ${s.id}` : 'new scene')} · momentary —
+            never changes the active profile</p>
+
+          <div id="issues"></div>
+
+          <div class="card plain">
+            <h3>On the deck</h3>
+            <div class="muted">No key preview yet. The plugin's renderer draws the three
+              states a <em>profile</em> key has — inactive, switching, active and confirmed —
+              and a scene has none of them: it fires and it is over. Showing one of those
+              tiles here would be claiming something about the key that is not true.</div>
+          </div>
+
+          <div class="card">
+            <h3>Identity</h3>
+            <div class="row">
+              <label for="pname">Name</label>
+              <div class="grp">
+                <input type="text" id="pname" data-f="name" value="${esc(s.name)}"
+                       autocomplete="off" spellcheck="false" />
+                <input type="color" data-f="color" value="${esc(s.color)}" title="Key colour" />
+              </div>
+            </div>
+            <div class="help wide">No avatar and no hold-to-switch. An avatar is a face and a
+              scene is not a person; the hold gate exists so a child cannot grab full force
+              feedback by accident, and a scene has no force feedback to grab.</div>
+          </div>
+
+          ${providerCardsHtml(s)}
+
+          ${sceneUsersHtml(s)}
+        </div>`;
       }
 
       function renderProfile() {
@@ -837,6 +1133,8 @@
           </div>
 
           ${providerCardsHtml(p)}
+
+          ${sceneRefsHtml(p)}
         </div>`;
 
         refreshPreview();
@@ -983,9 +1281,10 @@
               its presets.</div></div>`);
         } else {
           const p = current();
+          const noun = kind === 'scenes' ? 'scene' : 'profile';
           if (p) {
             const available = providers.filter((prov) => !p.providers?.[prov.id]);
-            parts.push(`<div class="rail-group"><h4>Add to this profile</h4>${
+            parts.push(`<div class="rail-group"><h4>Add to this ${noun}</h4>${
               available.length
                 ? available.map((prov) =>
                     `<button class="addbtn" data-addprov="${esc(prov.id)}">
@@ -993,18 +1292,30 @@
                        <span class="nm">${esc(prov.label)}${
                          prov.verifiable ? '' : '<i>cannot be confirmed</i>'}</span>
                      </button>`).join('')
-                : '<div class="savenote">Everything available is already on this profile.</div>'
+                : `<div class="savenote">Everything available is already on this ${noun}.</div>`
             }</div>`);
 
-            parts.push(`<div class="rail-group"><h4>This profile</h4>
-              <button class="danger wide" data-act="remove">Delete profile</button>
+            // What deleting costs, stated before it is clicked rather than in
+            // the confirm box alone: for a scene that is the profiles that
+            // reference it, which is the thing you cannot see from here.
+            const users = kind === 'scenes' && p.id ? profilesUsingScene(profiles, p.id) : [];
+            const cost = kind === 'scenes'
+              ? users.length
+                ? `Used by ${users.length} profile${users.length === 1 ? '' : 's'}: ${
+                    esc(users.map((u) => u.name || u.id).join(', '))}. Deleting it removes it
+                    from them; they keep everything else.`
+                : 'No profile references it.'
+              : 'Keys bound to it stop working.';
+
+            parts.push(`<div class="rail-group"><h4>This ${noun}</h4>
+              <button class="danger wide" data-act="remove">Delete ${noun}</button>
               <div class="savenote">${p.id
-                ? `Stored as <code>${esc(p.id)}</code>. Keys bound to it stop working.`
+                ? `Stored as <code>${esc(p.id)}</code>. ${cost}`
                 : 'Not saved yet.'}</div></div>`);
           } else {
-            parts.push(`<div class="rail-group"><h4>Profiles</h4>
+            parts.push(`<div class="rail-group"><h4>${kind === 'scenes' ? 'Scenes' : 'Profiles'}</h4>
               <button class="addbtn" id="addRail"><span class="plus">+</span>
-                <span class="nm">New profile</span></button></div>`);
+                <span class="nm">New ${noun}</span></button></div>`);
           }
         }
 
@@ -1016,10 +1327,25 @@
       // Edits
       // =====================================================================
 
-      function onProfileInput(e) {
+      // Profiles and scenes are edited by the same handler because they are
+      // edited through the same fields: a scene simply never renders the ones
+      // that are profile-only, so those branches never fire for it.
+      function onRecordInput(e) {
         const el = e.target;
         const p = current();
         if (!p) return;
+
+        // Ticking a scene this profile also runs. Stored as an id, so renaming
+        // the scene later cannot break the reference.
+        if (el.dataset.sceneref) {
+          setSceneRef(p, el.dataset.sceneref, el.checked);
+          // Re-rendered rather than toggled in place: ticking a scene can
+          // reveal a provider clash on that row, and the sidebar's "+2 scenes"
+          // count moves too.
+          render();
+          touch('draft');
+          return;
+        }
 
         // Enabling or disabling one slider.
         if (el.dataset.fldon) {
@@ -1039,7 +1365,7 @@
             readout.textContent = 'not set';
             readout.classList.add('off');
           }
-          touch('profiles');
+          touch('draft');
           return;
         }
 
@@ -1052,7 +1378,7 @@
           const readout = document.querySelector(`[data-rv="${el.dataset.fld}"]`);
           if (readout && el.type === 'range') readout.textContent = el.value + (readout.dataset.unit ?? '');
           delete p.needsWheelbaseSetup;
-          touch('profiles');
+          touch('draft');
           return;
         }
 
@@ -1065,15 +1391,15 @@
           $('pane').querySelector('h2').textContent = p.name || '(unnamed)';
           renderList();
           refreshPreview();
-          touch('profiles');
+          touch('draft');
         } else if (field === 'color') {
           p.color = el.value;
           renderList();
           refreshPreview();
-          touch('profiles');
+          touch('draft');
         } else if (field === 'restricted') {
           p.restricted = el.checked;
-          touch('profiles');
+          touch('draft');
         } else if (field === 'avatar' && el.files?.[0]) {
           uploadAvatar(p, el.files[0]);
         }
@@ -1131,7 +1457,7 @@
         p.avatarDataUri = (await ask('getAvatar', { profileId: p.id, filename: reply.filename })).dataUri;
         say('Avatar stored.', 'ok');
         render();
-        touch('profiles', { now: true });
+        touch('draft', { now: true });
       }
 
       async function removeAvatar(p) {
@@ -1139,7 +1465,39 @@
         delete p.avatar;
         delete p.avatarDataUri;
         render();
-        touch('profiles', { now: true });
+        touch('draft', { now: true });
+      }
+
+      /**
+       * Delete a scene, saying first what else it takes with it.
+       *
+       * A profile references a scene by id, so deleting one out from under a
+       * profile would leave a reference to nothing: the profile would still
+       * claim to run the scene, the runtime would skip it with a log line
+       * nobody reads, and the lights would simply not come on. Two things stop
+       * that. The confirm names every profile that references it — so the
+       * decision is made with the cost visible — and the references are then
+       * removed, so no profile is left pointing at a scene that is gone.
+       */
+      function deleteScene(s) {
+        const users = s.id ? profilesUsingScene(profiles, s.id) : [];
+        const warning = users.length
+          ? `\n\nIt is used by ${users.length} profile${users.length === 1 ? '' : 's'}: ` +
+            `${users.map((p) => p.name || p.id).join(', ')}.\n` +
+            `They will stop running it. Everything else about them is unchanged.`
+          : '';
+        if (!confirm(`Delete the scene "${s.name}"?${warning}`)) return;
+
+        const detached = detachScene(profiles, s.id);
+        ({ profiles: scenes, selected: selectedScene } = removeProfile(scenes, s));
+        render();
+        touch('draft', { now: true });
+        say(
+          detached.length
+            ? `Scene deleted, and removed from ${detached.map((p) => p.name || p.id).join(', ')}.`
+            : 'Scene deleted.',
+          'ok',
+        );
       }
 
       /** Show a settings section and say which one, for a link from a provider. */
@@ -1162,6 +1520,7 @@
         const reply = await ask('getProfiles');
         if (reply.ok === false) return say(reply.error, 'err');
         profiles = reply.profiles ?? [];
+        scenes = reply.scenes ?? [];
         hardware = reply.settings ?? {};
         for (const p of profiles) {
           if (!p.providers) p.providers = {};
@@ -1169,7 +1528,11 @@
             p.avatarDataUri = (await ask('getAvatar', { profileId: p.id, filename: p.avatar })).dataUri;
           }
         }
-        selected = keepSelection(profiles, selected);
+        // No avatars on scenes: a scene is not a person. Only the providers map
+        // needs defaulting, so an older record without one still edits.
+        for (const s of scenes) if (!s.providers) s.providers = {};
+        selectedProfile = keepSelection(profiles, selectedProfile);
+        selectedScene = keepSelection(scenes, selectedScene);
       }
 
       async function loadProviders() {
@@ -1185,17 +1548,22 @@
 
       $('search').addEventListener('input', renderList);
 
-      /** The profile a sidebar row stands for, or null. */
-      const rowProfile = (target) => {
+      $('seg').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-kind]');
+        if (b && b.dataset.kind !== kind) setKind(b.dataset.kind);
+      });
+
+      /** The record a sidebar row stands for, or null. Whichever list is shown. */
+      const rowRecord = (target) => {
         const li = target.closest?.('li[data-i]');
-        return li ? profiles[Number(li.dataset.i)] ?? null : null;
+        return li ? listOf()[Number(li.dataset.i)] ?? null : null;
       };
 
       $('list').addEventListener('click', (e) => {
-        const p = rowProfile(e.target);
+        const p = rowRecord(e.target);
         if (!p) return;
-        selected = p;
-        view = 'profile';
+        select(p);
+        view = 'editor';
         render();
       });
 
@@ -1203,7 +1571,7 @@
       // worth arranging: the profiles used daily belong at the top.
       let dragging = null;
       $('list').addEventListener('dragstart', (e) => {
-        dragging = rowProfile(e.target);
+        dragging = rowRecord(e.target);
         if (dragging) e.dataTransfer.effectAllowed = 'move';
       });
       $('list').addEventListener('dragover', (e) => {
@@ -1217,13 +1585,15 @@
       });
       $('list').addEventListener('drop', (e) => {
         const li = e.target.closest('li[data-i]');
-        const onto = rowProfile(e.target);
+        const onto = rowRecord(e.target);
         if (!onto || !dragging) return;
         e.preventDefault();
-        profiles = moveProfile(profiles, dragging, onto, e.offsetY > li.offsetHeight / 2);
+        const moved = moveProfile(listOf(), dragging, onto, e.offsetY > li.offsetHeight / 2);
+        if (kind === 'scenes') scenes = moved;
+        else profiles = moved;
         dragging = null;
         render();
-        touch('profiles');
+        touch('draft');
       });
 
       // A drag released outside the list leaves its insertion marker behind.
@@ -1233,26 +1603,28 @@
           n.classList.remove('drop-before', 'drop-after'));
       });
 
-      function newProfile() {
-        ({ profiles, selected } = addProfile(profiles));
-        view = 'profile';
+      /** Add to whichever list is showing, and land the caret in its name. */
+      function newRecord() {
+        if (kind === 'scenes') ({ scenes, selected: selectedScene } = addScene(scenes));
+        else ({ profiles, selected: selectedProfile } = addProfile(profiles));
+        view = 'editor';
         render();
         // Focused and selected so the first keystroke names it. The id is
         // slugged from this name, and commit() waits for the field to be left.
         const name = $('pname');
         name?.focus();
         name?.select();
-        touch('profiles');
+        touch('draft');
       }
 
-      $('add').addEventListener('click', newProfile);
+      $('add').addEventListener('click', newRecord);
       $('navSettings').addEventListener('click', () => { view = 'settings'; render(); });
 
       $('pane').addEventListener('input', paneEdit);
       $('pane').addEventListener('change', paneEdit);
       function paneEdit(e) {
-        if (view === 'profile') onProfileInput(e);
-        else onSettingsInput(e);
+        if (view === 'settings') onSettingsInput(e);
+        else onRecordInput(e);
       }
 
       // Enter in the key field means "I am done with this", same as clicking away.
@@ -1265,11 +1637,22 @@
         const goto = e.target.closest('[data-goto]');
         if (goto) return gotoSettings(goto.dataset.goto);
 
+        // A chip on the scene's "Used by" list: go and look at that profile.
+        const useby = e.target.closest('[data-useby]');
+        if (useby) {
+          const owner = profiles.find((x) => x.id === useby.dataset.useby);
+          if (owner) {
+            selectedProfile = owner;
+            setKind('profiles');
+          }
+          return;
+        }
+
         const rm = e.target.closest('[data-rmprov]');
         if (rm && p) {
           delete p.providers[rm.dataset.rmprov];
           render();
-          touch('profiles');
+          touch('draft');
           return;
         }
         if (e.target.closest('[data-act="rmavatar"]') && p) return removeAvatar(p);
@@ -1303,7 +1686,7 @@
           p.providers = p.providers ?? {};
           p.providers[add.dataset.addprov] = {};
           render();
-          touch('profiles');
+          touch('draft');
           // Land the user on what they just added rather than leaving it to be
           // hunted for at the bottom of a long profile.
           const card = document.querySelector(`[data-hw="${CSS.escape(add.dataset.addprov)}"]`);
@@ -1315,14 +1698,15 @@
         const jump = e.target.closest('[data-jump]');
         if (jump) return gotoSettings(jump.dataset.jump);
 
-        if (e.target.id === 'addRail') return newProfile();
+        if (e.target.id === 'addRail') return newRecord();
         if (e.target.id === 'saveNow') return commit();
 
         if (e.target.closest('[data-act="remove"]') && p) {
+          if (kind === 'scenes') return deleteScene(p);
           if (!confirm(`Delete "${p.name}"? Keys bound to it will stop working.`)) return;
-          ({ profiles, selected } = removeProfile(profiles, p));
+          ({ profiles, selected: selectedProfile } = removeProfile(profiles, p));
           render();
-          touch('profiles', { now: true });
+          touch('draft', { now: true });
           return;
         }
 
@@ -1365,7 +1749,10 @@
       (async () => {
         connect();
         await loadProfiles();
-        render();
+        // Through setKind so the selector, the search placeholder and the line
+        // explaining what a profile is are all set from the one place that
+        // knows, rather than being duplicated in the markup and drifting.
+        setKind('profiles');
         await loadProviders();
         render();
       })();

@@ -54,18 +54,28 @@ export function convertProfile(old) {
     // Surfaced in the PI so the user knows a wheelbase slot still needs picking:
     // a legacy FanaLab hotkey with no replacement slot leaves the wheel unset.
     needsWheelbaseSetup: Boolean(old.fanatec_preset_hotkey) && !providers['fanatec-base'],
+    // Scene references survive a round trip through YAML; without this a
+    // re-import silently unhooks every scene a profile ran.
+    ...(Array.isArray(old.scenes) ? { scenes: old.scenes } : {}),
   };
 }
 
 export function convertConfig(parsed) {
   const profiles = (parsed?.profiles ?? []).filter((p) => p?.id).map(convertProfile);
+
+  // Only keys the YAML actually specifies. A file with no govee_api_key must
+  // not be read as "set the key to empty" — see mergeSettings below.
+  const settings = {};
+  if (parsed?.settings?.default_profile ?? profiles[0]?.id) {
+    settings.defaultProfile = parsed?.settings?.default_profile ?? profiles[0]?.id;
+  }
+  if (parsed?.settings?.govee_api_key) settings.goveeApiKey = parsed.settings.govee_api_key;
+  if (parsed?.settings?.govee_devices) settings.goveeDevices = parsed.settings.govee_devices;
+
   return {
     profiles,
-    settings: {
-      defaultProfile: parsed?.settings?.default_profile ?? profiles[0]?.id ?? null,
-      goveeApiKey: parsed?.settings?.govee_api_key ?? '',
-      goveeDevices: parsed?.settings?.govee_devices ?? null,
-    },
+    settings,
+    ...(Array.isArray(parsed?.scenes) ? { scenes: parsed.scenes } : {}),
   };
 }
 
@@ -104,7 +114,22 @@ export async function migrateIfNeeded({
     return { migrated: false, count: 0, reason: 'legacy config had no profiles' };
   }
 
-  await settings.setGlobalSettings({ ...converted, importedFrom: hash });
+  // Import the profiles; keep everything else that lives in global settings.
+  //
+  // This used to write `{ ...converted, importedFrom }`, replacing the whole
+  // object. Anything the YAML does not describe was destroyed by an import:
+  // every scene, every profile's scene references, and — because convertConfig
+  // filled in `goveeApiKey: ''` when the file had none — the Govee API key and
+  // the hardware toggles alongside it. Editing profiles.yaml is meant to
+  // reimport profiles, not to factory-reset the plugin.
+  await settings.setGlobalSettings({
+    ...existing,
+    ...converted,
+    settings: { ...(existing?.settings ?? {}), ...converted.settings },
+    // A YAML without a scenes list leaves the stored ones alone.
+    scenes: converted.scenes ?? existing?.scenes ?? [],
+    importedFrom: hash,
+  });
 
   const needSetup = converted.profiles.filter((p) => p.needsWheelbaseSetup).map((p) => p.name);
   log(`[migrate] imported ${converted.profiles.length} profile(s) from profiles.yaml`);

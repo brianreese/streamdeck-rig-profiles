@@ -8,6 +8,22 @@
 // Every function here therefore works on the profile OBJECT. An id is used in
 // exactly one place: carrying the selection across a reload, which replaces
 // every object with a fresh one and leaves the id as the only thing in common.
+//
+// Scenes
+// ------
+// A scene has the same SHAPE as a profile — `{ id, name, color, providers }` —
+// and none of its meaning. A profile is a claim about who is at the rig: it is
+// exclusive, it persists, and a restricted one is gated behind a deliberate
+// hold. A scene is a moment: lights, a playlist, a script, fired and forgotten.
+// It never writes the shared active-profile state, because that state answers
+// "which human is at the rig" and a lighting preset must not be able to change
+// what a child is allowed to launch.
+//
+// Because the shape is identical, the list operations below are shape-generic
+// and are used for both lists. The names kept their `Profile` suffix where
+// existing callers and tests already use them; what a function does not do is
+// care which list it was handed. Only the functions that touch the *reference*
+// between the two — a profile naming scenes it also runs — know the difference.
 
 /** A blank profile. Colour matches the inspector's own accent. */
 export const newProfile = () => ({
@@ -18,11 +34,36 @@ export const newProfile = () => ({
   providers: {},
 });
 
+/**
+ * A blank scene.
+ *
+ * Deliberately missing `restricted`: there is nothing to gate. A hold exists to
+ * stop a child pressing a key that hands them full force feedback, and a scene
+ * cannot hand them anything — it does not touch who is at the rig. Storing the
+ * flag as `false` would still put the word in the record, and the next reader
+ * of the JSON would reasonably wonder what a gated scene is.
+ *
+ * The violet is the scene accent used throughout the editor, so a new scene
+ * looks like a scene before it is named.
+ */
+export const newScene = () => ({
+  id: '',
+  name: 'New scene',
+  color: '#7c5cff',
+  providers: {},
+});
+
 export function addProfile(profiles) {
   const profile = newProfile();
   return { profiles: [...profiles, profile], selected: profile };
 }
 
+export function addScene(scenes) {
+  const scene = newScene();
+  return { scenes: [...scenes, scene], selected: scene };
+}
+
+/** Drop one record from its list. Shape-generic: profiles and scenes both. */
 export function removeProfile(profiles, profile) {
   const next = profiles.filter((p) => p !== profile);
   return { profiles: next, selected: next[0] ?? null };
@@ -58,10 +99,10 @@ export function matchesSearch(profile, query) {
     .includes(q);
 }
 
-export function slugify(name, taken = []) {
+export function slugify(name, taken = [], fallback = 'profile') {
   const base =
-    String(name || 'profile').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') ||
-    'profile';
+    String(name || fallback).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') ||
+    fallback;
   let id = base;
   let n = 2;
   while (taken.includes(id)) id = `${base}-${n++}`;
@@ -69,19 +110,91 @@ export function slugify(name, taken = []) {
 }
 
 /**
- * Give every unsaved profile an id, in place, before the list is saved.
+ * Give every unsaved record an id, in place, before the list is saved.
  *
  * In place because the editor keeps showing these same objects afterwards: a
  * copy would leave the panel displaying a profile with no id while the stored
  * one has one.
+ *
+ * Profiles and scenes are slugged independently — they are separate lists and
+ * a profile only ever names a scene from the scene list, so `brian` may be both
+ * a profile and a scene without either becoming ambiguous.
  */
-export function withIds(profiles) {
+export function withIds(profiles, fallback = 'profile') {
   const taken = [];
   for (const p of profiles) {
-    if (!p.id) p.id = slugify(p.name, taken);
+    if (!p.id) p.id = slugify(p.name, taken, fallback);
     taken.push(p.id);
   }
   return profiles;
+}
+
+// ---------------------------------------------------------------------------
+// Scene references
+//
+// A profile names the scenes it also runs, by id, in `profile.scenes`. Ids
+// rather than objects because this is what gets stored: the reference has to
+// survive being written to global settings and read back by the plugin, and an
+// id is the only thing that does. Ids are permanent once slugged, so renaming a
+// scene never breaks a profile that names it.
+// ---------------------------------------------------------------------------
+
+/** The scene ids a profile references, always an array. */
+export const sceneRefs = (profile) => profile?.scenes ?? [];
+
+/** Does this profile run that scene as well as its own providers? */
+export function referencesScene(profile, sceneId) {
+  return sceneRefs(profile).includes(sceneId);
+}
+
+/**
+ * Add or remove one scene reference, in place.
+ *
+ * The key is deleted rather than left as an empty array when the last reference
+ * goes, so a profile that references nothing looks in storage exactly like one
+ * written before scenes existed.
+ */
+export function setSceneRef(profile, sceneId, on) {
+  if (!profile || !sceneId) return profile;
+  const next = sceneRefs(profile).filter((id) => id !== sceneId);
+  if (on) next.push(sceneId);
+  if (next.length) profile.scenes = next;
+  else delete profile.scenes;
+  return profile;
+}
+
+/** Every profile that references this scene, in list order. */
+export function profilesUsingScene(profiles, sceneId) {
+  return (profiles ?? []).filter((p) => referencesScene(p, sceneId));
+}
+
+/**
+ * Drop a scene from every profile that references it, in place.
+ *
+ * Called when a scene is deleted. Leaving the reference behind would give the
+ * profile a silent dead limb: it would still claim to run a scene, and the
+ * runtime would log a missing-scene warning that nobody reads. Returns the
+ * profiles that changed, so the deletion can say what it touched.
+ */
+export function detachScene(profiles, sceneId) {
+  const affected = profilesUsingScene(profiles, sceneId);
+  for (const p of affected) setSceneRef(p, sceneId, false);
+  return affected;
+}
+
+/**
+ * Provider ids a referenced scene would contribute but the profile already sets
+ * itself.
+ *
+ * The runtime resolves this collision in the profile's favour — see
+ * `withScenes` in profileSwitch.js — which is the right call and also invisible
+ * unless the editor says so. A user who sets Govee on a profile and then adds a
+ * lighting scene to it should be told the scene's lighting will not be used,
+ * rather than discovering it when the room stays the wrong colour.
+ */
+export function sceneOverlap(profile, scene) {
+  const mine = Object.keys(profile?.providers ?? {});
+  return Object.keys(scene?.providers ?? {}).filter((id) => mine.includes(id));
 }
 
 /**

@@ -171,3 +171,64 @@ describe('migrateIfNeeded', () => {
     expect(settings.written()).toEqual({});
   });
 });
+
+describe('an import must not factory-reset the plugin', () => {
+  // Editing profiles.yaml re-imports profiles. It used to replace the whole of
+  // global settings, destroying everything the YAML did not describe. The
+  // profiles reverting to their YAML originals after a reboot was the visible
+  // half; the invisible half was the Govee API key going with them.
+  const withYaml = (yaml) => {
+    const dir = mkdtempSync(join(tmpdir(), 'migrate-'));
+    const path = join(dir, 'profiles.yaml');
+    writeFileSync(path, yaml);
+    return path;
+  };
+
+  it('keeps the Govee API key when the YAML does not mention one', async () => {
+    const settings = fakeSettings({
+      settings: { goveeApiKey: 'typed-into-the-editor', mozaClosePitHouse: false },
+    });
+    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML.replace(/\s+govee_api_key.*/, '')), settings });
+
+    const stored = await settings.getGlobalSettings();
+    expect(stored.settings.goveeApiKey).toBe('typed-into-the-editor');
+    // And the hardware toggles beside it.
+    expect(stored.settings.mozaClosePitHouse).toBe(false);
+  });
+
+  it('lets the YAML win when it does specify a key', async () => {
+    const settings = fakeSettings({ settings: { goveeApiKey: 'old' } });
+    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings });
+    expect((await settings.getGlobalSettings()).settings.goveeApiKey).toBe('abc123');
+  });
+
+  it('keeps scenes, which the YAML knows nothing about', async () => {
+    const settings = fakeSettings({ scenes: [{ id: 'ambient', name: 'Ambient', providers: {} }] });
+    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings });
+    expect((await settings.getGlobalSettings()).scenes).toEqual([
+      { id: 'ambient', name: 'Ambient', providers: {} },
+    ]);
+  });
+
+  it('carries a profile\'s scene references through the conversion', () => {
+    const converted = convertConfig({
+      profiles: [{ id: 'brian', name: 'Brian', color: '#2255CC', scenes: ['ambient'] }],
+    });
+    expect(converted.profiles[0].scenes).toEqual(['ambient']);
+  });
+
+  it('imports scenes when the YAML does carry them', () => {
+    const converted = convertConfig({
+      profiles: [{ id: 'brian', name: 'Brian', color: '#2255CC' }],
+      scenes: [{ id: 'ambient', name: 'Ambient', providers: {} }],
+    });
+    expect(converted.scenes).toHaveLength(1);
+  });
+
+  it('still replaces the profiles, which is the point of importing', async () => {
+    const settings = fakeSettings({ profiles: [{ id: 'stale', name: 'Stale' }] });
+    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings });
+    const stored = await settings.getGlobalSettings();
+    expect(stored.profiles.map((p) => p.id)).toEqual(['primary', 'secondary']);
+  });
+});
