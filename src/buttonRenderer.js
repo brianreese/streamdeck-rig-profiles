@@ -177,6 +177,40 @@ export function renderProfileKey({
   );
 }
 
+/**
+ * Render a scene key.
+ *
+ * A scene has no on state to show. It fires and is over, so it must not borrow
+ * either profile look: the lit one would claim to be active, and the dark one
+ * would read as switched off. It sits between them — bright enough to look
+ * live, dim enough that the one genuinely active profile still owns the deck.
+ *
+ * @param {object} opts
+ * @param {object} opts.scene       { name, color, avatarDataUri }
+ * @param {boolean} [opts.running]  mid-run
+ * @param {number}  [opts.dotFrame] 0..2, which dot is lit while running
+ */
+export function renderSceneKey({ scene, running = false, dotFrame = null }) {
+  if (!scene) return svg(unconfiguredKey());
+
+  const name = escapeXml(scene.name ?? '');
+  const color = scene.color ?? '#2255CC';
+  const bg = dim(color, running ? 0.5 : 0.68);
+
+  return svg(
+    bodyKey({
+      name,
+      bg,
+      fg: lift(color, running ? 0.45 : 0.3),
+      label: running ? undefined : '#B9BFC9',
+      avatar: scene.avatarDataUri,
+      fade: running ? 0.85 : 0.7,
+      dotFrame: running ? (dotFrame ?? 0) : null,
+      dotColor: lift(color, 0.55),
+    }),
+  );
+}
+
 function bodyKey({ name, bg, fg, avatar, fade, stripe, dot, swatch, progress, label, dotFrame = null, dotColor }) {
   const parts = [`<rect width="${SIZE}" height="${SIZE}" fill="${bg}"/>`];
 

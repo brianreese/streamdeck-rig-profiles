@@ -20,6 +20,22 @@
       ],
       "SupportedInMultiActions": false,
       "UUID": "com.rig.profiles.key"
+    },
+    {
+      "Icon": "assets/action-icon",
+      "Name": "Rig Scene",
+      "Tooltip": "Run a scene: lighting, scripts, anything momentary.",
+      "PropertyInspectorPath": "ui/scene-key.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "assets/action-icon"
+        }
+      ],
+      "SupportedInMultiActions": true,
+      "UUID": "com.rig.profiles.scene"
     }
   ],
   "OS": [

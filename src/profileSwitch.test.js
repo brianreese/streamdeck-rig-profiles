@@ -154,3 +154,56 @@ describe('provider context', () => {
     expect(seen).toEqual({});
   });
 });
+
+describe('scene references', () => {
+  const scene = (id, providers) => ({ id, name: id, providers });
+
+  it('runs a referenced scene alongside the profile', async () => {
+    register(stub('wheel'));
+    register(stub('lights'));
+    const out = await applyProfile(
+      { id: 'brian', providers: { wheel: {} }, scenes: ['ambient'] },
+      { scenes: [scene('ambient', { lights: {} })] },
+    );
+    expect(out.results.map((r) => r.providerId).sort()).toEqual(['lights', 'wheel']);
+  });
+
+  it('keeps the profile\'s own config when a scene configures the same provider', async () => {
+    // A referenced scene silently overriding the wheelbase the profile set is
+    // exactly the action-at-a-distance a safety-critical switch must not have.
+    const seen = [];
+    register(stub('wheel', { apply: async (cfg) => { seen.push(cfg); } }));
+    await applyProfile(
+      { id: 'brian', providers: { wheel: { setup: 1 } }, scenes: ['other'] },
+      { scenes: [scene('other', { wheel: { setup: 5 } })] },
+    );
+    expect(seen).toEqual([{ setup: 1 }]);
+  });
+
+  it('says so when a collision is dropped, rather than dropping it silently', async () => {
+    const logs = [];
+    register(stub('wheel'));
+    await applyProfile(
+      { id: 'brian', providers: { wheel: {} }, scenes: ['other'] },
+      { scenes: [scene('other', { wheel: {} })], log: (m) => logs.push(m) },
+    );
+    expect(logs.join(' ')).toMatch(/also configures wheel/);
+  });
+
+  it('survives a reference to a scene that no longer exists', async () => {
+    const logs = [];
+    register(stub('wheel'));
+    const out = await applyProfile(
+      { id: 'brian', providers: { wheel: {} }, scenes: ['deleted'] },
+      { scenes: [], log: (m) => logs.push(m) },
+    );
+    expect(out.status).toBe(STATUS.VERIFIED);
+    expect(logs.join(' ')).toMatch(/references missing scene "deleted"/);
+  });
+
+  it('applies a scene on its own, since it is the same shape', async () => {
+    register(stub('lights'));
+    const out = await applyProfile({ id: 'ambient', providers: { lights: {} } });
+    expect(out.status).toBe(STATUS.VERIFIED);
+  });
+});

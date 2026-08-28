@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderProfileKey } from './buttonRenderer.js';
+import { renderProfileKey, renderSceneKey } from './buttonRenderer.js';
 import { STATUS } from './providers/status.js';
 import { relativeLuminance } from './contrast.js';
 
@@ -101,5 +101,35 @@ describe('renderProfileKey', () => {
   it('survives a malformed colour rather than emitting broken markup', () => {
     const svg = svgOf(renderProfileKey({ profile: { name: 'X', color: 'not-a-colour' }, active: false }));
     expect(svg).toContain('<svg');
+  });
+});
+
+describe('renderSceneKey', () => {
+  const scene = { name: 'Ambient', color: '#22AA44' };
+
+  it('claims neither profile state', () => {
+    // A scene has no on state. Borrowing the lit look would claim to be
+    // active; borrowing the dark one would read as switched off.
+    const idle = svgOf(renderSceneKey({ scene }));
+    const bg = /<rect width="144" height="144" fill="(#[0-9a-f]{6})"/i.exec(idle)[1];
+    const lum = relativeLuminance(bg);
+    expect(lum).toBeGreaterThan(relativeLuminance('#131519')); // brighter than off
+    expect(lum).toBeLessThan(relativeLuminance(scene.color)); // dimmer than active
+  });
+
+  it('shows dots while running, in place of the name', () => {
+    const running = svgOf(renderSceneKey({ scene, running: true, dotFrame: 1 }));
+    expect(running).not.toContain('>Ambient<');
+    expect((running.match(/<circle/g) ?? []).length).toBe(3);
+  });
+
+  it('is visibly busy rather than merely re-rendered', () => {
+    const idle = svgOf(renderSceneKey({ scene }));
+    const running = svgOf(renderSceneKey({ scene, running: true, dotFrame: 0 }));
+    expect(running).not.toBe(idle);
+  });
+
+  it('falls back to the unconfigured key when no scene is bound', () => {
+    expect(svgOf(renderSceneKey({ scene: null }))).toContain('Pick a');
   });
 });

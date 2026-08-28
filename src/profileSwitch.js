@@ -68,10 +68,54 @@ async function runOne(providerId, cfg, ctx) {
 }
 
 /**
+ * Expand a profile's scene references into extra provider entries.
+ *
+ * A profile may name scenes by id so "Brian's profile also sets Brian's
+ * lighting" composes instead of duplicating provider config in two places.
+ *
+ * The profile's own configuration always wins. A scene contributes only the
+ * providers the profile does not already configure, because the alternative —
+ * letting a referenced scene quietly override the wheelbase or the pedal the
+ * profile explicitly set — is the kind of action-at-a-distance that makes a
+ * safety-critical switch untrustworthy. Collisions are reported, not silent.
+ */
+function withScenes(profile, ctx) {
+  const refs = profile?.scenes ?? [];
+  if (!refs.length) return Object.entries(profile?.providers ?? {});
+
+  const byId = new Map((ctx.scenes ?? []).map((s) => [s.id, s]));
+  const entries = Object.entries(profile?.providers ?? {});
+  const claimed = new Set(entries.map(([id]) => id));
+
+  for (const ref of refs) {
+    const scene = byId.get(ref);
+    if (!scene) {
+      ctx.log?.(`[profileSwitch] profile "${profile?.id}" references missing scene "${ref}"`);
+      continue;
+    }
+    for (const [id, cfg] of Object.entries(scene.providers ?? {})) {
+      if (claimed.has(id)) {
+        ctx.log?.(
+          `[profileSwitch] scene "${ref}" also configures ${id}, which "${profile?.id}" sets itself — keeping the profile's`,
+        );
+        continue;
+      }
+      claimed.add(id);
+      entries.push([id, cfg]);
+    }
+  }
+  return entries;
+}
+
+/**
  * Apply every provider configured on `profile`.
+ *
+ * Also used for scenes, which are the same shape without the identity: a
+ * record with a `providers` map is all this needs.
  *
  * @param {object} profile              profile record with a `providers` map
  * @param {object} [ctx]                passed through to providers
+ * @param {object[]} [ctx.scenes]       scene records, for resolving references
  * @param {(r: ProviderResult) => void} [ctx.onResult] progress callback
  * @returns {Promise<{ status: string, results: ProviderResult[] }>}
  */
@@ -83,7 +127,7 @@ export async function applyProfile(profile, ctx = {}) {
   // provider needing a credential failed with "no API key set" however the key
   // was configured. Callers hand it in as ctx.settings.
   ctx = { ...ctx, profileId: profile?.id, profile, settings: ctx.settings ?? {} };
-  const entries = Object.entries(profile?.providers ?? {});
+  const entries = withScenes(profile, ctx);
   if (!entries.length) {
     return { status: STATUS.SKIPPED, results: [] };
   }

@@ -16,6 +16,7 @@
 import streamDeck from '@elgato/streamdeck';
 import { ensureConfig } from './setup.js';
 import { ProfileKey } from './actions/profileKey.js';
+import { SceneKey } from './actions/sceneKey.js';
 import { migrateIfNeeded } from './migrate.js';
 
 // An uncaught rejection here kills the plugin process and Stream Deck silently
@@ -30,6 +31,7 @@ process.on('uncaughtException', (err) => {
 ensureConfig();
 
 streamDeck.actions.registerAction(new ProfileKey());
+streamDeck.actions.registerAction(new SceneKey());
 
 streamDeck.connect();
 

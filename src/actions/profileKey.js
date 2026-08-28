@@ -319,6 +319,8 @@ export class ProfileKey extends SingletonAction {
         // Global settings hold credentials (the Govee key) and device
         // allowlists; providers need them alongside their own config slice.
         settings: settings?.settings ?? {},
+        // Scenes a profile references are resolved against this list.
+        scenes: settings?.scenes ?? [],
         log: (m) => streamDeck.logger.info(m),
         // Log every provider as it lands, not just the aggregate. The button
         // shows the worst status, so a failing wheelbase was hiding whether
