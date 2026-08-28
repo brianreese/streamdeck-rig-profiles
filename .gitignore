@@ -54,3 +54,12 @@ build/
 # Stream Deck CLI artifacts
 *.sdPlugin/
 scripts/scans/
+
+# Your own profiles, not the project's. setup.js copies profiles.yaml.template
+# here on first run, so a fresh checkout still works — while your family's
+# names, colours and wheelbase slots stay out of the repo and out of any
+# release built from it.
+config/profiles.yaml
+
+# Release staging and the packed plugin, rebuilt by docs/RELEASING.md.
+/dist/

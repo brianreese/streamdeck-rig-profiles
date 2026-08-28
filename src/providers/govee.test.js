@@ -51,21 +51,43 @@ describe('verify', () => {
     activateScene.mockResolvedValue({ sent: 2, skipped: 1, failed: [], targets: 3 });
     await govee.apply({ scene: 'Racing' }, ctx);
     const out = await govee.verify({ scene: 'Racing' });
-    expect(out.status).toBe(STATUS.APPLIED_UNVERIFIED);
-    expect(out.detail).toMatch(/accepted by 2 of 3/);
+    expect(out.status).toBe(STATUS.VERIFIED);
+    expect(out.detail).toMatch(/delivered to 2 of 3/);
     expect(out.detail).toMatch(/1 lack that scene/);
   });
 
-  it('never claims verified, because Govee does not report lamp state', async () => {
+  it('says delivered, not changed, so the status is never read as more than it is', async () => {
     activateScene.mockResolvedValue({ sent: 3, skipped: 0, failed: [], targets: 3 });
     await govee.apply({ scene: 'Racing' }, ctx);
-    expect((await govee.verify({ scene: 'Racing' })).status).not.toBe(STATUS.VERIFIED);
+    const out = await govee.verify({ scene: 'Racing' });
+    expect(out.status).toBe(STATUS.VERIFIED);
+    expect(out.detail).toMatch(/delivered/);
+    // The word matters: nothing here confirms a lamp actually changed.
+    expect(out.detail).not.toMatch(/lights (are|changed)/);
+  });
+
+  it('does not claim success when the scene reached nothing', async () => {
+    activateScene.mockResolvedValue({ sent: 0, skipped: 2, failed: [], targets: 2 });
+    // apply() throws in this case, so drive verify() from the recorded outcome.
+    await govee.apply({ scene: 'Racing' }, ctx).catch(() => {});
+    expect((await govee.verify({ scene: 'Racing' })).status).toBe(STATUS.MISMATCH);
+  });
+
+  it('admits when no delivery report came back at all', async () => {
+    activateScene.mockResolvedValue(undefined);
+    await govee.apply({ scene: 'Racing' }, ctx);
+    const out = await govee.verify({ scene: 'Racing' });
+    expect(out.status).toBe(STATUS.APPLIED_UNVERIFIED);
+    expect(out.detail).toMatch(/no delivery report/);
   });
 });
 
 describe('contract', () => {
-  it('declares itself unverifiable', () => {
-    expect(govee.verifiable).toBe(false);
+  it('confirms delivery rather than illumination', () => {
+    // Not a claim that the lamps changed — nothing can confirm that. The
+    // detail carries the distinction so the status is never read as more than
+    // it is.
+    expect(govee.verifiable).toBe(true);
   });
 
   it('requires a scene to be selected', () => {

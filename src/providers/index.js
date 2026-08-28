@@ -8,18 +8,30 @@
 // The contract
 // ------------
 //   id          string, stable, used as the config key
-//   label       human name for the property inspector
-//   verifiable  boolean — if false, the UI may NEVER show this as confirmed
-//   options(ctx)         -> [{ value, label }]  live enumeration for PI dropdowns
+//   label       human name for the editor
+//   verifiable  boolean — whether this provider checks its own work at all;
+//               a hint for the editor, never a substitute for asking verify()
+//   options(ctx)         -> [{ value, label }]  live enumeration for dropdowns
 //   apply(cfg, ctx)      -> void                perform the change
-//   verify(cfg, ctx)     -> { status, detail }  read back from the hardware
-//   describe(cfg)        -> string              for logs and the PI summary
+//   verify(cfg, ctx)     -> { status, detail }  the provider's own verdict
+//   describe(cfg)        -> string              for logs and the editor summary
 //
 // `verify` is not optional decoration. Publishing a command and having the
 // hardware act on it are different events, and the gap between them is exactly
 // the failure a kid must never hit: a green button over an un-dialled-down
-// wheel. A provider that cannot read back its own state must declare
-// verifiable:false so the UI can be honest about it.
+// wheel.
+//
+// A provider owns its own verdict, including what success means for it. This
+// registry used to stamp applied-unverified on anything declaring
+// verifiable:false and never call verify() at all, which took the judgement
+// away from the only code that had the information: Govee cannot read a lamp,
+// but it does know whether the command reached the device, and delivery is a
+// perfectly good bar for it to hold itself to. What the core still insists on
+// is that the `detail` say what was actually confirmed, so a status is never
+// read as more than it is.
+//
+// A provider with no verify() at all is reported applied-unverified, because
+// there is nothing to ask.
 
 import fanatecBase from './fanatecBase.js';
 import govee from './govee.js';

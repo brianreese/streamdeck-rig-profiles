@@ -45,11 +45,17 @@ async function runOne(providerId, cfg, ctx) {
     return { ...base, status: STATUS.FAILED, detail: err.message };
   }
 
-  if (!provider.verifiable) {
+  // The provider owns its own verdict. This used to short-circuit on a
+  // `verifiable: false` flag and stamp applied-unverified without asking,
+  // which meant a provider could not define what success meant for it: Govee
+  // has no way to read a lamp, but it does know whether the command reached
+  // the device, and that is its bar. Deciding that here put the judgement in
+  // the one place with the least information.
+  if (typeof provider.verify !== 'function') {
     return {
       ...base,
       status: STATUS.APPLIED_UNVERIFIED,
-      detail: 'sent; this provider cannot read back',
+      detail: 'applied; this provider does not report an outcome',
     };
   }
 

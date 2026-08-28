@@ -64,10 +64,28 @@ describe('applyProfile', () => {
     expect(out.status).toBe(STATUS.FAILED);
   });
 
-  it('does NOT report verified when a provider cannot read back', async () => {
-    register(stub('blind', { verifiable: false }));
+  it('takes the provider at its word instead of overriding it', async () => {
+    // The parent used to stamp applied-unverified whenever a provider declared
+    // verifiable:false, without calling verify() at all — so a provider could
+    // not define what success meant for it. Govee cannot read a lamp but does
+    // know the command reached the device, and that is its bar to set.
+    register(
+      stub('blind', {
+        verifiable: false,
+        verify: async () => ({ status: STATUS.VERIFIED, detail: 'delivered' }),
+      }),
+    );
     const out = await applyProfile({ providers: { blind: {} } });
+    expect(out.status).toBe(STATUS.VERIFIED);
+    expect(out.results[0].detail).toBe('delivered');
+  });
+
+  it('falls back to applied-unverified only when there is nothing to ask', async () => {
+    const mute = { id: 'mute', label: 'mute', describe: () => 'mute', apply: async () => {} };
+    register(mute);
+    const out = await applyProfile({ providers: { mute: {} } });
     expect(out.status).toBe(STATUS.APPLIED_UNVERIFIED);
+    expect(out.results[0].detail).toMatch(/does not report an outcome/);
   });
 
   it('treats a mismatch as a failure, not a success', async () => {

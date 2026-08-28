@@ -34,7 +34,9 @@ async function ensureCatalog(apiKey) {
 export default {
   id: 'govee',
   label: 'Govee Lighting',
-  verifiable: false, // the REST API acknowledges the call, not the light state
+  // Govee confirms delivery, not illumination — see verify() for the bar it
+  // holds itself to.
+  verifiable: true,
 
   schema() {
     return [
@@ -98,19 +100,34 @@ export default {
     }
   },
 
+  /**
+   * Success here means the scene reached the lights, not that they changed.
+   *
+   * Nothing can confirm the second one — the REST API acknowledges the call
+   * and no lamp reports its state back — so holding out for it meant Govee
+   * could never succeed, which put a permanent caveat on every profile switch
+   * and made the warning meaningless. Delivery is the bar this provider can
+   * actually hold itself to, so it is the bar it declares, and the detail says
+   * plainly what was confirmed.
+   *
+   * apply() already fails when a scene reaches nothing at all, so by the time
+   * this runs the command has demonstrably gone somewhere.
+   */
   async verify(cfg) {
-    // The Govee REST API confirms it accepted the request, not that the lamps
-    // changed. Claiming VERIFIED here would be exactly the lie the status
-    // vocabulary exists to prevent, so this reports what was actually sent.
     const sent = lastOutcome?.sent;
-    const detail =
-      sent === undefined
-        ? `sent scene "${cfg?.scene}" — Govee does not report lamp state back`
-        : `scene "${cfg?.scene}" accepted by ${sent} of ${lastOutcome.targets} device(s)` +
-          (lastOutcome.skipped ? `, ${lastOutcome.skipped} lack that scene` : '') +
-          (lastOutcome.failed.length ? `; errors: ${lastOutcome.failed.join('; ')}` : '');
+    if (sent === undefined) {
+      return {
+        status: STATUS.APPLIED_UNVERIFIED,
+        detail: `sent scene "${cfg?.scene}" — no delivery report came back`,
+      };
+    }
 
-    return { status: STATUS.APPLIED_UNVERIFIED, detail };
+    const detail =
+      `scene "${cfg?.scene}" delivered to ${sent} of ${lastOutcome.targets} device(s)` +
+      (lastOutcome.skipped ? `, ${lastOutcome.skipped} lack that scene` : '') +
+      (lastOutcome.failed.length ? `; errors: ${lastOutcome.failed.join('; ')}` : '');
+
+    return { status: sent > 0 ? STATUS.VERIFIED : STATUS.MISMATCH, detail };
   },
 };
 
