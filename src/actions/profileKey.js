@@ -15,7 +15,7 @@ import streamDeck, { SingletonAction } from '@elgato/streamdeck';
 import { applyProfile, summarise } from '../profileSwitch.js';
 import { renderProfileKey } from '../buttonRenderer.js';
 import { notify } from '../notify.js';
-import { STATUS, isProblem } from '../providers/index.js';
+import { STATUS, isProblem, getProvider } from '../providers/index.js';
 import { readState, writeState } from '../state.js';
 import { loadAvatarDataUri } from '../avatars.js';
 import { handlePiRequest } from '../piBridge.js';
@@ -58,22 +58,35 @@ function findProfile(settings, id) {
   return { ...profile, avatarDataUri: avatarCache.get(profile.avatar) ?? undefined };
 }
 
+/** What a profile is about to touch, named before any of it has happened. */
+function willApply(profile) {
+  const labels = Object.keys(profile?.providers ?? {})
+    .map((id) => getProvider(id)?.label)
+    .filter(Boolean);
+  return labels.length ? labels.join(', ') : 'nothing is configured for this profile';
+}
+
 /**
- * The body of a success toast.
+ * What to say once it is over, or null when there is nothing worth saying.
  *
- * `summarise` answers "all hardware confirmed", which is true and says nothing
- * you could act on. Naming what actually ran is the point of announcing every
- * switch — and when a provider could only be sent to rather than confirmed,
- * saying which one, because that is the difference between "your lights
- * changed" and "your lights were asked to change".
+ * A switch that did what it said needs no second toast: the first one already
+ * announced it and the key is lit. Saying so twice trains you to dismiss both.
+ *
+ * The subtlety is which unconfirmed results count. Govee declares
+ * `verifiable: false` — its API acknowledges the request, not the lamps, so it
+ * can never report back and never will. Flagging that was warning about a
+ * limitation we already knew about, on every single switch, which is how a
+ * warning becomes wallpaper. Only a provider that promised to confirm and then
+ * did not is an anomaly.
  */
 function describeOutcome(outcome) {
-  const ran = (outcome.results ?? []).filter((r) => r.status !== STATUS.SKIPPED);
-  if (!ran.length) return 'nothing configured for this profile';
-
-  const names = ran.map((r) => r.label).join(', ');
-  const unconfirmed = ran.filter((r) => r.status === STATUS.APPLIED_UNVERIFIED).map((r) => r.label);
-  return unconfirmed.length ? `${names} — ${unconfirmed.join(', ')} not confirmed` : `${names} — confirmed`;
+  const anomalies = (outcome.results ?? []).filter(
+    (r) =>
+      r.status === STATUS.APPLIED_UNVERIFIED && getProvider(r.providerId)?.verifiable !== false,
+  );
+  return anomalies.length
+    ? `${anomalies.map((r) => r.label).join(', ')} could not be confirmed — the command was sent, but the hardware did not report back`
+    : null;
 }
 
 async function repaintAll(settings) {
@@ -276,6 +289,12 @@ export class ProfileKey extends SingletonAction {
     // applyProfile means it stays lit for as long as the hardware takes.
     await repaintAll(settings);
 
+    // Announced before the work, not after it. Applying a profile takes long
+    // enough — a MOZA curve alone is seven verified writes — that silence
+    // reads as nothing happening. This is the toast that says the press
+    // landed; the key's dots say the same thing to anyone looking at the deck.
+    notify(`Activating ${profile.name}`, willApply(profile), { logger: streamDeck.logger });
+
     // Dots that do not move mean nothing. Keys are static images, so animating
     // is a matter of pushing a new one a few times a second — cheap, since each
     // frame is a few hundred bytes of SVG over a websocket that is already open.
@@ -329,7 +348,11 @@ export class ProfileKey extends SingletonAction {
     } else {
       await ev.action.showOk();
       streamDeck.logger.info(`[profileKey] ${profile.name}: ${why}`);
-      notify(`${profile.name} active`, describeOutcome(outcome), { logger: streamDeck.logger });
+      // A clean switch says nothing further: the first toast covered it, and
+      // repeating yourself is how a notification becomes noise. Only an
+      // unconfirmed provider earns a second one.
+      const caveat = describeOutcome(outcome);
+      if (caveat) notify(`${profile.name} active, with a caveat`, caveat, { logger: streamDeck.logger });
     }
     await repaintAll(settings);
   }

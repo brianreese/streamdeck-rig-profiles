@@ -31,10 +31,9 @@ describe('buildScript', () => {
     expect(buildScript('a', 'b')).toContain('duration="short"');
   });
 
-  it('outlives the handoff, or Windows drops the toast', () => {
-    // Show() is asynchronous over COM. A detached child that exits immediately
-    // reaches Show() and vanishes before delivery, which looks identical in the
-    // log to a toast that was delivered and suppressed.
+  it('outlives the COM handoff', () => {
+    // Show() is asynchronous, so exiting immediately after it is a real race
+    // even though it was not the cause of the outage that prompted this.
     expect(buildScript('a', 'b')).toMatch(/Start-Sleep/);
   });
 });
@@ -50,11 +49,10 @@ describe('notify', () => {
     expect(decode(calls)).toContain('MOZA mismatch');
   });
 
-  it('never waits on the toast, but does not detach either', () => {
-    // Detaching looks like the right call and silently breaks delivery: a
-    // DETACHED_PROCESS child has no console or window station, and WinRT drops
-    // the toast without an error. unref() gets the same non-blocking behaviour
-    // without that. Pinned because the failure is invisible.
+  it('never waits on the toast, and does not detach', () => {
+    // unref() gives the same non-blocking behaviour, so detaching adds a
+    // Windows-specific process mode for nothing. Pinned so it is a decision
+    // rather than an oversight.
     const { fn, calls } = fakeSpawn();
     notify('a', 'b', { spawnFn: fn, platform: 'win32' });
     expect(calls[0].options.detached).toBeUndefined();

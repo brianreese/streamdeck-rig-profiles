@@ -53,11 +53,11 @@ export function buildScript(title, body) {
     `$doc.LoadXml(@'\n${xml}\n'@)`,
     '$toast = New-Object Windows.UI.Notifications.ToastNotification $doc',
     `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('${POWERSHELL_APP_ID}').Show($toast)`,
-    // Show() hands the toast to Windows over COM and returns straight away. A
-    // process that exits before the handoff completes loses the notification —
-    // which is exactly what a detached, unref'd child does. The log said the
-    // toast had been sent and nothing ever appeared. Outliving the handoff is
-    // the fix; the sleep costs nothing because nobody is waiting on it.
+    // Show() hands the toast to Windows over COM and returns straight away, so
+    // a process that exits immediately can lose the notification. This was added
+    // while chasing toasts that never arrived; a reboot turned out to be the
+    // actual cure, so treat this as cheap insurance rather than a proven fix.
+    // Nobody is waiting on the child, so the wait costs nothing.
     'Start-Sleep -Milliseconds 1500',
   ].join('\n');
 }
@@ -73,15 +73,16 @@ export function notify(title, body, { spawnFn = spawn, logger = null, platform =
     const child = spawnFn(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
-      // NOT detached. On Windows that spawns with DETACHED_PROCESS, which cuts
-      // the child off from the console and window-station context WinRT's toast
-      // delivery depends on: Show() returns cleanly and the notification is
-      // never delivered — it does not even reach the notification centre.
-      // Proven by elimination — the same script, same template, same AUMID,
-      // delivered when attached and vanished when detached.
+      // Not detached, though the reason is weaker than it first looked. Toasts
+      // stopped being delivered entirely for a stretch — no error anywhere, not
+      // even an entry in the notification centre — and dropping DETACHED_PROCESS
+      // seemed to be the fix. A reboot then fixed it outright, which points at
+      // Windows' notification service having been wedged the whole time rather
+      // than at anything here.
       //
-      // unref() alone is enough to stop the plugin waiting on it, and the child
-      // only lives a second and a half.
+      // Kept anyway because unref() alone gives the same non-blocking behaviour,
+      // so detaching bought nothing to begin with. Do not read this as a proven
+      // requirement.
       { stdio: 'ignore', windowsHide: true },
     );
     child.unref?.();
