@@ -18,7 +18,7 @@
           "TitleAlignment": "bottom"
         }
       ],
-      "SupportedInMultiActions": true,
+      "SupportedInMultiActions": false,
       "UUID": "com.rig.profiles.key"
     }
   ],
