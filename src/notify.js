@@ -72,7 +72,8 @@ export function notify(title, body, { spawnFn = spawn, logger = null, platform =
     // Without this the plugin holds the process open and Windows shows a
     // console window flicker on some machines.
     child.unref?.();
-    child.on?.('error', (err) => logger?.warn?.(`[notify] ${err.message}`));
+    child.on?.('error', (err) => logger?.warn?.(`[notify] spawn failed: ${err.message}`));
+    logger?.info?.(`[notify] ${title}`);
     return true;
   } catch (err) {
     logger?.warn?.(`[notify] ${err.message}`);

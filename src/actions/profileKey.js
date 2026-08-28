@@ -325,11 +325,11 @@ export class ProfileKey extends SingletonAction {
     if (isProblem(outcome.status)) {
       await ev.action.showAlert();
       streamDeck.logger.warn(`[profileKey] ${profile.name}: ${why}`);
-      notify(`${profile.name} — profile not fully applied`, why);
+      notify(`${profile.name} — profile not fully applied`, why, { logger: streamDeck.logger });
     } else {
       await ev.action.showOk();
       streamDeck.logger.info(`[profileKey] ${profile.name}: ${why}`);
-      notify(`${profile.name} active`, describeOutcome(outcome));
+      notify(`${profile.name} active`, describeOutcome(outcome), { logger: streamDeck.logger });
     }
     await repaintAll(settings);
   }
