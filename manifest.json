@@ -20,18 +20,6 @@
       ],
       "SupportedInMultiActions": true,
       "UUID": "com.rig.profiles.key"
-    },
-    {
-      "Icon": "assets/action-icon",
-      "Name": "Profile Toggle",
-      "Tooltip": "Cycle through rig profiles.",
-      "States": [
-        {
-          "Image": "assets/action-icon"
-        }
-      ],
-      "SupportedInMultiActions": false,
-      "UUID": "com.rig.profiles.toggle"
     }
   ],
   "OS": [
