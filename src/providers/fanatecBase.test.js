@@ -85,8 +85,8 @@ describe('verify', () => {
   it('reports mismatch when the base is on a different slot', async () => {
     const out = await fanatecBase.verify({ setup: 2 }, { bus: fakeBus(stateOnSlot(1)) });
     expect(out.status).toBe(STATUS.MISMATCH);
-    expect(out.detail).toContain('S2');
-    expect(out.detail).toContain('S1');
+    expect(out.detail).toContain('Setup 2');
+    expect(out.detail).toContain('Setup 1');
   });
 
   it('reports unreachable when the base does not answer', async () => {
@@ -104,12 +104,25 @@ describe('verify', () => {
 });
 
 describe('options', () => {
-  it('labels the current slot with its real values', async () => {
+  it('names the slots the way the Fanatec app does', async () => {
     const opts = await fanatecBase.options({ bus: fakeBus(stateOnSlot(2)) });
     expect(opts).toHaveLength(5);
-    const current = opts.find((o) => o.value === 2);
-    expect(current.label).toContain('FFB 77');
-    expect(current.label).toContain('(current)');
+    expect(opts.map((o) => o.label)).toEqual([
+      'Setup 1',
+      'Setup 2 (current)',
+      'Setup 3',
+      'Setup 4',
+      'Setup 5',
+    ]);
+  });
+
+  it('does not append the values it read back', () => {
+    // Only the active slot can carry them — the base reports one block at a
+    // time — so they made the list inconsistent, and they are noise next to
+    // the one thing being chosen.
+    return fanatecBase.options({ bus: fakeBus(stateOnSlot(2)) }).then((opts) => {
+      expect(opts.find((o) => o.value === 2).label).not.toMatch(/FFB|FUL|FEI/);
+    });
   });
 
   it('still lists all five slots when the base is unreachable', async () => {

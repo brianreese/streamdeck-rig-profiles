@@ -5,9 +5,14 @@
 // file only adapts them to the provider contract.
 //
 // Scene names are matched exactly against the Govee app, which is the classic
-// silent-failure surface — a typo just does nothing. So the property inspector
-// offers the catalog as a dropdown, and a profile can fall back to its own
-// colour when no scene is chosen. Colour always works and cannot be mistyped.
+// silent-failure surface — a typo just does nothing. So the editor offers the
+// catalog as a dropdown rather than a text field.
+//
+// A scene is required. This file used to advertise a fall back to the profile's
+// own colour when none was chosen, in the header, the field help and describe(),
+// while validate() and apply() both refused an empty scene — so the editor
+// offered the option and the save was then rejected. The fallback was never
+// implemented; a profile that should leave the lights alone turns Govee off.
 
 import { init as initGovee, activateScene, getSceneNames } from '../govee.js';
 import { STATUS } from './status.js';
@@ -38,8 +43,12 @@ export default {
         label: 'Scene',
         type: 'select',
         options: (sceneNames ?? []).map((n) => ({ value: n, label: n })),
-        allowEmpty: true,
-        help: 'Leave empty to use the profile colour instead.',
+        // No allowEmpty: apply() has nothing to do without a scene and says so.
+        // The field previously offered an empty option and promised a fall back
+        // to the profile colour, which is not implemented — the editor let it
+        // be chosen and the save was then refused. Turn Govee off for a profile
+        // that should not touch the lights.
+        help: 'Which Govee scene this profile activates.',
       },
     ];
   },
@@ -49,7 +58,7 @@ export default {
   },
 
   describe(cfg) {
-    return cfg?.scene ? `scene "${cfg.scene}"` : 'profile colour';
+    return cfg?.scene ? `scene "${cfg.scene}"` : 'no scene selected';
   },
 
   async options({ settings } = {}) {

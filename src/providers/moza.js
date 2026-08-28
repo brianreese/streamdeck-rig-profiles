@@ -206,8 +206,15 @@ export default {
     const preset = cfg?.preset ? findPreset(cfg.preset) : null;
     const plan = resolve(cfg, { preset });
 
-    // Opt-in only. Default is to fail with a clear message instead.
-    if (ctx.settings?.mozaClosePitHouse) {
+    // On by default, matching Fanatec's auto-start. Pit House holds the serial
+    // port exclusively, so leaving this off means a profile switch fails
+    // whenever Pit House happens to be open — which, since it launches with
+    // Windows, is most of the time. Closing it is also recoverable in a way the
+    // failure is not: reopening restores whatever preset it wants.
+    //
+    // Reopening afterwards stays opt-in and off, deliberately: Pit House
+    // re-applies a preset on start and would undo the switch that just ran.
+    if (ctx.settings?.mozaClosePitHouse !== false) {
       const result = await closePitHouse();
       if (result.wasRunning && !result.closed) {
         throw new Error(`could not close Pit House: ${result.reason ?? 'still running'}`);

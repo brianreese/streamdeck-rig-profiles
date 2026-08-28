@@ -39,15 +39,6 @@ export function currentSlot(state) {
 }
 
 /** Short human summary of a slot's feel, for the PI dropdown. */
-function slotLabel(slot, block) {
-  if (!block) return `S${slot}`;
-  const bits = [];
-  if (block.FFB !== undefined) bits.push(`FFB ${block.FFB}`);
-  if (block.FUL !== undefined) bits.push(`FUL ${block.FUL}`);
-  if (block.FEI !== undefined) bits.push(`FEI ${block.FEI}`);
-  return bits.length ? `S${slot} — ${bits.join(', ')}` : `S${slot}`;
-}
-
 function normaliseSlot(cfg) {
   const slot = Number(cfg?.setup);
   if (!Number.isInteger(slot) || slot < SLOT_MIN || slot > SLOT_MAX) return null;
@@ -73,7 +64,7 @@ export default {
         label: 'Setup slot',
         type: 'select',
         // Filled from the hardware via options(); these are the fallback.
-        options: [1, 2, 3, 4, 5].map((v) => ({ value: v, label: `S${v}` })),
+        options: [1, 2, 3, 4, 5].map((v) => ({ value: v, label: `Setup ${v}` })),
         help: 'Dial the slots in via the Fanatec app first — this only selects between them.',
       },
     ];
@@ -85,26 +76,28 @@ export default {
 
   describe(cfg) {
     const slot = normaliseSlot(cfg);
-    return slot ? `wheelbase setup S${slot}` : 'wheelbase (not configured)';
+    return slot ? `wheelbase Setup ${slot}` : 'wheelbase (not configured)';
   },
 
   /**
-   * Enumerate the five slots for the property inspector.
+   * Enumerate the five slots for the editor.
    *
-   * Only the currently-selected slot can be labelled with its real values —
-   * the base reports one block at a time — so the others are listed plainly.
-   * That is still enough to stop someone selecting a slot they have never set
-   * up, because the current one shows what a configured slot looks like.
+   * Named "Setup N" because that is what the Fanatec app calls them, and a
+   * setting is easier to trust when both places agree. The labels used to
+   * append the FFB/FUL/FEI values read back from the base, which only worked
+   * for the active slot — the base reports one block at a time — so the list
+   * was inconsistent by construction, and the numbers were noise next to the
+   * one thing being chosen. The live reading is still worth having for
+   * "(current)", which says which slot you are on right now.
    */
   async options({ bus = getBus() } = {}) {
     const state = await bus.readState({ timeoutMs: 4000 }).catch(() => null);
     const active = currentSlot(state);
-    const block = activeBlock(state);
     const opts = [];
     for (let slot = SLOT_MIN; slot <= SLOT_MAX; slot++) {
       opts.push({
         value: slot,
-        label: slot === active ? `${slotLabel(slot, block)} (current)` : `S${slot}`,
+        label: slot === active ? `Setup ${slot} (current)` : `Setup ${slot}`,
       });
     }
     return opts;
@@ -162,7 +155,7 @@ export default {
       .catch(() => null);
 
     if (matched) {
-      return { status: STATUS.VERIFIED, detail: `wheelbase confirmed S${slot}` };
+      return { status: STATUS.VERIFIED, detail: `wheelbase confirmed Setup ${slot}` };
     }
 
     // No match within the window. Distinguish "said something else" from
@@ -176,7 +169,7 @@ export default {
     }
     return {
       status: STATUS.MISMATCH,
-      detail: `asked for S${slot}, wheelbase reports S${seen}`,
+      detail: `asked for Setup ${slot}, wheelbase reports Setup ${seen}`,
     };
   },
 };

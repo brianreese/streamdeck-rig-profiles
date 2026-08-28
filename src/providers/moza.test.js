@@ -46,7 +46,7 @@ const PRESETS = {
   },
 };
 
-const { withDevice, closePitHouse, isPitHouseRunning } = await import('../moza/mbooster.js');
+const { withDevice, closePitHouse, reopenPitHouse, isPitHouseRunning } = await import('../moza/mbooster.js');
 
 /** A fake pedal that remembers what was written. */
 function fakePedal({ acknowledge = true, readings = {}, curveReadback = null, curveFails = [] } = {}) {
@@ -125,10 +125,23 @@ describe('apply', () => {
     expect(withDevice).not.toHaveBeenCalled();
   });
 
-  it('leaves Pit House alone unless asked', async () => {
+  it('closes Pit House by default, because it holds the port exclusively', async () => {
     fakePedal();
     await moza.apply({ maxForceKg: 35 }, { settings: {} });
+    expect(closePitHouse).toHaveBeenCalled();
+  });
+
+  it('leaves Pit House alone when explicitly opted out', async () => {
+    fakePedal();
+    await moza.apply({ maxForceKg: 35 }, { settings: { mozaClosePitHouse: false } });
     expect(closePitHouse).not.toHaveBeenCalled();
+  });
+
+  it('does not reopen Pit House unless asked, since that would undo the switch', async () => {
+    fakePedal();
+    closePitHouse.mockResolvedValue({ closed: true, wasRunning: true });
+    await moza.apply({ maxForceKg: 35 }, { settings: {} });
+    expect(reopenPitHouse).not.toHaveBeenCalled();
   });
 
   it('closes Pit House when the user has opted in', async () => {
