@@ -14,7 +14,8 @@
 import streamDeck, { SingletonAction } from '@elgato/streamdeck';
 import { applyProfile, summarise } from '../profileSwitch.js';
 import { renderProfileKey } from '../buttonRenderer.js';
-import { STATUS } from '../providers/index.js';
+import { notify } from '../notify.js';
+import { STATUS, isProblem } from '../providers/index.js';
 import { readState, writeState } from '../state.js';
 import { loadAvatarDataUri } from '../avatars.js';
 import { handlePiRequest } from '../piBridge.js';
@@ -32,6 +33,17 @@ let activeProfileId = null;
 let activeStatus = STATUS.SKIPPED;
 let hydrated = false;
 
+/**
+ * The profile mid-switch, if any.
+ *
+ * Applying a profile is slow — a MOZA curve alone is seven verified writes —
+ * and every other key used to keep its old paint until the whole thing
+ * finished, so the profile you just left stayed lit for ten seconds while the
+ * one you pressed claimed to be active. Tracking the switch separately lets
+ * every key repaint at once, the moment the press is accepted.
+ */
+let switchingProfileId = null;
+
 /** Avatar bytes, keyed by filename. Cheap to hold, expensive to re-read. */
 const avatarCache = new Map();
 
@@ -46,6 +58,24 @@ function findProfile(settings, id) {
   return { ...profile, avatarDataUri: avatarCache.get(profile.avatar) ?? undefined };
 }
 
+/**
+ * The body of a success toast.
+ *
+ * `summarise` answers "all hardware confirmed", which is true and says nothing
+ * you could act on. Naming what actually ran is the point of announcing every
+ * switch — and when a provider could only be sent to rather than confirmed,
+ * saying which one, because that is the difference between "your lights
+ * changed" and "your lights were asked to change".
+ */
+function describeOutcome(outcome) {
+  const ran = (outcome.results ?? []).filter((r) => r.status !== STATUS.SKIPPED);
+  if (!ran.length) return 'nothing configured for this profile';
+
+  const names = ran.map((r) => r.label).join(', ');
+  const unconfirmed = ran.filter((r) => r.status === STATUS.APPLIED_UNVERIFIED).map((r) => r.label);
+  return unconfirmed.length ? `${names} — ${unconfirmed.join(', ')} not confirmed` : `${names} — confirmed`;
+}
+
 async function repaintAll(settings) {
   await Promise.all(
     [...visible.values()].map(({ action, profileId }) => {
@@ -57,6 +87,7 @@ async function repaintAll(settings) {
         renderProfileKey({
           profile,
           active: profile.id === activeProfileId,
+          switching: profile.id === switchingProfileId,
           status: activeStatus,
           unknown: activeProfileId === null,
         }),
@@ -239,30 +270,66 @@ export class ProfileKey extends SingletonAction {
   async #switch(ev, profile, settings) {
     activeProfileId = profile.id;
     activeStatus = STATUS.APPLIED_UNVERIFIED;
-    await ev.action.setImage(renderProfileKey({ profile, active: true, switching: true }));
+    switchingProfileId = profile.id;
+    // Repaint everything now rather than only the key that was pressed. The
+    // profile being left has to stop looking active immediately; waiting for
+    // applyProfile means it stays lit for as long as the hardware takes.
+    await repaintAll(settings);
 
-    const outcome = await applyProfile(profile, {
-      // Global settings hold credentials (the Govee key) and device
-      // allowlists; providers need them alongside their own config slice.
-      settings: settings?.settings ?? {},
-      log: (m) => streamDeck.logger.info(m),
-      // Log every provider as it lands, not just the aggregate. The button
-      // shows the worst status, so a failing wheelbase was hiding whether
-      // the lights or the pedal did anything at all.
-      onResult: (r) =>
-        streamDeck.logger.info(
-          `[profileKey] ${profile.name} · ${r.label}: ${r.status} — ${r.detail}`,
-        ),
-    });
+    // Dots that do not move mean nothing. Keys are static images, so animating
+    // is a matter of pushing a new one a few times a second — cheap, since each
+    // frame is a few hundred bytes of SVG over a websocket that is already open.
+    //
+    // The interval is cleared in a `finally`. A timer that outlives a failed
+    // switch would sit there animating a key that is no longer doing anything,
+    // which is worse than no animation at all.
+    const painted = findProfile(settings, profile.id) ?? profile;
+    let frame = 0;
+    const dots = setInterval(() => {
+      frame += 1;
+      ev.action
+        .setImage(
+          renderProfileKey({ profile: painted, active: false, switching: true, dotFrame: frame }),
+        )
+        .catch(() => {});
+    }, 220);
+
+    let outcome;
+    try {
+      outcome = await applyProfile(profile, {
+        // Global settings hold credentials (the Govee key) and device
+        // allowlists; providers need them alongside their own config slice.
+        settings: settings?.settings ?? {},
+        log: (m) => streamDeck.logger.info(m),
+        // Log every provider as it lands, not just the aggregate. The button
+        // shows the worst status, so a failing wheelbase was hiding whether
+        // the lights or the pedal did anything at all.
+        onResult: (r) =>
+          streamDeck.logger.info(
+            `[profileKey] ${profile.name} · ${r.label}: ${r.status} — ${r.detail}`,
+          ),
+      });
+    } finally {
+      clearInterval(dots);
+    }
 
     activeStatus = outcome.status;
+    switchingProfileId = null;
     writeState(profile.id);
 
-    if (outcome.status === STATUS.VERIFIED) {
-      await ev.action.showOk();
-    } else {
+    // Every switch is announced, not just the broken ones. From the seat the
+    // deck is often out of eyeline, and "did that work?" is the question worth
+    // answering every time — a toast that only ever appears on failure teaches
+    // you to ignore the absence of one.
+    const why = summarise(outcome);
+    if (isProblem(outcome.status)) {
       await ev.action.showAlert();
-      streamDeck.logger.warn(`[profileKey] ${profile.name}: ${summarise(outcome)}`);
+      streamDeck.logger.warn(`[profileKey] ${profile.name}: ${why}`);
+      notify(`${profile.name} — profile not fully applied`, why);
+    } else {
+      await ev.action.showOk();
+      streamDeck.logger.info(`[profileKey] ${profile.name}: ${why}`);
+      notify(`${profile.name} active`, describeOutcome(outcome));
     }
     await repaintAll(settings);
   }

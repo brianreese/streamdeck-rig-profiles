@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderProfileKey } from './buttonRenderer.js';
 import { STATUS } from './providers/status.js';
+import { relativeLuminance } from './contrast.js';
 
 const profile = { name: 'Kai', color: '#22AA44' };
 
@@ -25,8 +26,42 @@ describe('renderProfileKey', () => {
   });
 
   it('goes genuinely dark when inactive, not merely outlined', () => {
+    // Asserts the property rather than a literal hex: what matters is that the
+    // tile is actually dark, so the one lit key is the only lit thing on the
+    // deck. The exact shade is a design choice and may move again.
     const svg = svgOf(renderProfileKey({ profile, active: false }));
+    const bg = /<rect width="144" height="144" fill="(#[0-9a-f]{6})"/i.exec(svg)[1];
+    expect(relativeLuminance(bg)).toBeLessThan(0.02);
+  });
+
+  it('carries the profile colour in the monogram when inactive', () => {
+    // A grey box with a "C" on it does not say Carter. The colour has to be
+    // somewhere, and the letter is where it costs nothing.
+    const svg = svgOf(renderProfileKey({ profile, active: false }));
+    expect(svg).toContain('#22AA44');
+    expect(svg).toContain('>K<');
+  });
+
+  it('replaces the name with dots while switching, keeping the monogram', () => {
+    const svg = svgOf(renderProfileKey({ profile, active: false, switching: true, dotFrame: 1 }));
+    expect(svg).not.toContain('>Kai<');
+    expect(svg).toContain('>K<');
+    expect((svg.match(/<circle/g) ?? []).length).toBe(3);
+  });
+
+  it('moves the lit dot from frame to frame, or the animation says nothing', () => {
+    const at = (f) =>
+      svgOf(renderProfileKey({ profile, active: false, switching: true, dotFrame: f }));
+    expect(at(0)).not.toBe(at(1));
+    // Three dots, so the cycle closes.
+    expect(at(0)).toBe(at(3));
+  });
+
+  it('inks a pale profile colour dark rather than white-on-white', () => {
+    const pale = { name: 'Carter', color: '#F2C230' };
+    const svg = svgOf(renderProfileKey({ profile: pale, active: true, status: STATUS.VERIFIED }));
     expect(svg).toContain('#141414');
+    expect(svg).not.toContain('#FFFFFF');
   });
 
   it('shows an amber stripe when applied but unverified', () => {

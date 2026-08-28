@@ -11,6 +11,7 @@
 // the label, so "off" is genuinely dark and "on" is genuinely saturated.
 
 import { STATUS } from './providers/index.js';
+import { readableTextColor } from './contrast.js';
 
 const SIZE = 144;
 
@@ -45,6 +46,17 @@ function initial(name) {
     .toUpperCase();
 }
 
+/**
+ * The two dark grounds an inactive or activating key sits on.
+ *
+ * Colour is carried by the monogram rather than the tile. Tinting the whole
+ * tile with the profile colour was tried and read as too much colour: it cost
+ * the thing a dark ground buys, which is that the one lit key is the only lit
+ * thing on the deck.
+ */
+const OFF_BG = '#131519';
+const WAIT_BG = '#1B1F26';
+
 /** Darken a #rrggbb toward black by `amount` (0..1). */
 function dim(hex, amount) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? ''));
@@ -52,6 +64,17 @@ function dim(hex, amount) {
   const n = parseInt(m[1], 16);
   const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) =>
     Math.max(0, Math.round(v * (1 - amount))),
+  );
+  return `#${ch.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Lighten a #rrggbb toward white by `amount` (0..1). */
+function lift(hex, amount) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? ''));
+  if (!m) return '#FFFFFF';
+  const n = parseInt(m[1], 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) =>
+    Math.min(255, Math.round(v + (255 - v) * amount)),
   );
   return `#${ch.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
@@ -66,6 +89,7 @@ function dim(hex, amount) {
  * @param {boolean} [opts.switching]   mid-transition
  * @param {boolean} [opts.unknown]     state could not be read at all
  * @param {number}  [opts.holdProgress] 0..1 while a restricted key is held
+ * @param {number}  [opts.dotFrame]  0..2, which dot is lit while switching
  */
 export function renderProfileKey({
   profile,
@@ -74,6 +98,7 @@ export function renderProfileKey({
   switching = false,
   unknown = false,
   holdProgress = null,
+  dotFrame = null,
 }) {
   const name = escapeXml(profile?.name ?? '');
   const color = profile?.color ?? '#2255CC';
@@ -86,11 +111,14 @@ export function renderProfileKey({
   // show the profile lighting up as the hold completes.
   if (holdProgress !== null) {
     const p = Math.max(0, Math.min(1, holdProgress));
+    const bg = dim(color, 0.75 - p * 0.75);
     return svg(
       bodyKey({
         name,
-        bg: dim(color, 0.75 - p * 0.75),
-        fg: '#FFFFFF',
+        bg,
+        // The sweep ends on the full profile colour, so a pale one needs dark
+        // ink by the time it gets there.
+        fg: readableTextColor(bg),
         avatar,
         fade: 0.4 + p * 0.6,
         progress: p,
@@ -98,29 +126,58 @@ export function renderProfileKey({
     );
   }
 
-  if (switching) return svg(bodyKey({ name, bg: dim(color, 0.55), fg: '#C8C8C8', avatar, fade: 0.6 }));
+  // Working: the name steps aside for the dots rather than sharing the key
+  // with them. During a switch you already know which key you pressed, so the
+  // name is the least useful thing on it — and the monogram, which answers
+  // "whose key is this", stays.
+  if (switching) {
+    return svg(
+      bodyKey({
+        name,
+        bg: WAIT_BG,
+        fg: lift(color, 0.1),
+        avatar,
+        fade: 0.6,
+        dotFrame: dotFrame ?? 0,
+        dotColor: lift(color, 0.35),
+      }),
+    );
+  }
 
   if (!active) {
-    // Off: near-black, avatar knocked well back, muted label.
-    return svg(bodyKey({ name, bg: '#141414', fg: '#7A7A7A', avatar, fade: 0.35, swatch: color }));
+    // Off: a dark tile, with the profile colour in the monogram. A grey box
+    // with a "C" on it does not say Carter; a green C does.
+    return svg(
+      bodyKey({
+        name,
+        bg: OFF_BG,
+        fg: color,
+        label: '#868C97',
+        avatar,
+        fade: 0.42,
+        // An avatar key has no monogram to carry the colour, so it keeps the chip.
+        swatch: avatar ? color : null,
+      }),
+    );
   }
 
   const stripe = STRIPE[status];
   const confirmed = status === STATUS.VERIFIED;
+  const ink = readableTextColor(color);
   return svg(
     bodyKey({
       name,
       bg: color,
-      fg: '#FFFFFF',
+      fg: ink,
       avatar,
       fade: 1,
       stripe,
-      dot: confirmed ? '#FFFFFF' : null,
+      dot: confirmed ? ink : null,
     }),
   );
 }
 
-function bodyKey({ name, bg, fg, avatar, fade, stripe, dot, swatch, progress }) {
+function bodyKey({ name, bg, fg, avatar, fade, stripe, dot, swatch, progress, label, dotFrame = null, dotColor }) {
   const parts = [`<rect width="${SIZE}" height="${SIZE}" fill="${bg}"/>`];
 
   if (avatar) {
@@ -146,11 +203,21 @@ function bodyKey({ name, bg, fg, avatar, fade, stripe, dot, swatch, progress }) 
     parts.push(`<circle cx="${SIZE - 16}" cy="16" r="6" fill="${dot}"/>`);
   }
 
-  parts.push(
-    `<text x="${SIZE / 2}" y="${SIZE - 16}" font-family="sans-serif" ` +
-      `font-size="${labelSize(name)}" font-weight="600" fill="${fg}" ` +
-      `text-anchor="middle">${name}</text>`,
-  );
+  if (dotFrame === null) {
+    parts.push(
+      `<text x="${SIZE / 2}" y="${SIZE - 16}" font-family="sans-serif" ` +
+        `font-size="${labelSize(name)}" font-weight="600" fill="${label ?? fg}" ` +
+        `text-anchor="middle">${name}</text>`,
+    );
+  } else {
+    for (let i = 0; i < 3; i++) {
+      const on = i === dotFrame % 3;
+      parts.push(
+        `<circle cx="${SIZE / 2 - 16 + i * 16}" cy="${SIZE - 22}" r="${on ? 5 : 3.5}" ` +
+          `fill="${dotColor ?? fg}" opacity="${on ? 1 : 0.32}"/>`,
+      );
+    }
+  }
 
   if (stripe) {
     parts.push(`<rect x="0" y="${SIZE - 6}" width="${SIZE}" height="6" fill="${stripe}"/>`);
