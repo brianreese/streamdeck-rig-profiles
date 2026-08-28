@@ -220,15 +220,25 @@ export function decodeAll(buf) {
 // Value encodings, from AZOM's documented scaling
 // ---------------------------------------------------------------------------
 
+/**
+ * Full scale encodes to 65536, which does not fit the device's 16-bit storage.
+ *
+ * Wrapping turns the top of every range into the bottom of it: a 200kg load
+ * cell threshold — the value MOZA's own child preset carries — was written as
+ * 0x00010000 and read back as 0.00kg. Clamping costs 0.003kg and means the
+ * maximum can actually be asked for.
+ */
+const clampToScale = (raw) => Math.max(0, Math.min(0xffff, raw));
+
 /** Travel positions: millimetres over a 53.5mm range, as a 16-bit int. */
 export const travel = {
-  toRaw: (mm) => Math.round((mm * 65536) / 53.5) & 0xffff,
+  toRaw: (mm) => clampToScale(Math.round((mm * 65536) / 53.5)),
   fromRaw: (raw) => (raw * 53.5) / 65536,
 };
 
-/** Max threshold: kilograms over a 200kg range, as a 32-bit int. */
+/** Max threshold: kilograms over a 200kg range, stored in the low 16 bits. */
 export const force = {
-  toRaw: (kg) => Math.round((kg * 65536) / 200) >>> 0,
+  toRaw: (kg) => clampToScale(Math.round((kg * 65536) / 200)),
   fromRaw: (raw) => (raw * 200) / 65536,
 };
 

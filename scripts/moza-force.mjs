@@ -4,7 +4,8 @@
 // writes: command 0xAB, addressed by a 16-bit point index, value in the same
 // kg/200 scaling as 0xB3.
 //
-//   idx 0-6   travel axis, evenly spaced at 65536/7 — fixed, never written
+//   idx 0-6   the curve travel axis, never written here
+//   idx 7     forcelimit_min, the force needed before the pedal moves
 //   idx 8-14  the seven force points, in kg; the last one IS forcelimit_max
 //
 // Moving the slider rewrites all seven points at once, keeping the curve's
@@ -25,7 +26,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFrame, writeFrame, keepAliveFrame, decodeAll, toBytes, GROUP } from '../src/moza/frame.js';
-import { findPort, CURVE_AXIS } from '../src/moza/mbooster.js';
+import { findPort, identify } from '../src/moza/mbooster.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BASELINE = join(HERE, 'scans', 'force-curve.json');
@@ -147,22 +148,18 @@ async function writePoint(idx, value) {
 /**
  * Refuse to write until the device proves it is an mBooster.
  *
- * Vendor and product id only say what Windows thinks is plugged in. The curve's
- * travel axis is a fixed fingerprint the firmware holds at indices 0-6, so
- * reading it back confirms the table layout we are about to write into.
+ * Vendor and product id only say what Windows thinks is plugged in. Reading
+ * the curve table back confirms the layout we are about to write into.
  */
 async function assertIsMBooster() {
-  for (const index of [1, 3, 6]) {
-    const got = await readPoint(index);
-    if (got === null || Math.abs(got - CURVE_AXIS[index]) > 32) {
-      console.error(
-        `${portPath} did not answer as an mBooster (axis point ${index} read ${got}, ` +
-          `expected about ${CURVE_AXIS[index]}). Nothing was written.`,
-      );
-      clearInterval(heartbeat);
-      await new Promise((res) => port.close(() => res()));
-      process.exit(1);
-    }
+  // The same check the provider runs, driven by this script's own reader so
+  // there is one definition of what counts as an mBooster.
+  const check = await identify({ readCurvePoint: readPoint });
+  if (!check.ok) {
+    console.error(`${portPath} did not answer as an mBooster (${check.reason}). Nothing was written.`);
+    clearInterval(heartbeat);
+    await new Promise((res) => port.close(() => res()));
+    process.exit(1);
   }
 }
 

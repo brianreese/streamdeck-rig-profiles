@@ -135,8 +135,18 @@ describe('device id nibble swap', () => {
 describe('value scaling', () => {
   it('encodes travel as millimetres over the 53.5mm range', () => {
     expect(travel.toRaw(0)).toBe(0);
-    expect(travel.toRaw(53.5)).toBe(0); // 65536 wraps to 0 in 16 bits
     expect(travel.toRaw(26.75)).toBe(32768);
+  });
+
+  it('clamps full scale instead of wrapping it round to zero', () => {
+    // Full scale is 65536, which does not fit 16 bits. Wrapping turned the top
+    // of the range into the bottom: a 200kg threshold, the value MOZA's own
+    // child preset carries, was written as 0x00010000 and read back as 0.00kg.
+    expect(travel.toRaw(53.5)).toBe(0xffff);
+    expect(force.toRaw(200)).toBe(0xffff);
+    expect(force.fromRaw(force.toRaw(200))).toBeCloseTo(200, 2);
+    // Nothing below the top changes.
+    expect(force.toRaw(50)).toBe(16384);
   });
 
   it('round-trips a travel value close enough to be recognisable', () => {
@@ -186,5 +196,64 @@ describe('readFrame width', () => {
     const frame = readFrame(0x84, { width: 2 });
     expect(frame[1]).toBe(3); // command id + two placeholders
     expect([...frame.subarray(4, 7)]).toEqual([0x84, 0x00, 0x00]);
+  });
+});
+
+// Every vector below is real traffic captured from the pedal. 0x7E marks the
+// start of a frame, so the device escapes any other 0x7E by doubling it, and
+// checksums the escaped bytes. Missing this cost a day: a value encoding to
+// 08 7E was silently ignored on write, and swallowed the reply behind it.
+describe('0x7E escaping', () => {
+  it('leaves frames without a 0x7E byte exactly as they were', () => {
+    // The documented keepalive is the regression guard for the whole scheme.
+    expect(keepAliveFrame().toString('hex')).toBe('7e0000129d');
+    expect(readFrame([0xab, 0x00, 8], { width: 2 }).toString('hex')).toBe('7e052312ab0008000078');
+  });
+
+  it('doubles a 0x7E inside a value, and checksums the escaped bytes', () => {
+    // 2174 encodes to 08 7E. The device accepted this exact frame.
+    const frame = writeFrame([0xab, 0x00, 9], toBytes(2174, 2));
+    expect(frame.toString('hex')).toBe('7e052412ab0009087e7e7e7e');
+  });
+
+  it('decodes a reply whose value contains an escaped 0x7E', () => {
+    // Captured: force curve point 9 reading 2174.
+    const { frames } = decodeAll(Buffer.from('7e05a321ab0009087e7e0c', 'hex'));
+    expect(frames).toHaveLength(1);
+    expect(frames[0].payload[2]).toBe(9);
+    expect(frames[0].payload.readUInt16BE(3)).toBe(2174);
+  });
+
+  it('decodes a reply whose checksum itself lands on 0x7E', () => {
+    // Captured: point 10 reading 6747, checksum 0x7e, therefore doubled.
+    const { frames } = decodeAll(Buffer.from('7e05a321ab000a1a5b7e7e', 'hex'));
+    expect(frames).toHaveLength(1);
+    expect(frames[0].payload.readUInt16BE(3)).toBe(6747);
+  });
+
+  it('does not lose the frame queued behind an escaped one', () => {
+    // The original bug: everything after the escape was swallowed.
+    const { frames } = decodeAll(
+      Buffer.from('7e05a321ab000a1a5b7e7e' + '7e0080212c' + '7e05a321ab000b1e456d', 'hex'),
+    );
+    expect(frames).toHaveLength(3);
+    expect(frames[0].payload.readUInt16BE(3)).toBe(6747);
+    expect(frames[2].payload.readUInt16BE(3)).toBe(7749);
+  });
+
+  it('round-trips any value, including ones full of start bytes', () => {
+    for (const value of [0x7e7e, 0x007e, 0x7e00, 2174, 0, 0xffff]) {
+      const { frames } = decodeAll(writeFrame([0xab, 0x00, 9], toBytes(value, 2)));
+      expect(frames).toHaveLength(1);
+      expect(frames[0].payload.readUInt16BE(3)).toBe(value);
+    }
+  });
+
+  it('steps over a stray start byte instead of waiting for 126 bytes', () => {
+    // A lone 0x7E is not a header. Read as one it claims a payload that never
+    // arrives, and the decoder stalls holding every frame behind it.
+    const { frames } = decodeAll(Buffer.from('7e' + '7e0000129d', 'hex'));
+    expect(frames).toHaveLength(1);
+    expect(frames[0].group).toBe(GROUP.KEEPALIVE);
   });
 });

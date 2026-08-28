@@ -290,23 +290,21 @@ class Session {
 }
 
 /**
- * Confirm the thing on the other end really is an mBooster.
+ * The layout of command 0xAB's table.
  *
- * Vendor and product id say what Windows thinks is plugged in. This asks the
- * device itself, and it is the check that matters, because being wrong here
- * means writing brake calibration into something that is not a brake.
- *
- * The fingerprint is the curve's travel axis: seven fixed values the firmware
- * holds at indices 0-6, near `i × 65536/7`. They are not exactly even — the
- * firmware stores them as floats and reads back truncated, so observed steps
- * run 9361-9364 — hence the tolerance. Six values each landing in a narrow band
- * is not something another device answers by chance, and unlike a serial number
- * it verifies the table layout we are about to write into.
+ * Indices 0-6 are the curve's travel axis, 7 is `brake_forcelimit_min` — the
+ * force needed before the pedal moves at all — and 8-14 are the seven force
+ * points. Index 7 was mistaken for an unused zero until a preset carrying a
+ * non-zero value for it was loaded, when it read back exactly the 7kg the
+ * preset stores.
  */
 export const CURVE_COMMAND = 0xab;
 export const CURVE_POINTS = [8, 9, 10, 11, 12, 13, 14];
-export const CURVE_AXIS = [0, 1, 2, 3, 4, 5, 6].map((i) => Math.round((i * 65536) / 7));
-const AXIS_TOLERANCE = 32;
+export const AXIS_POINTS = [0, 1, 2, 3, 4, 5, 6];
+export const FORCE_MIN_POINT = 7;
+
+/** Roughly 6/7 of full scale, but loose — the axis moves when a preset loads. */
+const AXIS_TOP = { min: 40000, max: 64000 };
 
 /** The curve's force points are a 16-bit fraction of this range, in kg. */
 export const CURVE_FULL_SCALE_KG = 200;
@@ -340,19 +338,43 @@ export function scaleCurve(forcesKg, peakKg) {
   return forcesKg.map((kg) => (kg / peak) * peakKg);
 }
 
-export async function identify(session, { indices = [1, 3, 6] } = {}) {
-  for (const index of indices) {
+/**
+ * Confirm the thing on the other end really is an mBooster.
+ *
+ * Vendor and product id say what Windows thinks is plugged in. This asks the
+ * device itself, because being wrong here means writing brake calibration into
+ * something that is not a brake.
+ *
+ * The check is structural rather than a table of expected values. An earlier
+ * version pinned indices 0-6 to `i × 65536/7` on the strength of a single
+ * reading, and it was wrong: those values shift when Pit House loads a preset
+ * — 9362 became 9409 — so the guard rejected the real pedal and would have
+ * blocked every legitimate write. What actually holds is the shape: an axis of
+ * seven points rising from zero to near full scale. A device that answers
+ * nothing, zeros, or a flat table fails; the mBooster passes whatever preset it
+ * happens to be carrying.
+ */
+export async function identify(session) {
+  const axis = [];
+  for (const index of AXIS_POINTS) {
     const got = await session.readCurvePoint(index);
-    if (got === null) {
-      return { ok: false, reason: `no answer for curve axis point ${index}` };
-    }
-    if (Math.abs(got - CURVE_AXIS[index]) > AXIS_TOLERANCE) {
-      return {
-        ok: false,
-        reason: `curve axis point ${index} reads ${got}, expected about ${CURVE_AXIS[index]}`,
-      };
+    if (got === null) return { ok: false, reason: `no answer for curve axis point ${index}` };
+    axis.push(got);
+  }
+
+  if (axis[0] !== 0) {
+    return { ok: false, reason: `curve axis starts at ${axis[0]}, expected 0` };
+  }
+  for (let i = 1; i < axis.length; i++) {
+    if (axis[i] <= axis[i - 1]) {
+      return { ok: false, reason: `curve axis is not rising at point ${i} (${axis[i]})` };
     }
   }
+  const top = axis[axis.length - 1];
+  if (top < AXIS_TOP.min || top > AXIS_TOP.max) {
+    return { ok: false, reason: `curve axis tops out at ${top}, outside the expected range` };
+  }
+
   return { ok: true };
 }
 
