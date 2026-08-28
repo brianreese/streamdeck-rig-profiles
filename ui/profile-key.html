@@ -10,171 +10,60 @@
       }
       .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
       label { flex: 0 0 92px; text-align: right; color: #969696; }
-      select, input[type="text"] {
+      select {
         flex: 1; min-width: 0; background: #3d3d3d; color: #d8d8d8;
         border: 1px solid #4d4d4d; border-radius: 4px; padding: 4px 6px;
-      }
-      input[type="color"] {
-        width: 38px; height: 26px; padding: 0; background: none;
-        border: 1px solid #4d4d4d; border-radius: 4px;
       }
       select.unset { border-color: var(--amber); }
       .hint { margin-left: 100px; color: #7a7a7a; font-size: 11px; }
       .warn { margin-left: 100px; color: var(--amber); font-size: 11px; }
       .err  { margin-left: 100px; color: var(--red); font-size: 11px; }
-
-      details { margin-top: 14px; border-top: 1px solid #414141; padding-top: 10px; }
-      summary { cursor: pointer; color: #969696; user-select: none; }
-      .profile-card {
-        border: 1px solid #414141; border-radius: 6px;
-        padding: 8px; margin: 8px 0; background: #333;
-      }
-      .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-      .swatch { width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto; }
-      .card-title { flex: 1; font-weight: 600; }
       button {
         background: #4a4a4a; color: #d8d8d8; border: 1px solid #5a5a5a;
         border-radius: 4px; padding: 4px 10px; cursor: pointer;
       }
       button:hover { background: #565656; }
-      button.danger { border-color: #6a3a3a; }
-      button.primary { background: #2255cc; border-color: #2f66e0; }
-      .actions { display: flex; gap: 8px; margin-top: 10px; }
-      .avatar-preview {
-        width: 34px; height: 34px; border-radius: 4px; object-fit: cover;
-        border: 1px solid #4d4d4d; background: #222;
+      .actions {
+        display: flex; gap: 8px; margin-top: 12px;
+        border-top: 1px solid #414141; padding-top: 10px;
       }
-      textarea {
-        width: 100%; box-sizing: border-box; height: 150px; background: #262626;
-        color: #c8c8c8; border: 1px solid #4d4d4d; border-radius: 4px;
-        font-family: ui-monospace, Consolas, monospace; font-size: 11px;
-      }
-      .muted { color: #7a7a7a; font-size: 11px; }
-
-      /* The inspector panel is short by default, so the editor is an
-         accordion: only the profile being edited is expanded. */
-      .profile-card { padding: 6px 8px; margin: 6px 0; }
-      .profile-card > .card-body { display: none; padding-top: 6px; }
-      .profile-card.open > .card-body { display: block; }
-      .card-head { cursor: pointer; margin-bottom: 0; }
-      .chev { color: #7a7a7a; width: 10px; flex: 0 0 auto; }
-      .prov { border-top: 1px solid #414141; margin-top: 6px; padding-top: 6px; }
-      .prov-head { display: flex; align-items: center; gap: 6px; }
-      .prov-head span.pname { flex: 1; color: #d8d8d8; }
-      .prov-fields { display: none; padding: 4px 0 0 18px; }
-      .badge { font-size: 10px; color: #7a7a7a; border: 1px solid #4d4d4d;
-               border-radius: 3px; padding: 0 4px; }
-      textarea.cmds { height: 74px; }
-      input[type="range"] { flex: 1; min-width: 0; accent-color: #2f66e0; }
-      input[type="range"]:disabled { opacity: 0.35; }
-      .rv {
-        flex: 0 0 62px; text-align: right; color: #d8d8d8;
-        font-variant-numeric: tabular-nums; font-size: 12px;
-      }
-      .rv.off { color: #6a6a6a; }
-      .row { margin-bottom: 6px; }
-
-      /* While the editor is open the key's own picker is redundant and the
-         panel is short, so reclaim its rows. */
-      body.editing #keypick { display: none; }
-      details#hardware { margin-top: 12px; }
-      body.editing details#manage { border-top: none; margin-top: 0; padding-top: 0; }
-
-      .prov-fields { display: block; }
-      .rm-prov {
-        background: none; border: none; color: #7a7a7a; cursor: pointer;
-        font-size: 15px; line-height: 1; padding: 0 4px;
-      }
-      .rm-prov:hover { color: var(--red); background: none; }
-      select.addprov { color: #969696; }
+      code { font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
     </style>
   </head>
   <body>
-    <div id="keypick">
-      <div class="row">
-        <label for="profile">Profile</label>
-        <select id="profile"><option value="">Loading…</option></select>
-      </div>
-      <div class="hint" id="summary">This key activates the selected profile.</div>
-      <div class="warn" id="warn" hidden></div>
+    <div class="row">
+      <label for="profile">Profile</label>
+      <select id="profile"><option value="">Loading…</option></select>
     </div>
+    <div class="hint" id="summary">This key activates the selected profile.</div>
+    <div class="warn" id="warn" hidden></div>
 
-    <details id="manage">
-      <summary>Manage profiles</summary>
-      <div id="cards"></div>
-      <div class="actions">
-        <button id="add">Add profile</button>
-        <button id="save" class="primary">Save</button>
-      </div>
-      <div class="err" id="errors" hidden></div>
-      <div class="hint" id="saved" hidden>Saved.</div>
-
-      <details style="margin-top:12px">
-        <summary>Export / import YAML</summary>
-        <p class="muted">
-          Export for version control. Importing replaces every profile below —
-          review it, then Save.
-        </p>
-        <textarea id="yaml" spellcheck="false"></textarea>
-        <div class="actions">
-          <button id="export">Export</button>
-        </div>
-      </details>
-    </details>
-
-    <details id="hardware">
-      <summary>Hardware settings</summary>
-      <div class="row" style="margin-top:8px">
-        <label for="goveeKey">Govee key</label>
-        <input type="password" id="goveeKey" placeholder="not set" autocomplete="off" />
-        <button id="goveeShow" title="Show">👁</button>
-      </div>
-      <div class="hint" id="goveeState">
-        Free key from developer.govee.com. Stored locally; never included in a YAML export.
-      </div>
-      <div class="row">
-        <label for="goveeDevices">Only these</label>
-        <input type="text" id="goveeDevices" placeholder="all devices" />
-      </div>
-      <div class="hint">
-        Optional. Comma-separated device names, so scenes do not fire at lamps
-        elsewhere in the house.
-      </div>
-
-      <div class="row" style="margin-top:10px">
-        <label for="mozaClose">MOZA pedal</label>
-        <input type="checkbox" id="mozaClose" />
-        <span class="muted" style="flex:1">Close Pit House when switching</span>
-      </div>
-      <div class="hint">
-        The pedal's serial port is exclusive, so Pit House has to be closed for a
-        profile to reach it. Off by default — pressing a key should not close an
-        application unless you have said it may.
-      </div>
-
-      <div class="actions">
-        <button id="settingsSave" class="primary">Save settings</button>
-        <button id="goveeDiscover">Discover devices</button>
-      </div>
-      <div class="hint" id="goveeResult" hidden></div>
-      <div class="err" id="goveeError" hidden></div>
-    </details>
+    <div class="actions">
+      <button id="edit">Edit profiles…</button>
+    </div>
+    <div class="hint" id="editState">
+      Opens the full editor in your browser. It closes the moment you close the tab.
+    </div>
+    <div class="err" id="editError" hidden></div>
 
     <script>
       // Hand-rolled property inspector against the documented SDK v2 socket
       // contract. No component library: the plugin has no build step and the
       // page must work offline with no CDN.
+      //
+      // This panel does one job — bind a key to a profile. Editing profiles
+      // moved to a browser window (editorServer.js): the panel is about 300px
+      // tall, and every attempt to fit an editor into it cost something.
       let ws, uuid, actionUuid;
       let globals = null;
       let settings = {};
-      let draft = [];               // profiles being edited
-      let dirty = false;            // unsaved editor changes
-      let providers = [];           // [{id,label,verifiable,fields}] from the plugin
-      let openCard = 0;             // accordion: index of the expanded profile
       const pending = new Map();    // request name -> resolver
 
       const send = (event, payload) =>
         ws?.readyState === 1 && ws.send(JSON.stringify({ event, context: uuid, payload }));
+
+      const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
       /**
        * Ask the plugin something and await the matching reply.
@@ -202,8 +91,6 @@
         ws.send(JSON.stringify({ event: 'setSettings', context: uuid, payload: settings }));
       }
 
-      // ---------------------------------------------------------------- key
-
       function renderKeyPicker() {
         const select = document.getElementById('profile');
         const summary = document.getElementById('summary');
@@ -212,8 +99,8 @@
         const chosen = settings?.profileId ?? '';
 
         if (!profiles.length) {
-          select.innerHTML = '<option value="">No profiles yet — add one below</option>';
-          summary.textContent = 'Add a profile under "Manage profiles".';
+          select.innerHTML = '<option value="">No profiles yet</option>';
+          summary.textContent = 'Add one with "Edit profiles…".';
           return;
         }
 
@@ -240,393 +127,28 @@
         warn.textContent = 'This profile still needs a wheelbase setup slot.';
       }
 
-      // ------------------------------------------------------------- editor
-
-      const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-      function slugify(name, taken) {
-        let base = String(name || 'profile').toLowerCase().replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '') || 'profile';
-        let id = base, n = 2;
-        while (taken.includes(id)) id = `${base}-${n++}`;
-        return id;
-      }
-
-      /** Render one schema-declared field for a provider. */
-      function fieldHtml(prov, field, cfg, i) {
-        const v = cfg?.[field.key];
-        const id = `${i}|${prov.id}|${field.key}`;
-        const help = field.help
-          ? `<div class="muted" style="margin:2px 0 0 100px">${esc(field.help)}</div>`
-          : '';
-
-        if (field.type === 'select') {
-          const opts = (field.options ?? []).map((o) =>
-            `<option value="${esc(o.value)}"${String(v) === String(o.value) ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
-          return `<div class="row"><label>${esc(field.label)}</label><select data-fld="${id}"><option value="">— none —</option>${opts}</select></div>${help}`;
-        }
-        if (field.type === 'range') {
-          // A slider always has a position, so it cannot express "leave this
-          // setting alone". The checkbox carries that: unticked removes the key
-          // from the profile entirely, which is what stops a blank field being
-          // written to the pedal as a zero.
-          const on = v !== undefined && v !== null && String(v) !== '';
-          const shown = on ? v : field.min;
-          return `<div class="row"><label>${esc(field.label)}</label><input type="checkbox" data-fldon="${id}"${on ? ' checked' : ''} /><input type="range" data-fld="${id}" min="${field.min}" max="${field.max}" step="${field.step ?? 1}" value="${esc(shown)}"${on ? '' : ' disabled'} /><span class="rv${on ? '' : ' off'}" data-rv="${id}" data-unit="${esc(field.unit ?? '')}">${on ? esc(v) + (field.unit ?? '') : 'not set'}</span></div>${help}`;
-        }
-        if (field.type === 'boolean') {
-          return `<div class="row"><label>${esc(field.label)}</label><input type="checkbox" data-fld="${id}"${v ? ' checked' : ''} /><span class="muted" style="flex:1">${esc(field.help ?? '')}</span></div>`;
-        }
-        if (field.type === 'textarea') {
-          return `<div class="row" style="align-items:flex-start"><label>${esc(field.label)}</label><textarea class="cmds" data-fld="${id}" spellcheck="false" placeholder="${esc(field.placeholder ?? '')}">${esc(v ?? '')}</textarea></div>${help}`;
-        }
-        return `<div class="row"><label>${esc(field.label)}</label><input type="text" data-fld="${id}" value="${esc(v ?? '')}" /></div>${help}`;
-      }
-
-      /**
-       * Provider blocks for one profile, built entirely from declared schemas.
-       * The editor knows nothing about wheelbases, lights, or scripts — a
-       * profile enables only the providers it actually cares about.
-       */
-      /**
-       * Provider blocks for one profile — only the ones it actually uses.
-       *
-       * A checkbox per known provider stops working the moment there are ten
-       * of them: a space-sim profile should not have to look at eight unticked
-       * wheelbases. Configured providers render as blocks; the rest live
-       * behind an "add" picker.
-       */
-      function providersHtml(p, i) {
-        if (!providers.length) return '<div class="muted">Loading hardware…</div>';
-        const cfgOf = (id) => p.providers?.[id];
-        const enabled = providers.filter((prov) => cfgOf(prov.id));
-        const available = providers.filter((prov) => !cfgOf(prov.id));
-
-        const blocks = enabled.map((prov) => {
-          const cfg = cfgOf(prov.id) ?? {};
-          const badge = prov.verifiable ? '' : '<span class="badge">cannot confirm</span>';
-          const fields = (prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg, i)).join('');
-          return `<div class="prov"><div class="prov-head"><span class="pname">${esc(prov.label)}</span>${badge}<button class="rm-prov" title="Remove" data-rmprov="${i}|${prov.id}">\u00d7</button></div><div class="prov-fields">${fields}</div></div>`;
-        }).join('');
-
-        const empty = enabled.length
-          ? ''
-          : '<div class="muted" style="margin:6px 0 0 4px">No hardware yet — this profile will not change anything.</div>';
-
-        const picker = available.length
-          ? `<div class="prov"><select class="addprov" data-addprov="${i}"><option value="">+ Add hardware…</option>${available.map((prov) => '<option value="' + prov.id + '">' + esc(prov.label) + '</option>').join('')}</select></div>`
-          : '';
-
-        return blocks + empty + picker;
-      }
-
-      function renderCards() {
-        const host = document.getElementById('cards');
-        host.innerHTML = draft.map((p, i) => {
-          const enabled = Object.keys(p.providers ?? {});
-          return `
-          <div class="profile-card ${i === openCard ? 'open' : ''}" data-i="${i}">
-            <div class="card-head" data-toggle="${i}">
-              <span class="chev">${i === openCard ? '▾' : '▸'}</span>
-              <span class="swatch" style="background:${esc(p.color)}"></span>
-              <span class="card-title">${esc(p.name || '(unnamed)')}</span>
-              <span class="muted">${esc(enabled.length ? enabled.join(', ') : 'nothing')}</span>
-              <button class="danger" data-act="remove" data-i="${i}">Remove</button>
-            </div>
-            <div class="card-body">
-              <div class="row">
-                <label>Name</label>
-                <input type="text" data-f="name" data-i="${i}" value="${esc(p.name)}" />
-                <input type="color" data-f="color" data-i="${i}" value="${esc(p.color)}" />
-              </div>
-              <div class="row">
-                <label>Avatar</label>
-                <img class="avatar-preview" data-preview="${i}" src="${p.avatarDataUri || ''}"
-                     style="${p.avatarDataUri ? '' : 'visibility:hidden'}" />
-                <input type="file" data-f="avatar" data-i="${i}" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" />
-              </div>
-              <div class="row">
-                <label>Hold to switch</label>
-                <input type="checkbox" data-f="restricted" data-i="${i}" ${p.restricted ? 'checked' : ''} />
-                <span class="muted" style="flex:1">Requires a 1s press. Use for full-torque profiles.</span>
-              </div>
-              ${providersHtml(p, i)}
-            </div>
-          </div>`;
-        }).join('');
-      }
-
-      function onEditorInput(e) {
-        const el = e.target;
-
-        // Add a provider from the picker.
-        if (el.dataset.addprov) {
-          const i = Number(el.dataset.addprov);
-          const providerId = el.value;
-          if (!providerId) return;
-          const p = draft[i];
-          p.providers = p.providers ?? {};
-          p.providers[providerId] = p.providers[providerId] ?? {};
-          dirty = true;
-          renderCards();
-          return;
-        }
-
-        // Enabling or disabling one slider.
-        if (el.dataset.fldon) {
-          const [i, providerId, key] = el.dataset.fldon.split('|');
-          const p = draft[Number(i)];
-          p.providers = p.providers ?? {};
-          const cfg = (p.providers[providerId] = p.providers[providerId] ?? {});
-          const slider = document.querySelector(`input[type="range"][data-fld="${el.dataset.fldon}"]`);
-          const readout = document.querySelector(`[data-rv="${el.dataset.fldon}"]`);
-          const unit = readout?.dataset.unit ?? '';
-
-          if (el.checked) {
-            cfg[key] = Number(slider.value);
-            if (slider) slider.disabled = false;
-            if (readout) { readout.textContent = slider.value + unit; readout.classList.remove('off'); }
-          } else {
-            delete cfg[key];
-            if (slider) slider.disabled = true;
-            if (readout) { readout.textContent = 'not set'; readout.classList.add('off'); }
-          }
-          dirty = true;
-          return;
-        }
-
-        // A field belonging to a provider's declared schema.
-        if (el.dataset.fld) {
-          const [i, providerId, key] = el.dataset.fld.split('|');
-          const p = draft[Number(i)];
-          p.providers = p.providers ?? {};
-          const cfg = (p.providers[providerId] = p.providers[providerId] ?? {});
-          const raw = el.type === 'checkbox' ? el.checked : el.value;
-          // Numeric fields must not be stored as strings, and travel is
-          // measured in tenths of a millimetre, so integers alone will not do.
-          const numeric = typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw));
-          cfg[key] = raw === '' ? undefined : (numeric ? Number(raw) : raw);
-          if (cfg[key] === undefined) delete cfg[key];
-          const readout = document.querySelector(`[data-rv="${el.dataset.fld}"]`);
-          if (readout && el.type === 'range') {
-            readout.textContent = el.value + (readout.dataset.unit ?? '');
-          }
-          dirty = true;
-          delete p.needsWheelbaseSetup;
-          return;
-        }
-
-        const i = Number(el.dataset.i);
-        const field = el.dataset.f;
-        if (Number.isNaN(i) || !field) return;
-        const p = draft[i];
-
-        dirty = true;
-        if (field === 'name') { p.name = el.value; }
-        else if (field === 'color') { p.color = el.value; }
-        else if (field === 'restricted') { p.restricted = el.checked; }
-        else if (field === 'avatar') {
-          const file = el.files?.[0];
-          if (file) uploadAvatar(i, file);
-          return;
-        }
-        refreshHead(i);
-      }
-
-      /**
-       * Update just the card header. Re-rendering the whole card on every
-       * keystroke would steal focus mid-word.
-       */
-      function refreshHead(i) {
-        const p = draft[i];
-        const card = document.querySelector(`.profile-card[data-i="${i}"]`);
-        if (!card) return;
-        card.querySelector('.card-title').textContent = p.name || '(unnamed)';
-        card.querySelector('.swatch').style.background = p.color;
-        const enabled = Object.keys(p.providers ?? {});
-        card.querySelector('.card-head .muted').textContent =
-          enabled.length ? enabled.join(', ') : 'nothing';
-      }
-
-      async function uploadAvatar(i, file) {
-        const p = draft[i];
-        if (!p.id) p.id = slugify(p.name, draft.map((d) => d.id).filter(Boolean));
-        const base64 = await new Promise((res) => {
-          const r = new FileReader();
-          r.onload = () => res(String(r.result).split(',')[1]);
-          r.readAsDataURL(file);
-        });
-        const reply = await ask('uploadAvatar', { profileId: p.id, base64, filename: file.name });
-        const errors = document.getElementById('errors');
-        if (!reply.ok) {
-          errors.hidden = false;
-          errors.textContent = reply.error;
-          return;
-        }
-        errors.hidden = true;
-        p.avatar = reply.filename;
-        const got = await ask('getAvatar', { profileId: p.id, filename: reply.filename });
-        p.avatarDataUri = got.dataUri;
-        const img = document.querySelector(`[data-preview="${i}"]`);
-        if (img) { img.src = got.dataUri || ''; img.style.visibility = got.dataUri ? '' : 'hidden'; }
-      }
-
-      async function saveAll() {
-        const errors = document.getElementById('errors');
-        const saved = document.getElementById('saved');
-        const taken = [];
-        for (const p of draft) {
-          if (!p.id) p.id = slugify(p.name, taken);
-          taken.push(p.id);
-        }
-        // avatarDataUri is a render-time convenience; never persist the bytes.
-        const payload = draft.map(({ avatarDataUri, ...rest }) => rest);
-        const reply = await ask('saveProfiles', { profiles: payload, settings: globals?.settings ?? {} });
-
-        if (!reply.ok) {
-          saved.hidden = true;
-          errors.hidden = false;
-          errors.innerHTML = (reply.errors ?? [reply.error ?? 'save failed']).map(esc).join('<br>');
-          return;
-        }
-        errors.hidden = true;
-        dirty = false;
-        saved.hidden = false;
-        setTimeout(() => { saved.hidden = true; }, 2000);
-        send('getGlobalSettings');
-      }
-
-      // ---------------------------------------------------------------- wire
-
       document.getElementById('profile').addEventListener('change', (e) => {
         saveKeySettings({ profileId: e.target.value });
         renderKeyPicker();
       });
-      document.getElementById('cards').addEventListener('input', onEditorInput);
-      document.getElementById('cards').addEventListener('change', onEditorInput);
-      document.getElementById('cards').addEventListener('click', (e) => {
-        if (e.target.dataset.rmprov) {
-          e.stopPropagation();
-          const [i, providerId] = e.target.dataset.rmprov.split('|');
-          delete draft[Number(i)].providers[providerId];
-          dirty = true;
-          renderCards();
-          return;
-        }
-        if (e.target.dataset.act === 'remove') {
-          e.stopPropagation();
-          dirty = true;
-          const i = Number(e.target.dataset.i);
-          draft.splice(i, 1);
-          if (openCard >= draft.length) openCard = draft.length - 1;
-          renderCards();
-          return;
-        }
-        const head = e.target.closest('[data-toggle]');
-        if (!head) return;
-        const i = Number(head.dataset.toggle);
-        openCard = openCard === i ? -1 : i;   // click the open one to collapse
-        renderCards();
-      });
-      document.getElementById('add').addEventListener('click', () => {
-        dirty = true;
-        draft.push({ id: '', name: 'New profile', color: '#2255cc', restricted: false, providers: {} });
-        openCard = draft.length - 1;
-        renderCards();
-      });
-      document.getElementById('save').addEventListener('click', saveAll);
-      // ------------------------------------------------------- settings
 
-      /**
-       * The key is never sent back to the page — only whether one is set — so
-       * the field shows a placeholder rather than a fake value to overwrite.
-       */
-      async function loadSettings() {
-        const reply = await ask('getSettings');
-        const cfg = reply.settings ?? {};
-        document.getElementById('goveeKey').placeholder =
-          cfg.goveeApiKeySet ? '•••••••• (saved)' : 'not set';
-        document.getElementById('goveeState').textContent = cfg.goveeApiKeySet
-          ? 'A key is saved. Type a new one to replace it; leave blank to keep it.'
-          : 'Free key from developer.govee.com. Stored locally; never included in a YAML export.';
-        const devices = cfg.goveeDevices;
-        document.getElementById('goveeDevices').value =
-          Array.isArray(devices) ? devices.join(', ') : (devices ?? '');
-        document.getElementById('mozaClose').checked = Boolean(cfg.mozaClosePitHouse);
-      }
+      document.getElementById('edit').addEventListener('click', async () => {
+        const state = document.getElementById('editState');
+        const error = document.getElementById('editError');
+        state.textContent = 'Starting the editor…';
+        error.hidden = true;
 
-      document.getElementById('goveeShow').addEventListener('click', () => {
-        const f = document.getElementById('goveeKey');
-        f.type = f.type === 'password' ? 'text' : 'password';
-      });
-
-      document.getElementById('settingsSave').addEventListener('click', async () => {
-        const raw = document.getElementById('goveeDevices').value.trim();
-        const reply = await ask('saveSettings', {
-          settings: {
-            goveeApiKey: document.getElementById('goveeKey').value.trim(),
-            goveeDevices: raw ? raw.split(',').map((x) => x.trim()).filter(Boolean) : null,
-            mozaClosePitHouse: document.getElementById('mozaClose').checked,
-          },
-        });
-        const err = document.getElementById('goveeError');
-        err.hidden = reply.ok !== false;
-        if (reply.ok === false) err.textContent = reply.error ?? 'could not save';
-        document.getElementById('goveeKey').value = '';
-        await loadSettings();
-      });
-
-      document.getElementById('goveeDiscover').addEventListener('click', async () => {
-        const result = document.getElementById('goveeResult');
-        const err = document.getElementById('goveeError');
-        result.hidden = false;
-        err.hidden = true;
-        result.textContent = 'Discovering… (a few seconds per device)';
-
-        const reply = await ask('goveeDiscover', {}, 60000);
+        const reply = await ask('openEditor');
         if (!reply.ok) {
-          result.hidden = true;
-          err.hidden = false;
-          err.textContent = reply.error ?? 'discovery failed';
+          state.textContent = '';
+          error.hidden = false;
+          error.textContent = reply.error ?? 'could not start the editor';
           return;
         }
-        result.textContent =
-          `${reply.devices.length} device(s), ${reply.scenes.length} scene(s): ` +
-          reply.devices.map((d) => d.name).join(', ');
-        // Scene dropdowns are built from provider schemas, so refresh them.
-        providers = (await ask('getProviders')).providers ?? [];
-        renderCards();
+        // Show the address as well as opening it: if the default browser refuses
+        // to launch there is otherwise no way to reach a server that did start.
+        state.innerHTML = `Open in your browser: <code>${esc(reply.url)}</code>`;
       });
-
-      document.getElementById('export').addEventListener('click', async () => {
-        document.getElementById('yaml').value = (await ask('exportYaml')).yaml ?? '';
-      });
-      document.getElementById('hardware').addEventListener('toggle', (e) => {
-        if (e.target.open) loadSettings();
-      });
-
-      document.getElementById('manage').addEventListener('toggle', async (e) => {
-        document.body.classList.toggle('editing', e.target.open);
-        if (!e.target.open) return;
-        // Fetch schemas (with live options folded in) only when the editor is
-        // actually opened — it costs a round-trip to the hardware.
-        const reply = await ask('getProviders');
-        providers = reply.providers ?? [];
-        renderCards();
-      });
-
-      async function seedDraft() {
-        // A global-settings broadcast must never discard work in progress —
-        // Stream Deck emits one whenever anything writes, including our own save.
-        if (dirty) return;
-        draft = JSON.parse(JSON.stringify(globals?.profiles ?? []));
-        for (const p of draft) {
-          if (!p.avatar) continue;
-          p.avatarDataUri = (await ask('getAvatar', { profileId: p.id, filename: p.avatar })).dataUri;
-        }
-        renderCards();
-      }
 
       function connectElgatoStreamDeckSocket(port, propertyInspectorUUID, registerEvent, info, actionInfoJson) {
         uuid = propertyInspectorUUID;
@@ -646,7 +168,6 @@
           if (msg.event === 'didReceiveGlobalSettings') {
             globals = msg.payload.settings;
             renderKeyPicker();
-            seedDraft();
           }
           // Track live per-key settings rather than the actionInfo snapshot,
           // which goes stale the moment anything is saved.

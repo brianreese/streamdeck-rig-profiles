@@ -9,10 +9,15 @@
 //
 // Every handler returns a plain object; the caller sends it back to the PI
 // under the same `request` name, so the page can await a matching reply.
+//
+// Deliberately transport agnostic: the browser editor (editorServer.js) posts
+// exactly these requests over HTTP, so a feature reaching one surface reaches
+// both and neither can drift into its own validation rules.
 
 import yaml from 'js-yaml';
-import { getProvider, allProviders } from './providers/index.js';
+import { getProvider, allProviders, STATUS } from './providers/index.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar } from './avatars.js';
+import { renderProfileKey } from './buttonRenderer.js';
 import { _resetForTesting as resetGoveeCatalog } from './providers/govee.js';
 
 /** Turn a stored profile list into the legacy-shaped YAML we can re-import. */
@@ -77,13 +82,30 @@ export function validateProfiles(profiles) {
  * Handle one property-inspector request.
  *
  * @param {object} msg   { request, ...args }
- * @param {object} deps  { settings, logger }
+ * @param {object} deps  { settings, logger, onChanged }
  * @returns {Promise<object>} reply payload
  */
-export async function handlePiRequest(msg, { settings, logger = console } = {}) {
+export async function handlePiRequest(msg, { settings, logger = console, onChanged } = {}) {
   const { request } = msg ?? {};
 
   switch (request) {
+    // The browser editor has no Stream Deck socket of its own, so this is the
+    // only way it can see the profile list. The inspector gets the same data
+    // from didReceiveGlobalSettings and never needs to ask.
+    case 'getProfiles': {
+      const current = await settings.getGlobalSettings();
+      return {
+        request,
+        profiles: current?.profiles ?? [],
+        settings: {
+          ...current?.settings,
+          // Same rule as getSettings: the key is never echoed to a page.
+          goveeApiKey: undefined,
+          goveeApiKeySet: Boolean(current?.settings?.goveeApiKey),
+        },
+      };
+    }
+
     case 'getProviders': {
       const settingsBlob = (await settings.getGlobalSettings())?.settings ?? {};
       // Schema plus live options in one round-trip: the editor cannot render a
@@ -154,6 +176,28 @@ export async function handlePiRequest(msg, { settings, logger = console } = {}) 
     case 'deleteAvatar':
       return { request, ok: deleteAvatar(msg.filename), profileId: msg.profileId };
 
+    // Live key preview for the browser editor: the same renderer the deck uses,
+    // so a name that overflows or a colour that swallows the label shows up
+    // while editing rather than after saving.
+    case 'previewKey': {
+      const draft = msg.profile ?? {};
+      const profile = {
+        name: String(draft.name ?? '').slice(0, 40),
+        // The page is untrusted input, and the renderer drops an unrecognised
+        // colour straight into the SVG. Filter it here, at the boundary.
+        color: /^#[0-9a-f]{6}$/i.test(draft.color ?? '') ? draft.color : '#2255CC',
+        // Resolved from the stored filename rather than sent by the page: the
+        // bytes are already on this side, and a preview per keystroke should
+        // not carry an image across the wire.
+        avatarDataUri: loadAvatarDataUri(draft.avatar) ?? undefined,
+      };
+      return {
+        request,
+        off: renderProfileKey({ profile, active: false }),
+        on: renderProfileKey({ profile, active: true, status: STATUS.VERIFIED }),
+      };
+    }
+
     // Global settings (API keys and the like) live alongside profiles but are
     // saved separately, so entering a key does not require touching profiles.
     case 'getSettings': {
@@ -196,6 +240,23 @@ export async function handlePiRequest(msg, { settings, logger = console } = {}) 
           scenes: getSceneNames(),
         };
       } catch (err) {
+        return { request, ok: false, error: err.message };
+      }
+    }
+
+    // Hand the editor over to a real browser window. Imported lazily so a
+    // session that never opens it never binds a socket, and started on demand
+    // rather than at boot for the same reason.
+    case 'openEditor': {
+      try {
+        const { startEditor, openInBrowser } = await import('./editorServer.js');
+        const { url, alreadyRunning } = await startEditor({ settings, logger, onChanged });
+        openInBrowser(url, { logger });
+        // The URL comes back either way: if the browser refuses to launch, it
+        // is the one thing that lets the user finish the job by hand.
+        return { request, ok: true, url, alreadyRunning };
+      } catch (err) {
+        logger.error?.(`[pi] openEditor failed: ${err.stack ?? err.message}`);
         return { request, ok: false, error: err.message };
       }
     }

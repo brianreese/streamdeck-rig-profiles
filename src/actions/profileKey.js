@@ -65,6 +65,12 @@ async function repaintAll(settings) {
   );
 }
 
+/** Repaint every key after something changed the profiles or their avatars. */
+async function refreshKeys() {
+  avatarCache.clear();
+  await repaintAll(await streamDeck.settings.getGlobalSettings());
+}
+
 export class ProfileKey extends SingletonAction {
   manifestId = MANIFEST_ID;
   #timers = new Map();
@@ -130,14 +136,16 @@ export class ProfileKey extends SingletonAction {
       const reply = await handlePiRequest(ev.payload, {
         settings: streamDeck.settings,
         logger: streamDeck.logger,
+        // The browser editor saves without the inspector in the loop, so it
+        // needs its own way to say "the keys are stale now".
+        onChanged: refreshKeys,
       });
       await streamDeck.ui.sendToPropertyInspector(reply);
       streamDeck.logger.info(`[pi] ${request} -> ${JSON.stringify(reply).slice(0, 200)}`);
 
       // A save or avatar change alters what the keys should look like.
       if (['saveProfiles', 'uploadAvatar', 'deleteAvatar'].includes(request)) {
-        avatarCache.clear();
-        await repaintAll(await streamDeck.settings.getGlobalSettings());
+        await refreshKeys();
       }
     } catch (err) {
       // Never leave the inspector hanging: it awaits a reply per request.
