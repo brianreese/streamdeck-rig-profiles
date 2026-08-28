@@ -194,6 +194,9 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       return {
         request,
         off: renderProfileKey({ profile, active: false }),
+        // Mid-switch is a state of its own now: the name gives way to dots.
+        // Worth previewing, because it is the one the kids see most.
+        busy: renderProfileKey({ profile, active: false, switching: true, dotFrame: 1 }),
         on: renderProfileKey({ profile, active: true, status: STATUS.VERIFIED }),
       };
     }

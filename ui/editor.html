@@ -4,158 +4,360 @@
     <meta charset="utf-8" />
     <title>Rig Profiles</title>
     <style>
+      /* Three rails, fixed roles, and nothing that moves between them:
+         LEFT is what you are editing, CENTRE is the thing itself, RIGHT is
+         what you can do to it. Actions used to be scattered across the header,
+         the bottom of a form and the middle of a card, and the complaint that
+         "add hardware gets lost at the end" was really a complaint that there
+         was nowhere for an action to live. Now there is. */
       :root {
         color-scheme: dark;
-        --amber: #e8a317; --red: #d64545; --green: #3fa45b; --blue: #2255cc;
-        --bg: #2d2d2d; --panel: #262626; --card: #333; --line: #414141;
-        --fg: #d8d8d8; --dim: #969696; --faint: #7a7a7a;
+
+        --bg: #17181b;
+        --panel: #1c1e22;
+        --rail: #1a1c20;
+        --card: #232529;
+        --raise: #292c32;
+        --line: #33363d;
+        --hair: #2a2d33;
+
+        --fg: #e6e8ec;
+        --dim: #a2a8b3;
+        --faint: #767c88;
+
+        --accent: #4c8dff;
+        --accent-deep: #2f6fe0;
+        --green: #46b95a;
+        --amber: #e3b341;
+        --red: #f16a60;
+
+        --r: 10px;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
       }
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
-        font: 14px/1.5 -apple-system, "Segoe UI", sans-serif;
+        font: 13.5px/1.55 -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
         color: var(--fg); background: var(--bg); margin: 0;
-        height: 100vh; display: flex; flex-direction: column;
+        display: flex; flex-direction: column;
+        -webkit-font-smoothing: antialiased;
       }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+      ::selection { background: #2f4a80; }
 
+      /* ------------------------------------------------------------ header */
       header {
-        display: flex; align-items: center; gap: 12px;
-        padding: 10px 18px; background: var(--panel);
-        border-bottom: 1px solid var(--line); flex: 0 0 auto;
+        display: flex; align-items: center; gap: 10px;
+        padding: 0 16px; height: 46px; flex: 0 0 auto;
+        background: var(--panel); border-bottom: 1px solid var(--line);
       }
-      header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: 0.3px; }
+      header h1 {
+        font-size: 13px; margin: 0; font-weight: 650; letter-spacing: 0.4px;
+        text-transform: uppercase; color: var(--fg);
+      }
       header .spacer { flex: 1; }
-      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
-      .dot.live { background: var(--green); }
-      .dot.gone { background: var(--red); }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: 0 0 auto; }
+      .dot.live { background: var(--green); box-shadow: 0 0 0 3px rgba(70, 185, 90, 0.15); }
+      .dot.gone { background: var(--red); box-shadow: 0 0 0 3px rgba(241, 106, 96, 0.15); }
       .conn { color: var(--faint); font-size: 12px; }
-      .unsaved { color: var(--amber); font-size: 12px; }
 
-      main { flex: 1; display: flex; min-height: 0; }
+      /* ------------------------------------------------------------- rails */
+      main {
+        flex: 1; min-height: 0;
+        display: grid; grid-template-columns: 268px minmax(420px, 1fr) 264px;
+      }
       aside {
-        flex: 0 0 300px; background: var(--panel); border-right: 1px solid var(--line);
-        display: flex; flex-direction: column; min-height: 0;
+        background: var(--rail); display: flex; flex-direction: column;
+        min-height: 0; min-width: 0;
       }
-      aside .pad { padding: 10px 12px; }
-      #list { list-style: none; margin: 0; padding: 0 8px; overflow-y: auto; flex: 1; }
+      #railLeft { border-right: 1px solid var(--line); }
+      #rail { border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 12px 20px; gap: 16px; }
+
+      .rail-head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 12px 12px 8px; flex: 0 0 auto;
+      }
+      .rail-title {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+        text-transform: uppercase; color: var(--faint); flex: 1;
+      }
+      .rail-group + .rail-group { margin-top: 16px; }
+      .rail-group > h4 {
+        margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+        text-transform: uppercase; color: var(--faint);
+      }
+
+      /* ---------------------------------------------------- profile list */
+      .pad { padding: 0 12px 10px; flex: 0 0 auto; }
+      #list { list-style: none; margin: 0; padding: 0 8px 8px; overflow-y: auto; flex: 1; min-height: 0; }
       #list li {
-        display: flex; align-items: center; gap: 8px; padding: 8px;
-        border-radius: 6px; cursor: pointer; margin-bottom: 2px;
-        border: 1px solid transparent;
+        display: flex; align-items: center; gap: 9px; padding: 7px 8px;
+        border-radius: 8px; cursor: pointer; margin-bottom: 2px;
+        border: 1px solid transparent; position: relative;
       }
-      #list li:hover { background: #303030; }
-      #list li.sel { background: #35415e; border-color: #46578a; }
-      #list li.drop-before { border-top-color: var(--blue); }
-      #list li.drop-after { border-bottom-color: var(--blue); }
-      #list .grip { color: #5a5a5a; cursor: grab; flex: 0 0 auto; }
+      #list li:hover { background: #24262b; }
+      #list li.sel { background: #26334d; border-color: #38507e; }
+      #list li.sel .who b { color: #fff; }
+      #list li.drop-before { box-shadow: 0 -2px 0 var(--accent); }
+      #list li.drop-after { box-shadow: 0 2px 0 var(--accent); }
+      #list li.empty { cursor: default; color: var(--faint); font-size: 12px; padding: 12px 8px; }
+      #list .grip { color: #4a4d55; cursor: grab; flex: 0 0 auto; font-size: 12px; }
+      #list li:hover .grip { color: #6d717a; }
       #list .who { flex: 1; min-width: 0; }
-      #list .who b { display: block; font-weight: 600; }
+      #list .who b { display: block; font-weight: 600; font-size: 13px;
+                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #list .who span { display: block; color: var(--faint); font-size: 11px;
                         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .swatch { width: 22px; height: 22px; border-radius: 4px; flex: 0 0 auto;
-                background-size: cover; background-position: center; }
+      #list .bad { color: var(--red); font-weight: 700; flex: 0 0 auto; }
 
-      nav { border-top: 1px solid var(--line); padding: 8px; }
-      nav button { display: block; width: 100%; text-align: left; margin-bottom: 4px; }
-      nav button.sel { background: #35415e; border-color: #46578a; }
+      /* The swatch doubles as the accessibility demo: its initial is drawn in
+         whichever ink actually reads against the chosen colour. */
+      .swatch {
+        width: 28px; height: 28px; border-radius: 7px; flex: 0 0 auto;
+        background-size: cover; background-position: center;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 700; line-height: 1;
+      }
+      .swatch.photo { color: transparent; }
 
-      section#pane { flex: 1; overflow-y: auto; padding: 20px 26px; min-width: 0; }
-      section#pane > h2 { margin: 0 0 16px; font-size: 18px; font-weight: 600; }
+      nav { border-top: 1px solid var(--hair); padding: 8px; flex: 0 0 auto; }
+      .navbtn {
+        display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+        background: none; border: 1px solid transparent; color: var(--dim);
+        padding: 8px 9px; border-radius: 8px; font: inherit; cursor: pointer;
+      }
+      .navbtn:hover { background: #24262b; color: var(--fg); }
+      .navbtn.sel { background: #26334d; border-color: #38507e; color: #fff; }
+      .navbtn .ico { font-size: 14px; width: 16px; text-align: center; }
+
+      /* ------------------------------------------------------------- pane */
+      section#pane { overflow-y: auto; padding: 22px 28px 40px; min-width: 0; }
+      .pane-inner { max-width: 780px; }
+      #pane h2 {
+        margin: 0 0 4px; font-size: 21px; font-weight: 650; letter-spacing: -0.2px;
+        overflow-wrap: anywhere;
+      }
+      #pane .sub { margin: 0 0 18px; color: var(--faint); font-size: 12.5px; }
+
       .card {
         background: var(--card); border: 1px solid var(--line);
-        border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; max-width: 860px;
+        border-radius: var(--r); padding: 14px 16px 4px; margin-bottom: 14px;
+        box-shadow: var(--shadow);
       }
       .card > h3 {
-        margin: 0 0 10px; font-size: 12px; text-transform: uppercase;
-        letter-spacing: 0.6px; color: var(--dim); font-weight: 600;
+        margin: 0 0 12px; font-size: 11px; text-transform: uppercase;
+        letter-spacing: 0.8px; color: var(--faint); font-weight: 700;
+      }
+      .card.plain { padding-bottom: 14px; }
+
+      /* Hardware/app blocks read as separate things you added, not as one long
+         form: own surface, own header strip, own accent edge. */
+      .hw {
+        background: var(--card); border: 1px solid var(--line);
+        border-radius: var(--r); margin-bottom: 12px; overflow: hidden;
+        box-shadow: var(--shadow); position: relative;
+      }
+      .hw::before {
+        content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+        background: var(--accent-deep);
+      }
+      .hw-head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 12px 10px 15px; background: var(--raise);
+        border-bottom: 1px solid var(--line);
+      }
+      .hw-head .pname { font-weight: 650; font-size: 13.5px; }
+      .hw-body { padding: 13px 16px 4px 15px; }
+      .hw-body:empty { display: none; }
+      .hw.flash { animation: flash 1.1s ease-out; }
+      .card.flash { animation: flash 1.1s ease-out; }
+      @keyframes flash {
+        0%, 40% { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(76, 141, 255, 0.18); }
+        100% { border-color: var(--line); box-shadow: var(--shadow); }
       }
 
-      .row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-      .row > label { flex: 0 0 150px; text-align: right; color: var(--dim); }
-      input[type="text"], input[type="password"], input[type="search"], select, textarea {
-        background: #3d3d3d; color: var(--fg); border: 1px solid #4d4d4d;
-        border-radius: 4px; padding: 6px 8px; font: inherit; flex: 1; min-width: 0;
+      .badge {
+        font-size: 10.5px; color: var(--faint); border: 1px solid var(--line);
+        border-radius: 20px; padding: 1px 8px; white-space: nowrap;
       }
-      input[type="color"] {
-        width: 42px; height: 30px; padding: 0; background: none;
-        border: 1px solid #4d4d4d; border-radius: 4px; flex: 0 0 auto;
+      .cfglink {
+        font-size: 11.5px; color: var(--accent); background: none; border: none;
+        padding: 2px 6px; border-radius: 5px; cursor: pointer; font-family: inherit;
+        white-space: nowrap;
       }
-      input[type="range"] { flex: 1; min-width: 0; accent-color: #2f66e0; }
-      input[type="range"]:disabled { opacity: 0.35; }
-      textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; resize: vertical; }
-      textarea.cmds { height: 96px; }
-      textarea.yaml { height: 420px; }
-      .rv { flex: 0 0 78px; text-align: right; font-variant-numeric: tabular-nums; }
-      .rv.off { color: #6a6a6a; }
-      .help { margin: -2px 0 10px 160px; color: var(--faint); font-size: 12px; max-width: 560px; }
+      .cfglink:hover { background: rgba(76, 141, 255, 0.12); }
+
+      /* ------------------------------------------------------------ fields */
+      .row {
+        display: grid; grid-template-columns: 156px minmax(0, 1fr);
+        align-items: center; gap: 10px; margin-bottom: 10px;
+      }
+      .row > label { color: var(--dim); font-size: 12.5px; }
+      .row .grp { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .help {
+        grid-column: 2; margin: -6px 0 10px; color: var(--faint);
+        font-size: 11.5px; line-height: 1.45;
+      }
+      .help.wide { grid-column: 1 / -1; margin-left: 0; }
       .muted { color: var(--faint); font-size: 12px; }
 
+      input[type="text"], input[type="password"], input[type="search"], select, textarea {
+        background: #1b1d21; color: var(--fg); border: 1px solid #3a3d44;
+        border-radius: 7px; padding: 7px 9px; font: inherit; width: 100%; min-width: 0;
+      }
+      input[type="text"]:hover, input[type="password"]:hover, select:hover { border-color: #4a4e57; }
+      input::placeholder { color: #61666f; }
+      select { cursor: pointer; }
+      input[type="color"] {
+        width: 40px; height: 34px; padding: 2px; background: #1b1d21;
+        border: 1px solid #3a3d44; border-radius: 7px; flex: 0 0 auto; cursor: pointer;
+      }
+      input[type="checkbox"] {
+        width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--accent-deep); cursor: pointer;
+      }
+      input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent-deep); }
+      input[type="range"]:disabled { opacity: 0.3; }
+      input[type="file"] { font-size: 12px; color: var(--dim); flex: 1; min-width: 0; }
+      input[type="file"]::file-selector-button {
+        background: #34373e; color: var(--fg); border: 1px solid #43464e;
+        border-radius: 6px; padding: 5px 10px; margin-right: 10px; font: inherit; cursor: pointer;
+      }
+      textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; resize: vertical; }
+      textarea.cmds { height: 104px; }
+      textarea.yaml { height: 360px; }
+      .rv {
+        flex: 0 0 82px; text-align: right; font-variant-numeric: tabular-nums;
+        font-size: 12px; color: var(--dim);
+      }
+      .rv.off { color: #5d626b; }
+
+      /* ----------------------------------------------------------- buttons */
       button {
-        background: #4a4a4a; color: var(--fg); border: 1px solid #5a5a5a;
-        border-radius: 4px; padding: 6px 12px; font: inherit; cursor: pointer;
+        background: #2f3238; color: var(--fg); border: 1px solid #3f434b;
+        border-radius: 7px; padding: 7px 12px; font: inherit; cursor: pointer;
       }
-      button:hover { background: #565656; }
-      button.primary { background: var(--blue); border-color: #2f66e0; }
-      button.primary:hover { background: #2a63e0; }
-      button.danger { border-color: #6a3a3a; color: #e0a0a0; }
-      button.link { background: none; border: none; color: var(--faint); padding: 2px 6px; }
-      button.link:hover { color: var(--red); background: none; }
-      .actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
-
-      .prov { border-top: 1px solid var(--line); padding: 10px 0 2px; }
-      .prov:first-of-type { border-top: none; }
-      .prov-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-      .prov-head .pname { font-weight: 600; flex: 1; }
-      .badge { font-size: 11px; color: var(--faint); border: 1px solid #4d4d4d;
-               border-radius: 3px; padding: 0 5px; }
-
-      .preview { display: flex; gap: 16px; align-items: flex-start; }
-      .preview figure { margin: 0; text-align: center; }
-      .preview img {
-        width: 96px; height: 96px; border-radius: 8px; background: #111;
-        image-rendering: auto; display: block;
+      button:hover { background: #383c43; border-color: #4a4e57; }
+      button:active { transform: translateY(1px); }
+      button.primary { background: var(--accent-deep); border-color: #3f7ae8; color: #fff; font-weight: 600; }
+      button.primary:hover { background: #3a7bef; }
+      button.danger { color: #f0a49d; border-color: #5c3a37; background: #2b2224; }
+      button.danger:hover { background: #3a2a2b; border-color: #7a4b46; }
+      button.wide { width: 100%; }
+      button.icon {
+        background: none; border: none; color: var(--faint); padding: 4px 7px;
+        border-radius: 6px; line-height: 1;
       }
-      .preview figcaption { color: var(--faint); font-size: 11px; margin-top: 4px; }
+      button.icon:hover { background: #34373e; color: var(--fg); }
+      button.icon.rm:hover { color: var(--red); }
+      .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 14px; }
+
+      /* "+ thing" rather than a dropdown: the choices are few, and a list of
+         buttons says "these are the things you can add" without being opened. */
+      .addbtn {
+        display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+        background: #212328; border: 1px solid var(--hair); border-radius: 8px;
+        padding: 8px 10px; margin-bottom: 6px; color: var(--fg); font: inherit; cursor: pointer;
+      }
+      .addbtn:hover { background: #282b31; border-color: #43474f; }
+      .addbtn .plus { color: var(--accent); font-weight: 700; font-size: 14px; flex: 0 0 auto; }
+      .addbtn .nm { flex: 1; min-width: 0; font-size: 12.5px; }
+      .addbtn .nm i { display: block; font-style: normal; color: var(--faint); font-size: 11px; }
+
+      /* ------------------------------------------------------- save status */
+      .savecard {
+        background: var(--card); border: 1px solid var(--line);
+        border-radius: var(--r); padding: 11px 12px;
+      }
+      .savecard.bad { border-color: #6b3b37; background: #271f21; }
+      .state { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+      .state .dot { width: 8px; height: 8px; }
+      .state.saved .dot { background: var(--green); }
+      .state.saving .dot { background: var(--accent); }
+      .state.pending .dot { background: var(--amber); }
+      .state.bad .dot { background: var(--red); }
+      .state.bad { color: var(--red); }
+      .savenote { color: var(--faint); font-size: 11px; margin-top: 5px; line-height: 1.4; }
+      .savecard button { margin-top: 9px; }
+
+      /* ------------------------------------------------------------ tiles */
+      .tiles { display: flex; gap: 18px; align-items: flex-start; }
+      .tiles figure { margin: 0; text-align: center; }
+      .tiles img {
+        width: 104px; height: 104px; border-radius: 12px; background: #101114;
+        display: block; border: 1px solid var(--line);
+      }
+      .tiles figcaption { color: var(--faint); font-size: 11px; margin-top: 6px; }
+      .tilenote { color: var(--faint); font-size: 11.5px; max-width: 300px; align-self: center; }
       .avatar-preview {
-        width: 44px; height: 44px; border-radius: 6px; object-fit: cover;
-        border: 1px solid #4d4d4d; background: #222; flex: 0 0 auto;
+        width: 38px; height: 38px; border-radius: 8px; object-fit: cover;
+        border: 1px solid #3a3d44; background: #1b1d21; flex: 0 0 auto;
       }
 
-      footer {
-        flex: 0 0 auto; padding: 8px 18px; border-top: 1px solid var(--line);
-        background: var(--panel); min-height: 36px;
+      /* ----------------------------------------------------------- issues */
+      #issues:empty { display: none; }
+      .issues {
+        background: #2a1f21; border: 1px solid #6b3b37; border-left-width: 3px;
+        border-radius: 8px; padding: 10px 13px; margin-bottom: 16px;
       }
+      .issues b { color: var(--red); font-size: 12.5px; display: block; margin-bottom: 4px; }
+      .issues ul { margin: 0; padding-left: 18px; color: #e2b7b3; font-size: 12.5px; }
+
+      /* ----------------------------------------------------------- footer */
+      footer {
+        flex: 0 0 auto; padding: 7px 16px; border-top: 1px solid var(--line);
+        background: var(--panel); min-height: 34px; max-height: 26vh; overflow-y: auto;
+        font-size: 12px;
+      }
+      /* Save errors arrive one per problem, and hiding all but the first would
+         mean fixing them one reload at a time. */
+      #msg { white-space: pre-line; }
       .err { color: var(--red); }
       .ok { color: var(--green); }
+
+      @media (max-width: 1140px) {
+        main { grid-template-columns: 240px minmax(0, 1fr); }
+        #railLeft { grid-row: 1 / span 2; }
+        #pane { grid-column: 2; grid-row: 1; }
+        #rail {
+          grid-column: 2; grid-row: 2; border-left: none; border-top: 1px solid var(--line);
+          flex-direction: row; flex-wrap: wrap; align-items: flex-start; overflow: visible;
+        }
+        #rail > .rail-group { flex: 1 1 220px; margin-top: 0; }
+      }
     </style>
   </head>
   <body>
     <header>
       <h1>Rig Profiles</h1>
+      <span class="spacer"></span>
       <span class="dot" id="dot"></span>
       <span class="conn" id="conn">connecting…</span>
-      <span class="spacer"></span>
-      <span class="unsaved" id="unsaved" hidden>unsaved changes</span>
-      <button id="save" class="primary">Save profiles</button>
     </header>
 
     <main>
-      <aside>
+      <aside id="railLeft">
+        <div class="rail-head">
+          <span class="rail-title">Profiles</span>
+          <button id="add" title="Create a new profile">+ New</button>
+        </div>
         <div class="pad">
           <input type="search" id="search" placeholder="Search profiles" autocomplete="off" />
         </div>
         <ol id="list"></ol>
-        <div class="pad"><button id="add">+ Add profile</button></div>
         <nav>
-          <button id="navSettings">Hardware settings</button>
-          <button id="navYaml">Export YAML</button>
+          <button id="navSettings" class="navbtn"><span class="ico">⚙</span> Settings</button>
         </nav>
       </aside>
+
       <section id="pane"></section>
+      <aside id="rail"></aside>
     </main>
 
     <footer><span id="msg" class="muted"></span></footer>
 
-    <script>
+    <!-- A module, so the list operations can be imported from editorState.js
+         and tested in Node without a browser. -->
+    <script type="module">
       // The browser-hosted profile editor. Plain DOM and one fetch wrapper: the
       // plugin has no build step, and the page is served from the plugin itself
       // with a CSP that blocks anything external, so a framework could not be
@@ -168,21 +370,41 @@
 
       // The token stays in the address bar so a reload still authenticates.
       const token = new URLSearchParams(location.search).get('t') ?? '';
+      const q = `?t=${encodeURIComponent(token)}`;
+
+      // Dynamic rather than plain imports so the token travels with them: every
+      // route on this server takes the same key, with no exception to remember.
+      const {
+        addProfile, removeProfile, moveProfile, keepSelection,
+        matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
+      } = await import(`./editorState.js${q}`);
+      // Same module the key renderer uses, so "readable" means one thing here
+      // and on the deck.
+      const { readableTextColor } = await import(`./contrast.js${q}`);
 
       let profiles = [];      // the draft being edited
       let providers = [];     // [{id,label,verifiable,fields}] from the plugin
-      let hardware = {};      // global settings blob (never holds the Govee key)
-      // The profile being edited, held by reference rather than by id: a
-      // profile that has never been saved has no id yet, so two new ones would
-      // both answer to "" and the editor would follow the wrong one.
+      let hardware = {};      // global settings draft (never holds the Govee key)
+      // The profile being edited, held by reference rather than by id — see
+      // editorState.js for why an id is the wrong handle here.
       let selected = null;
-      let view = 'profile';   // 'profile' | 'settings' | 'yaml'
-      let dirty = false;
+      let view = 'profile';   // 'profile' | 'settings'
       let previewTimer = null;
 
       const $ = (id) => document.getElementById(id);
       const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+      /**
+       * Global settings each provider depends on, so a provider card can point
+       * at them. Discovering that the Govee key lived behind an unrelated menu
+       * item took a search; a link from the thing that needs it does not.
+       */
+      const PROVIDER_SETTINGS = {
+        'fanatec-base': 'Fanatec wheelbase',
+        govee: 'Govee lighting',
+        moza: 'MOZA pedal',
+      };
 
       /**
        * Ask the plugin something. Same request names as the inspector's `ask`,
@@ -209,55 +431,258 @@
         el.textContent = text;
       }
 
-      function markDirty() {
-        dirty = true;
-        $('unsaved').hidden = false;
-      }
-
-      function slugify(name, taken) {
-        const base = String(name || 'profile').toLowerCase().replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '') || 'profile';
-        let id = base, n = 2;
-        while (taken.includes(id)) id = `${base}-${n++}`;
-        return id;
-      }
-
       const current = () => (profiles.includes(selected) ? selected : null);
 
-      // ------------------------------------------------------------ sidebar
+      // =====================================================================
+      // Saving
+      // =====================================================================
+      //
+      // One save, and it is automatic. There used to be two buttons — profiles
+      // and settings — which asked the user to know which half of the screen a
+      // change belonged to. That is the plugin's bookkeeping, not theirs.
+      //
+      // Autosave is safe here because the rules that make it dangerous
+      // elsewhere do not apply. There is no partial write: saveProfiles
+      // validates the whole list server-side and refuses it entire, so a
+      // rejected save leaves the stored profiles exactly as they were and the
+      // draft still dirty in the page. Nothing here is a transaction with the
+      // outside world either — a saved profile does not touch the wheelbase,
+      // it just sits in settings until a key is pressed.
+      //
+      // Two things it does have to respect:
+      //
+      //   * ids are slugged from the name the first time a profile is saved,
+      //     and are permanent afterwards. Saving mid-word would freeze "Ka" as
+      //     the id of "Kai" forever, so the first save of an unsaved profile
+      //     waits for the name field to be left.
+      //   * a half-typed API key must never overwrite a good one, so that one
+      //     field commits on blur rather than on every keystroke.
+
+      const AUTOSAVE_MS = 700;
+      let dirtyProfiles = false;
+      let dirtySettings = false;
+      let saveTimer = null;
+      let saving = false;
+      let saveAgain = false;
+      let saveErrors = [];
+      let savedOnce = false;
+
+      /** Mark a draft changed and schedule the save. */
+      function touch(what, { now = false, defer = false } = {}) {
+        if (what === 'settings') dirtySettings = true;
+        else dirtyProfiles = true;
+        saveErrors = [];
+        renderSaveState();
+        renderIssues();
+        clearTimeout(saveTimer);
+        if (defer) return;                       // dirty, but not on a timer yet
+        saveTimer = setTimeout(commit, now ? 0 : AUTOSAVE_MS);
+      }
+
+      const isDirty = () => dirtyProfiles || dirtySettings;
+
+      /** Is the caret currently in a not-yet-saved profile's name field? */
+      function namingInProgress() {
+        return holdForNaming(profiles, document.activeElement?.dataset?.f);
+      }
+
+      async function commit() {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+
+        // Overlapping saves would race over which reply is authoritative.
+        if (saving) { saveAgain = true; return; }
+        if (!isDirty()) return;
+
+        // Hold, do not drop: the change stays dirty and saves the moment the
+        // name is finished.
+        if (namingInProgress()) {
+          saveTimer = setTimeout(commit, AUTOSAVE_MS);
+          renderSaveState();
+          return;
+        }
+
+        saving = true;
+        renderSaveState();
+        const problems = [];
+
+        if (dirtySettings) {
+          const reply = await ask('saveSettings', {
+            settings: {
+              goveeApiKey: hardware.goveeApiKey ?? '',
+              goveeDevices: hardware.goveeDevices?.length ? hardware.goveeDevices : null,
+              // Always a literal boolean. The providers read these as
+              // `settings?.x !== false`, so "missing" means enabled — writing
+              // undefined for an unticked box would turn it straight back on
+              // at the next switch, and the user would never see why.
+              fanatecAutoStart: hardware.fanatecAutoStart !== false,
+              mozaClosePitHouse: hardware.mozaClosePitHouse !== false,
+              // The odd one out, and deliberately: reopening Pit House
+              // re-applies its own preset over the one just written, so this
+              // stays off until it is asked for.
+              mozaReopenPitHouse: hardware.mozaReopenPitHouse === true,
+            },
+          });
+          if (reply.ok === false) {
+            problems.push(reply.error ?? 'settings could not be saved');
+          } else {
+            dirtySettings = false;
+            hardware.goveeApiKeySet = reply.goveeApiKeySet;
+            // Never keep the typed key around after it has been stored.
+            delete hardware.goveeApiKey;
+            // Cleared and relabelled in place rather than by re-rendering the
+            // pane, which would throw away anything else being typed. The
+            // placeholder follows the reply, not the fact that a save happened:
+            // saving the MOZA checkbox must not claim a key is stored.
+            const field = $('goveeKey');
+            if (field) {
+              field.value = '';
+              field.placeholder = reply.goveeApiKeySet ? '•••••••• (saved)' : 'not set';
+            }
+          }
+        }
+
+        if (dirtyProfiles) {
+          withIds(profiles);
+          // avatarDataUri is a render-time convenience; never persist the bytes.
+          // Global settings are deliberately not sent here: saveProfiles merges
+          // what it is given over the stored blob, and this page is never told
+          // the Govee key, so sending "the settings" back would erase it.
+          const payload = profiles.map(({ avatarDataUri, ...rest }) => rest);
+          const reply = await ask('saveProfiles', { profiles: payload });
+          if (!reply.ok) {
+            // Every problem, not just the first: they are named per profile,
+            // and showing one at a time means a fix per round-trip.
+            problems.push(...(reply.errors ?? [reply.error ?? 'save failed']));
+          } else {
+            dirtyProfiles = false;
+            savedOnce = true;
+          }
+        }
+
+        saving = false;
+        saveErrors = problems;
+
+        if (problems.length) say(problems.join('\n'), 'err');
+        else if ($('msg').className === 'err') say('');
+
+        renderSaveState();
+        renderIssues();
+        renderList();
+        renderRail();     // the id appears once a profile has been saved
+
+        if (saveAgain) { saveAgain = false; commit(); }
+      }
+
+      /** The status shown in the right rail, in the one place it lives. */
+      function saveStatus() {
+        if (saveErrors.length) {
+          return {
+            cls: 'bad',
+            text: `Not saved — ${saveErrors.length} problem${saveErrors.length === 1 ? '' : 's'}`,
+            note: 'Your edits are still here. Fix the problems below and they save themselves.',
+            retry: true,
+          };
+        }
+        if (saving) return { cls: 'saving', text: 'Saving…', note: '' };
+        if (isDirty()) {
+          return {
+            cls: 'pending',
+            text: 'Unsaved changes',
+            note: namingInProgress()
+              ? 'Saving as soon as you finish naming this profile.'
+              : 'Saving automatically…',
+          };
+        }
+        return {
+          cls: 'saved',
+          text: 'All changes saved',
+          note: savedOnce ? '' : 'Changes save themselves as you make them.',
+        };
+      }
+
+      function renderSaveState() {
+        const host = $('saveState');
+        if (!host) return;
+        const s = saveStatus();
+        host.className = `savecard${s.cls === 'bad' ? ' bad' : ''}`;
+        host.innerHTML =
+          `<div class="state ${s.cls}"><span class="dot"></span><span>${esc(s.text)}</span></div>` +
+          (s.note ? `<div class="savenote">${esc(s.note)}</div>` : '') +
+          (s.retry ? '<button id="saveNow" class="wide">Try saving again</button>' : '');
+      }
+
+      /** Split save errors back out to the profiles they name. */
+      function problemsByProfile() {
+        const map = new Map();
+        for (const message of saveErrors) {
+          const at = message.indexOf(': ');
+          const where = at > 0 ? message.slice(0, at) : '';
+          const owner = profiles.find((p) => (p.name || p.id) === where || p.id === where);
+          if (!owner) continue;
+          map.set(owner, [...(map.get(owner) ?? []), message.slice(at + 2)]);
+        }
+        return map;
+      }
+
+      /** Problems with the profile on screen, shown above it rather than only
+       *  in the footer — an error about a field you cannot see is a puzzle. */
+      function renderIssues() {
+        const host = $('issues');
+        if (!host) return;
+        const mine = problemsByProfile().get(current()) ?? [];
+        host.innerHTML = mine.length
+          ? `<div class="issues"><b>This profile cannot be saved yet</b><ul>${
+              mine.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>`
+          : '';
+      }
+
+      // =====================================================================
+      // Sidebar
+      // =====================================================================
 
       function renderList() {
-        const q = $('search').value.trim().toLowerCase();
         const host = $('list');
-        const matches = profiles.filter((p) => !q || haystack(p).includes(q));
+        const matches = profiles.filter((p) => matchesSearch(p, $('search').value));
+        const broken = problemsByProfile();
 
         host.innerHTML = matches.map((p) => {
-          const names = Object.keys(p.providers ?? {});
+          const names = Object.keys(p.providers ?? {})
+            .map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
+          // The initial is drawn in whichever ink actually reads on the chosen
+          // colour — see contrast.js. A pale profile colour used to get white
+          // text on white.
           const face = p.avatarDataUri
             ? `background-image:url(${p.avatarDataUri})`
-            : `background:${esc(p.color)}`;
+            : `background:${esc(p.color)};color:${readableTextColor(p.color)}`;
           // Rows carry their index in the full list, not their id: search
           // filters the rows, and an unsaved profile has no id to carry.
-          return `<li draggable="true" data-i="${profiles.indexOf(p)}" class="${p === selected ? 'sel' : ''}">
+          //
+          // A row is only "selected" while a profile is what the pane is
+          // showing. On the settings screen nothing in this list is being
+          // edited, so nothing in it is highlighted.
+          const isSel = p === selected && view === 'profile';
+          return `<li draggable="true" data-i="${profiles.indexOf(p)}" class="${isSel ? 'sel' : ''}">
             <span class="grip">⠿</span>
-            <span class="swatch" style="${face}"></span>
+            <span class="swatch${p.avatarDataUri ? ' photo' : ''}" style="${face}"
+              >${esc((p.name || '?').trim().charAt(0).toUpperCase())}</span>
             <span class="who">
               <b>${esc(p.name || '(unnamed)')}</b>
-              <span>${esc(names.length ? names.join(', ') : 'no hardware')}</span>
+              <span>${esc(names.length ? names.join(', ') : 'nothing configured')}</span>
             </span>
+            ${broken.has(p) ? '<span class="bad" title="Cannot be saved yet">!</span>' : ''}
           </li>`;
         }).join('');
 
         if (!matches.length) {
-          host.innerHTML = `<li class="muted" style="cursor:default">${
-            profiles.length ? 'Nothing matches that search.' : 'No profiles yet.'}</li>`;
+          host.innerHTML = `<li class="empty">${
+            profiles.length ? 'Nothing matches that search.' : 'No profiles yet — start with “+ New”.'}</li>`;
         }
       }
 
-      const haystack = (p) =>
-        [p.name, p.id, ...Object.keys(p.providers ?? {})].join(' ').toLowerCase();
-
-      // ------------------------------------------------------------- fields
+      // =====================================================================
+      // Fields
+      // =====================================================================
 
       /** Render one schema-declared field. Identical vocabulary to the inspector. */
       function fieldHtml(prov, field, cfg) {
@@ -267,9 +692,12 @@
 
         if (field.type === 'select') {
           const opts = (field.options ?? []).map((o) =>
-            `<option value="${esc(o.value)}"${String(v) === String(o.value) ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
+            // optionLabel presents a wheelbase slot the way the Fanatec app
+            // names it; everything else passes through untouched.
+            `<option value="${esc(o.value)}"${String(v) === String(o.value) ? ' selected' : ''}
+              >${esc(optionLabel(o.label))}</option>`).join('');
           return `<div class="row"><label>${esc(field.label)}</label>
-            <select data-fld="${id}"><option value="">— none —</option>${opts}</select></div>${help}`;
+            <select data-fld="${id}"><option value="">— none —</option>${opts}</select>${help}</div>`;
         }
         if (field.type === 'range') {
           // A slider always has a position, so it cannot express "leave this
@@ -279,120 +707,137 @@
           const on = v !== undefined && v !== null && String(v) !== '';
           const shown = on ? v : field.min;
           return `<div class="row"><label>${esc(field.label)}</label>
-            <input type="checkbox" data-fldon="${id}"${on ? ' checked' : ''} />
-            <input type="range" data-fld="${id}" min="${field.min}" max="${field.max}"
-                   step="${field.step ?? 1}" value="${esc(shown)}"${on ? '' : ' disabled'} />
-            <span class="rv${on ? '' : ' off'}" data-rv="${id}" data-unit="${esc(field.unit ?? '')}"
-              >${on ? esc(v) + (field.unit ?? '') : 'not set'}</span></div>${help}`;
+            <div class="grp">
+              <input type="checkbox" data-fldon="${id}"${on ? ' checked' : ''}
+                     title="Set this on this profile" />
+              <input type="range" data-fld="${id}" min="${field.min}" max="${field.max}"
+                     step="${field.step ?? 1}" value="${esc(shown)}"${on ? '' : ' disabled'} />
+              <span class="rv${on ? '' : ' off'}" data-rv="${id}" data-unit="${esc(field.unit ?? '')}"
+                >${on ? esc(v) + (field.unit ?? '') : 'not set'}</span>
+            </div>${help}</div>`;
         }
         if (field.type === 'boolean') {
           return `<div class="row"><label>${esc(field.label)}</label>
-            <input type="checkbox" data-fld="${id}"${v ? ' checked' : ''} />
-            <span class="muted" style="flex:1">${esc(field.help ?? '')}</span></div>`;
+            <div class="grp"><input type="checkbox" data-fld="${id}"${v ? ' checked' : ''} />
+            <span class="muted">${esc(field.help ?? '')}</span></div></div>`;
         }
         if (field.type === 'textarea') {
           return `<div class="row" style="align-items:flex-start"><label>${esc(field.label)}</label>
             <textarea class="cmds" data-fld="${id}" spellcheck="false"
-              placeholder="${esc(field.placeholder ?? '')}">${esc(v ?? '')}</textarea></div>${help}`;
+              placeholder="${esc(field.placeholder ?? '')}">${esc(v ?? '')}</textarea>${help}</div>`;
         }
         return `<div class="row"><label>${esc(field.label)}</label>
-          <input type="text" data-fld="${id}" value="${esc(v ?? '')}" /></div>${help}`;
+          <input type="text" data-fld="${id}" value="${esc(v ?? '')}" />${help}</div>`;
       }
 
       /**
-       * Hardware blocks for one profile, built entirely from declared schemas.
-       * The editor knows nothing about wheelbases, lights or scripts: a profile
-       * shows only the providers it has actually enabled, and the rest live
-       * behind the picker.
+       * One card per thing this profile changes, built entirely from declared
+       * schemas. The editor knows nothing about wheelbases, lights or scripts:
+       * a profile shows only what it has actually been given.
        */
-      function providersHtml(p) {
-        if (!providers.length) return '<div class="muted">Loading hardware…</div>';
+      function providerCardsHtml(p) {
+        if (!providers.length) return '<div class="muted">Loading options…</div>';
         const enabled = providers.filter((prov) => p.providers?.[prov.id]);
-        const available = providers.filter((prov) => !p.providers?.[prov.id]);
 
-        const blocks = enabled.map((prov) => {
+        if (!enabled.length) {
+          return `<div class="card plain"><div class="muted">
+            Nothing here yet — this profile will not change anything when its key is
+            pressed. Add hardware, lights, apps or scripts from the right.
+          </div></div>`;
+        }
+
+        return enabled.map((prov) => {
           const cfg = p.providers[prov.id] ?? {};
-          const badge = prov.verifiable ? '' : '<span class="badge">cannot confirm</span>';
-          return `<div class="prov"><div class="prov-head">
+          const badge = prov.verifiable
+            ? '' : '<span class="badge" title="This one cannot be read back">cannot confirm</span>';
+          const settingsLink = PROVIDER_SETTINGS[prov.id]
+            ? `<button class="cfglink" data-goto="${esc(prov.id)}"
+                 title="This provider has options in Settings">⚙ ${esc(PROVIDER_SETTINGS[prov.id])} settings</button>`
+            : '';
+          return `<div class="hw" data-hw="${esc(prov.id)}">
+            <div class="hw-head">
               <span class="pname">${esc(prov.label)}</span>${badge}
-              <button class="link" data-rmprov="${prov.id}" title="Remove">✕</button>
-            </div>${(prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg)).join('')}</div>`;
+              <span style="flex:1"></span>${settingsLink}
+              <button class="icon rm" data-rmprov="${esc(prov.id)}"
+                      title="Remove ${esc(prov.label)} from this profile">✕</button>
+            </div>
+            <div class="hw-body">${(prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg)).join('')}</div>
+          </div>`;
         }).join('');
-
-        const empty = enabled.length ? ''
-          : '<div class="muted">No hardware yet — this profile will not change anything.</div>';
-
-        const picker = available.length
-          ? `<div class="row" style="margin-top:12px"><label>Add hardware</label>
-              <select id="addprov"><option value="">— choose —</option>${
-                available.map((prov) => `<option value="${esc(prov.id)}">${esc(prov.label)}</option>`).join('')
-              }</select></div>`
-          : '';
-
-        return blocks + empty + picker;
       }
 
-      // --------------------------------------------------------------- pane
+      // =====================================================================
+      // Panes
+      // =====================================================================
 
       function render() {
         renderList();
-        document.querySelectorAll('nav button').forEach((b) => b.classList.remove('sel'));
-        if (view === 'settings') $('navSettings').classList.add('sel');
-        if (view === 'yaml') $('navYaml').classList.add('sel');
-
-        if (view === 'settings') return renderSettings();
-        if (view === 'yaml') return renderYaml();
-        renderProfile();
+        $('navSettings').classList.toggle('sel', view === 'settings');
+        if (view === 'settings') renderSettings();
+        else renderProfile();
+        renderRail();
+        renderIssues();
       }
 
       function renderProfile() {
         const p = current();
         if (!p) {
-          $('pane').innerHTML =
-            '<h2>No profile selected</h2><p class="muted">Pick one on the left, or add a new one.</p>';
+          $('pane').innerHTML = `<div class="pane-inner">
+            <h2>No profile selected</h2>
+            <p class="sub">Pick one on the left, or make a new one with “+ New”.</p></div>`;
           return;
         }
 
-        $('pane').innerHTML = `
+        // Order matters here: what the key will look like comes first, because
+        // that is the thing being made. The fields that produce it follow.
+        $('pane').innerHTML = `<div class="pane-inner">
           <h2>${esc(p.name || '(unnamed)')}</h2>
+          <p class="sub">${esc(p.id ? `id ${p.id}` : 'new profile')}${
+            p.restricted ? ' · hold to switch' : ''}</p>
+
+          <div id="issues"></div>
+
+          <div class="card plain">
+            <h3>On the deck</h3>
+            <div class="tiles">
+              <figure><img id="prevOff" alt="" /><figcaption>inactive</figcaption></figure>
+              <figure><img id="prevBusy" alt="" /><figcaption>switching</figcaption></figure>
+              <figure><img id="prevOn" alt="" /><figcaption>active &amp; confirmed</figcaption></figure>
+              <div class="tilenote">Rendered by the plugin itself, so what you see is what the
+                key will show.</div>
+            </div>
+          </div>
 
           <div class="card">
             <h3>Identity</h3>
             <div class="row">
               <label for="pname">Name</label>
-              <input type="text" id="pname" data-f="name" value="${esc(p.name)}" />
-              <input type="color" data-f="color" value="${esc(p.color)}" />
+              <div class="grp">
+                <input type="text" id="pname" data-f="name" value="${esc(p.name)}"
+                       autocomplete="off" spellcheck="false" />
+                <input type="color" data-f="color" value="${esc(p.color)}" title="Key colour" />
+              </div>
             </div>
             <div class="row">
               <label>Avatar</label>
-              <img class="avatar-preview" id="avatarPreview" src="${p.avatarDataUri || ''}"
-                   style="${p.avatarDataUri ? '' : 'visibility:hidden'}" alt="" />
-              <input type="file" data-f="avatar" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" />
-              ${p.avatar ? '<button class="link" data-act="rmavatar">Remove</button>' : ''}
+              <div class="grp">
+                <img class="avatar-preview" id="avatarPreview" src="${p.avatarDataUri || ''}"
+                     style="${p.avatarDataUri ? '' : 'visibility:hidden'}" alt="" />
+                <input type="file" data-f="avatar" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" />
+                ${p.avatar ? '<button class="icon rm" data-act="rmavatar" title="Remove avatar">✕</button>' : ''}
+              </div>
             </div>
             <div class="row">
               <label>Hold to switch</label>
-              <input type="checkbox" data-f="restricted" ${p.restricted ? 'checked' : ''} />
-              <span class="muted" style="flex:1">Requires a 1s press. Use for full-torque profiles.</span>
-            </div>
-            <div class="row">
-              <label>On the deck</label>
-              <div class="preview">
-                <figure><img id="prevOff" alt="" /><figcaption>inactive</figcaption></figure>
-                <figure><img id="prevOn" alt="" /><figcaption>active &amp; confirmed</figcaption></figure>
+              <div class="grp">
+                <input type="checkbox" data-f="restricted" ${p.restricted ? 'checked' : ''} />
+                <span class="muted">Requires a 1s press. Use for full-torque profiles.</span>
               </div>
             </div>
           </div>
 
-          <div class="card">
-            <h3>Hardware</h3>
-            ${providersHtml(p)}
-          </div>
-
-          <div class="actions">
-            <button class="danger" data-act="remove">Delete profile</button>
-            <span class="muted">id: ${esc(p.id || '(assigned on save)')}</span>
-          </div>`;
+          ${providerCardsHtml(p)}
+        </div>`;
 
         refreshPreview();
       }
@@ -413,86 +858,168 @@
           });
           if (!reply.off) return;
           off.src = reply.off;
+          $('prevBusy').src = reply.busy;
           $('prevOn').src = reply.on;
         }, 200);
       }
 
       function renderSettings() {
-        $('pane').innerHTML = `
-          <h2>Hardware settings</h2>
+        const devices = Array.isArray(hardware.goveeDevices)
+          ? hardware.goveeDevices.join(', ') : (hardware.goveeDevices ?? '');
 
-          <div class="card">
-            <h3>Govee lighting</h3>
+        // These three read as `!== false` on the provider side, so an absent key
+        // means enabled. The boxes therefore start ticked when nothing has been
+        // stored, and commit() writes a literal false when one is cleared —
+        // saving `undefined` would silently turn the setting back on.
+        const autoStart = hardware.fanatecAutoStart !== false;
+        const closePit = hardware.mozaClosePitHouse !== false;
+        const reopenPit = hardware.mozaReopenPitHouse === true;
+
+        $('pane').innerHTML = `<div class="pane-inner">
+          <h2>Settings</h2>
+          <p class="sub">Applies to every profile. Stored on this machine only.</p>
+
+          <div class="card" data-sec="fanatec-base">
+            <h3>Fanatec wheelbase</h3>
             <div class="row">
-              <label for="goveeKey">API key</label>
-              <input type="password" id="goveeKey" autocomplete="off"
-                     placeholder="${hardware.goveeApiKeySet ? '•••••••• (saved)' : 'not set'}" />
-              <button id="goveeShow" title="Show">👁</button>
-            </div>
-            <div class="help">${hardware.goveeApiKeySet
-              ? 'A key is saved. Type a new one to replace it; leave blank to keep it.'
-              : 'Free key from developer.govee.com. Stored locally; never included in a YAML export.'}</div>
-            <div class="row">
-              <label for="goveeDevices">Only these</label>
-              <input type="text" id="goveeDevices" placeholder="all devices"
-                     value="${esc(Array.isArray(hardware.goveeDevices)
-                       ? hardware.goveeDevices.join(', ') : (hardware.goveeDevices ?? ''))}" />
-            </div>
-            <div class="help">
-              Optional. Comma-separated device names, so scenes do not fire at lamps
-              elsewhere in the house.
-            </div>
-            <div class="actions">
-              <button id="goveeDiscover">Discover devices</button>
+              <label>FanatecService</label>
+              <div class="grp">
+                <input type="checkbox" id="fanatecAutoStart" ${autoStart ? 'checked' : ''} />
+                <span class="muted">Start it when switching profiles</span>
+              </div>
+              <div class="help">
+                The service is what actually applies a setup change. Without it the
+                command is accepted by the broker and nothing happens — a switch that
+                looks like it worked and did not. Turn this off only if you start the
+                service yourself.
+              </div>
             </div>
           </div>
 
-          <div class="card">
+          <div class="card" data-sec="moza">
             <h3>MOZA pedal</h3>
             <div class="row">
               <label>Pit House</label>
-              <input type="checkbox" id="mozaClose" ${hardware.mozaClosePitHouse ? 'checked' : ''} />
-              <span class="muted" style="flex:1">Close it when switching profiles</span>
+              <div class="grp">
+                <input type="checkbox" id="mozaClose" ${closePit ? 'checked' : ''} />
+                <span class="muted">Close it when switching profiles</span>
+              </div>
+              <div class="help">
+                The pedal's serial port is exclusive, so Pit House has to be closed for a
+                profile to reach the pedal at all. Turn this off only if you would rather
+                close it by hand and have the switch fail on the times you forget.
+              </div>
             </div>
-            <div class="help">
-              The pedal's serial port is exclusive, so Pit House has to be closed for a
-              profile to reach it. Off by default — pressing a key should not close an
-              application unless you have said it may.
+            <div class="row">
+              <label>Reopen afterwards</label>
+              <div class="grp">
+                <input type="checkbox" id="mozaReopen" ${reopenPit ? 'checked' : ''}
+                       ${closePit ? '' : 'disabled'} />
+                <span class="muted">Launch Pit House again once the profile is applied</span>
+              </div>
+              <div class="help">
+                Worth leaving off. Pit House re-applies its own preset as it starts, which
+                undoes the pedal settings the profile has just written.
+              </div>
             </div>
           </div>
 
-          <div class="actions">
-            <button id="settingsSave" class="primary">Save settings</button>
-            <button id="refreshHardware">Refresh hardware options</button>
-          </div>`;
+          <div class="card" data-sec="govee">
+            <h3>Govee lighting</h3>
+            <div class="row">
+              <label for="goveeKey">API key</label>
+              <div class="grp">
+                <input type="password" id="goveeKey" autocomplete="off"
+                       placeholder="${hardware.goveeApiKeySet ? '•••••••• (saved)' : 'not set'}" />
+                <button id="goveeShow" class="icon" title="Show the key">👁</button>
+              </div>
+              <div class="help">${hardware.goveeApiKeySet
+                ? 'A key is saved. Type a new one to replace it; leave blank to keep it. Saved when you click away from the field.'
+                : 'Free key from developer.govee.com. Stored locally, never included in a YAML export. Saved when you click away from the field.'}</div>
+            </div>
+            <div class="row">
+              <label for="goveeDevices">Only these devices</label>
+              <input type="text" id="goveeDevices" placeholder="all devices" value="${esc(devices)}" />
+              <div class="help">
+                Optional. Comma-separated device names, so scenes do not fire at lamps
+                elsewhere in the house.
+              </div>
+            </div>
+            <div class="actions"><button id="goveeDiscover">Discover devices</button></div>
+          </div>
+
+          <div class="card" data-sec="yaml">
+            <h3>Export YAML</h3>
+            <p class="muted" style="margin-top:0">
+              For version control. The Govee API key is never included. Editing
+              <code>config/profiles.yaml</code> re-imports it over these profiles on the
+              next start, so treat the file as a seed, not a copy.
+            </p>
+            <textarea class="yaml" id="yamlOut" spellcheck="false" readonly></textarea>
+            <div class="actions"><button id="yamlCopy">Copy to clipboard</button></div>
+          </div>
+        </div>`;
+
+        ask('exportYaml').then((r) => { const el = $('yamlOut'); if (el) el.value = r.yaml ?? ''; });
       }
 
-      function renderYaml() {
-        $('pane').innerHTML = `
-          <h2>Export YAML</h2>
-          <p class="muted" style="max-width:640px">
-            Export for version control. The Govee API key is never included.
-            Editing <code>config/profiles.yaml</code> re-imports it over these
-            profiles on the next start, so treat the file as a seed, not a copy.
-          </p>
-          <textarea class="yaml" id="yamlOut" spellcheck="false" readonly></textarea>
-          <div class="actions"><button id="yamlCopy">Copy</button></div>`;
-        ask('exportYaml').then((r) => { $('yamlOut').value = r.yaml ?? ''; });
+      // =====================================================================
+      // Right rail — everything you can DO, in one column
+      // =====================================================================
+
+      function renderRail() {
+        const parts = [`<div class="rail-group"><div id="saveState" class="savecard"></div></div>`];
+
+        if (view === 'settings') {
+          parts.push(`<div class="rail-group"><h4>Jump to</h4>
+            ${[['fanatec-base', 'Fanatec wheelbase'], ['moza', 'MOZA pedal'],
+               ['govee', 'Govee lighting'], ['yaml', 'Export YAML']]
+              .map(([sec, label]) =>
+                `<button class="addbtn" data-jump="${sec}"><span class="nm">${esc(label)}</span></button>`)
+              .join('')}</div>`);
+          parts.push(`<div class="rail-group"><h4>Hardware</h4>
+            <button id="refreshHardware" class="wide">Refresh options</button>
+            <div class="savenote">Re-asks the wheelbase for its setup slots and Pit House for
+              its presets.</div></div>`);
+        } else {
+          const p = current();
+          if (p) {
+            const available = providers.filter((prov) => !p.providers?.[prov.id]);
+            parts.push(`<div class="rail-group"><h4>Add to this profile</h4>${
+              available.length
+                ? available.map((prov) =>
+                    `<button class="addbtn" data-addprov="${esc(prov.id)}">
+                       <span class="plus">+</span>
+                       <span class="nm">${esc(prov.label)}${
+                         prov.verifiable ? '' : '<i>cannot be confirmed</i>'}</span>
+                     </button>`).join('')
+                : '<div class="savenote">Everything available is already on this profile.</div>'
+            }</div>`);
+
+            parts.push(`<div class="rail-group"><h4>This profile</h4>
+              <button class="danger wide" data-act="remove">Delete profile</button>
+              <div class="savenote">${p.id
+                ? `Stored as <code>${esc(p.id)}</code>. Keys bound to it stop working.`
+                : 'Not saved yet.'}</div></div>`);
+          } else {
+            parts.push(`<div class="rail-group"><h4>Profiles</h4>
+              <button class="addbtn" id="addRail"><span class="plus">+</span>
+                <span class="nm">New profile</span></button></div>`);
+          }
+        }
+
+        $('rail').innerHTML = parts.join('');
+        renderSaveState();
       }
 
-      // ------------------------------------------------------------- edits
+      // =====================================================================
+      // Edits
+      // =====================================================================
 
-      function onPaneInput(e) {
+      function onProfileInput(e) {
         const el = e.target;
         const p = current();
-
-        if (el.id === 'addprov' && el.value) {
-          p.providers = p.providers ?? {};
-          p.providers[el.value] = {};
-          markDirty();
-          render();
-          return;
-        }
+        if (!p) return;
 
         // Enabling or disabling one slider.
         if (el.dataset.fldon) {
@@ -512,29 +1039,25 @@
             readout.textContent = 'not set';
             readout.classList.add('off');
           }
-          markDirty();
+          touch('profiles');
           return;
         }
 
         if (el.dataset.fld) {
           const [providerId, key] = el.dataset.fld.split('|');
           const cfg = (p.providers[providerId] = p.providers[providerId] ?? {});
-          const raw = el.type === 'checkbox' ? el.checked : el.value;
-          // Numeric fields must not be stored as strings, and pedal travel is
-          // measured in tenths of a millimetre, so integers alone will not do.
-          const numeric = typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw));
-          cfg[key] = raw === '' ? undefined : (numeric ? Number(raw) : raw);
-          if (cfg[key] === undefined) delete cfg[key];
+          const value = fieldValue(el.type === 'checkbox' ? el.checked : el.value);
+          if (value === undefined) delete cfg[key];
+          else cfg[key] = value;
           const readout = document.querySelector(`[data-rv="${el.dataset.fld}"]`);
           if (readout && el.type === 'range') readout.textContent = el.value + (readout.dataset.unit ?? '');
-          markDirty();
           delete p.needsWheelbaseSetup;
+          touch('profiles');
           return;
         }
 
         const field = el.dataset.f;
         if (!field) return;
-        markDirty();
         if (field === 'name') {
           p.name = el.value;
           // Only the heading and the list row — re-rendering the pane on every
@@ -542,14 +1065,55 @@
           $('pane').querySelector('h2').textContent = p.name || '(unnamed)';
           renderList();
           refreshPreview();
+          touch('profiles');
         } else if (field === 'color') {
           p.color = el.value;
           renderList();
           refreshPreview();
+          touch('profiles');
         } else if (field === 'restricted') {
           p.restricted = el.checked;
+          touch('profiles');
         } else if (field === 'avatar' && el.files?.[0]) {
           uploadAvatar(p, el.files[0]);
+        }
+      }
+
+      function onSettingsInput(e) {
+        const el = e.target;
+        if (el.id === 'goveeKey') {
+          // Deliberately not saved per keystroke: saveSettings treats a blank
+          // key as "leave it alone", so an autosave halfway through typing
+          // would replace a working key with a fragment of a new one. Marked
+          // dirty on every keystroke all the same, so the state on screen and
+          // the unload warning are both honest.
+          hardware.goveeApiKey = el.value.trim();
+          touch('settings', { defer: e.type === 'input' });
+          return;
+        }
+        if (el.id === 'goveeDevices') {
+          const raw = el.value.trim();
+          hardware.goveeDevices = raw ? raw.split(',').map((x) => x.trim()).filter(Boolean) : null;
+          touch('settings');
+          return;
+        }
+        if (el.id === 'fanatecAutoStart') {
+          hardware.fanatecAutoStart = el.checked;
+          touch('settings');
+          return;
+        }
+        if (el.id === 'mozaClose') {
+          hardware.mozaClosePitHouse = el.checked;
+          // Reopening only means anything if we closed it. Toggled in place
+          // rather than by re-rendering, which would wipe a half-typed API key.
+          const reopen = $('mozaReopen');
+          if (reopen) reopen.disabled = !el.checked;
+          touch('settings');
+          return;
+        }
+        if (el.id === 'mozaReopen') {
+          hardware.mozaReopenPitHouse = el.checked;
+          touch('settings');
         }
       }
 
@@ -565,43 +1129,34 @@
 
         p.avatar = reply.filename;
         p.avatarDataUri = (await ask('getAvatar', { profileId: p.id, filename: reply.filename })).dataUri;
-        markDirty();
-        say('Avatar stored. Save to attach it to the profile.', 'ok');
+        say('Avatar stored.', 'ok');
         render();
+        touch('profiles', { now: true });
       }
 
       async function removeAvatar(p) {
         if (p.avatar) await ask('deleteAvatar', { profileId: p.id, filename: p.avatar });
         delete p.avatar;
         delete p.avatarDataUri;
-        markDirty();
         render();
+        touch('profiles', { now: true });
       }
 
-      async function saveAll() {
-        const taken = [];
-        for (const p of profiles) {
-          if (!p.id) p.id = slugify(p.name, taken);
-          taken.push(p.id);
-        }
-        // avatarDataUri is a render-time convenience; never persist the bytes.
-        // Global settings are deliberately not sent: saveProfiles merges what it
-        // is given over the stored blob, and this page is never told the Govee
-        // key, so sending "the settings" back would erase it.
-        const payload = profiles.map(({ avatarDataUri, ...rest }) => rest);
-        const reply = await ask('saveProfiles', { profiles: payload });
-
-        if (!reply.ok) {
-          say((reply.errors ?? [reply.error ?? 'save failed']).join(' · '), 'err');
-          return;
-        }
-        dirty = false;
-        $('unsaved').hidden = true;
-        say(`Saved ${reply.count} profile(s).`, 'ok');
+      /** Show a settings section and say which one, for a link from a provider. */
+      function gotoSettings(section) {
+        view = 'settings';
         render();
+        const target = document.querySelector(`[data-sec="${section}"]`);
+        if (!target) return;
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        target.classList.remove('flash');
+        void target.offsetWidth;              // restart the animation
+        target.classList.add('flash');
       }
 
-      // -------------------------------------------------------------- load
+      // =====================================================================
+      // Load
+      // =====================================================================
 
       async function loadProfiles() {
         const reply = await ask('getProfiles');
@@ -614,7 +1169,7 @@
             p.avatarDataUri = (await ask('getAvatar', { profileId: p.id, filename: p.avatar })).dataUri;
           }
         }
-        if (!profiles.some((p) => p.id === selected)) selected = profiles[0]?.id ?? null;
+        selected = keepSelection(profiles, selected);
       }
 
       async function loadProviders() {
@@ -624,30 +1179,36 @@
         providers = reply.providers ?? [];
       }
 
-      // -------------------------------------------------------------- wire
+      // =====================================================================
+      // Wire
+      // =====================================================================
 
       $('search').addEventListener('input', renderList);
 
+      /** The profile a sidebar row stands for, or null. */
+      const rowProfile = (target) => {
+        const li = target.closest?.('li[data-i]');
+        return li ? profiles[Number(li.dataset.i)] ?? null : null;
+      };
+
       $('list').addEventListener('click', (e) => {
-        const li = e.target.closest('li[data-id]');
-        if (!li) return;
-        selected = li.dataset.id;
+        const p = rowProfile(e.target);
+        if (!p) return;
+        selected = p;
         view = 'profile';
         render();
       });
 
       // Drag to reorder. Order is what the inspector's dropdown shows, so it is
       // worth arranging: the profiles used daily belong at the top.
-      let dragId = null;
+      let dragging = null;
       $('list').addEventListener('dragstart', (e) => {
-        const li = e.target.closest('li[data-id]');
-        if (!li) return;
-        dragId = li.dataset.id;
-        e.dataTransfer.effectAllowed = 'move';
+        dragging = rowProfile(e.target);
+        if (dragging) e.dataTransfer.effectAllowed = 'move';
       });
       $('list').addEventListener('dragover', (e) => {
-        const li = e.target.closest('li[data-id]');
-        if (!li || !dragId) return;
+        const li = e.target.closest('li[data-i]');
+        if (!li || !dragging) return;
         e.preventDefault();
         const after = e.offsetY > li.offsetHeight / 2;
         document.querySelectorAll('#list li').forEach((n) =>
@@ -655,71 +1216,67 @@
         li.classList.add(after ? 'drop-after' : 'drop-before');
       });
       $('list').addEventListener('drop', (e) => {
-        const li = e.target.closest('li[data-id]');
-        if (!li || !dragId || li.dataset.id === dragId) return;
+        const li = e.target.closest('li[data-i]');
+        const onto = rowProfile(e.target);
+        if (!onto || !dragging) return;
         e.preventDefault();
-        const from = profiles.findIndex((p) => p.id === dragId);
-        const moved = profiles.splice(from, 1)[0];
-        const onto = profiles.findIndex((p) => p.id === li.dataset.id);
-        profiles.splice(onto + (e.offsetY > li.offsetHeight / 2 ? 1 : 0), 0, moved);
-        dragId = null;
-        markDirty();
+        profiles = moveProfile(profiles, dragging, onto, e.offsetY > li.offsetHeight / 2);
+        dragging = null;
         render();
+        touch('profiles');
       });
 
-      $('add').addEventListener('click', () => {
-        const p = { id: '', name: 'New profile', color: '#2255cc', restricted: false, providers: {} };
-        profiles.push(p);
-        selected = p.id;
+      // A drag released outside the list leaves its insertion marker behind.
+      $('list').addEventListener('dragend', () => {
+        dragging = null;
+        document.querySelectorAll('#list li').forEach((n) =>
+          n.classList.remove('drop-before', 'drop-after'));
+      });
+
+      function newProfile() {
+        ({ profiles, selected } = addProfile(profiles));
         view = 'profile';
-        markDirty();
         render();
-      });
+        // Focused and selected so the first keystroke names it. The id is
+        // slugged from this name, and commit() waits for the field to be left.
+        const name = $('pname');
+        name?.focus();
+        name?.select();
+        touch('profiles');
+      }
 
-      $('save').addEventListener('click', saveAll);
+      $('add').addEventListener('click', newProfile);
       $('navSettings').addEventListener('click', () => { view = 'settings'; render(); });
-      $('navYaml').addEventListener('click', () => { view = 'yaml'; render(); });
 
-      $('pane').addEventListener('input', (e) => { if (view === 'profile') onPaneInput(e); });
-      $('pane').addEventListener('change', (e) => { if (view === 'profile') onPaneInput(e); });
+      $('pane').addEventListener('input', paneEdit);
+      $('pane').addEventListener('change', paneEdit);
+      function paneEdit(e) {
+        if (view === 'profile') onProfileInput(e);
+        else onSettingsInput(e);
+      }
+
+      // Enter in the key field means "I am done with this", same as clicking away.
+      $('pane').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.target.id === 'goveeKey') { e.preventDefault(); commit(); }
+      });
 
       $('pane').addEventListener('click', async (e) => {
         const p = current();
+        const goto = e.target.closest('[data-goto]');
+        if (goto) return gotoSettings(goto.dataset.goto);
 
-        if (e.target.dataset.rmprov && p) {
-          delete p.providers[e.target.dataset.rmprov];
-          markDirty();
+        const rm = e.target.closest('[data-rmprov]');
+        if (rm && p) {
+          delete p.providers[rm.dataset.rmprov];
           render();
+          touch('profiles');
           return;
         }
-        if (e.target.dataset.act === 'rmavatar' && p) return removeAvatar(p);
-        if (e.target.dataset.act === 'remove' && p) {
-          if (!confirm(`Delete "${p.name}"? Keys bound to it will stop working.`)) return;
-          profiles = profiles.filter((x) => x !== p);
-          selected = profiles[0]?.id ?? null;
-          markDirty();
-          render();
-          return;
-        }
+        if (e.target.closest('[data-act="rmavatar"]') && p) return removeAvatar(p);
 
         if (e.target.id === 'goveeShow') {
           const f = $('goveeKey');
           f.type = f.type === 'password' ? 'text' : 'password';
-          return;
-        }
-        if (e.target.id === 'settingsSave') {
-          const raw = $('goveeDevices').value.trim();
-          const reply = await ask('saveSettings', {
-            settings: {
-              goveeApiKey: $('goveeKey').value.trim(),
-              goveeDevices: raw ? raw.split(',').map((x) => x.trim()).filter(Boolean) : null,
-              mozaClosePitHouse: $('mozaClose').checked,
-            },
-          });
-          if (reply.ok === false) return say(reply.error ?? 'could not save', 'err');
-          hardware.goveeApiKeySet = reply.goveeApiKeySet;
-          say('Settings saved.', 'ok');
-          render();
           return;
         }
         if (e.target.id === 'goveeDiscover') {
@@ -732,23 +1289,61 @@
           await loadProviders();
           return;
         }
-        if (e.target.id === 'refreshHardware') {
-          say('Asking the hardware…');
-          await loadProviders();
-          say('Hardware options refreshed.', 'ok');
-          return;
-        }
         if (e.target.id === 'yamlCopy') {
           navigator.clipboard?.writeText($('yamlOut').value)
             .then(() => say('Copied.', 'ok'), () => say('Select the text and copy it.', 'err'));
         }
       });
 
+      $('rail').addEventListener('click', async (e) => {
+        const p = current();
+
+        const add = e.target.closest('[data-addprov]');
+        if (add && p) {
+          p.providers = p.providers ?? {};
+          p.providers[add.dataset.addprov] = {};
+          render();
+          touch('profiles');
+          // Land the user on what they just added rather than leaving it to be
+          // hunted for at the bottom of a long profile.
+          const card = document.querySelector(`[data-hw="${CSS.escape(add.dataset.addprov)}"]`);
+          card?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          card?.classList.add('flash');
+          return;
+        }
+
+        const jump = e.target.closest('[data-jump]');
+        if (jump) return gotoSettings(jump.dataset.jump);
+
+        if (e.target.id === 'addRail') return newProfile();
+        if (e.target.id === 'saveNow') return commit();
+
+        if (e.target.closest('[data-act="remove"]') && p) {
+          if (!confirm(`Delete "${p.name}"? Keys bound to it will stop working.`)) return;
+          ({ profiles, selected } = removeProfile(profiles, p));
+          render();
+          touch('profiles', { now: true });
+          return;
+        }
+
+        if (e.target.id === 'refreshHardware') {
+          say('Asking the hardware…');
+          await loadProviders();
+          say('Hardware options refreshed.', 'ok');
+        }
+      });
+
+      // A change still in the page is a change that would be lost. With
+      // autosave this only fires while a save is in flight, held for a name, or
+      // blocked by a validation error — all of which are worth stopping for.
       window.addEventListener('beforeunload', (e) => {
-        if (!dirty) return;
+        if (!isDirty()) return;
         e.preventDefault();
         e.returnValue = '';
       });
+
+      // Leaving the page in any other way is the natural moment to flush.
+      window.addEventListener('blur', () => { if (isDirty() && !namingInProgress()) commit(); });
 
       /**
        * The event stream is how the plugin knows a page is still open — closing
@@ -756,7 +1351,7 @@
        * means the editor is no longer live.
        */
       function connect() {
-        const es = new EventSource(`/events?t=${encodeURIComponent(token)}`);
+        const es = new EventSource(`/events${q}`);
         es.onopen = () => {
           $('dot').className = 'dot live';
           $('conn').textContent = 'connected';

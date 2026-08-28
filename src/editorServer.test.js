@@ -59,6 +59,34 @@ describe('startEditor', () => {
     expect(await res.text()).toContain('<title>Rig Profiles</title>');
   });
 
+  it('serves the page its state module, under the same token', async () => {
+    await start(fakeSettings({ profiles: [] }));
+    const url = `http://127.0.0.1:${server.port}/editorState.js`;
+    const res = await fetch(`${url}?t=${server.token}`);
+    expect(res.headers.get('content-type')).toMatch(/text\/javascript/);
+    expect(await res.text()).toContain('export function addProfile');
+    expect((await fetch(url)).status).toBe(403);
+  });
+
+  it('serves the contrast module the key renderer shares, from src/', async () => {
+    // Not a copy in ui/: the editor and the deck must agree on what is
+    // readable, and two files would eventually disagree.
+    await start(fakeSettings({ profiles: [] }));
+    const url = `http://127.0.0.1:${server.port}/contrast.js`;
+    const res = await fetch(`${url}?t=${server.token}`);
+    expect(res.headers.get('content-type')).toMatch(/text\/javascript/);
+    expect(await res.text()).toContain('export function readableTextColor');
+    expect((await fetch(url)).status).toBe(403);
+  });
+
+  it('hands out nothing but the three files on the allowlist', async () => {
+    await start(fakeSettings({ profiles: [] }));
+    for (const path of ['/piBridge.js', '/../package.json', '/editor.html', '/moza/frame.js']) {
+      const res = await fetch(`http://127.0.0.1:${server.port}${path}?t=${server.token}`);
+      expect(res.status).toBe(404);
+    }
+  });
+
   it('refuses the page without the token', async () => {
     await start(fakeSettings({ profiles: [] }));
     expect((await fetch(`http://127.0.0.1:${server.port}/`)).status).toBe(403);

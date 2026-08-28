@@ -32,7 +32,24 @@ import { fileURLToPath } from 'url';
 import { handlePiRequest } from './piBridge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PAGE_PATH = resolve(__dirname, '..', 'ui', 'editor.html');
+const UI_DIR = resolve(__dirname, '..', 'ui');
+const SRC_DIR = resolve(__dirname);
+
+const JS = 'text/javascript; charset=utf-8';
+
+/**
+ * The only files this server will hand out, by request path.
+ *
+ * An allowlist rather than a static file root: there is no directory to walk
+ * out of, so path traversal is not a thing that can go wrong here. Each entry
+ * names its own directory because one of them is not in `ui/` — contrast.js is
+ * shared with the key renderer, and a copy in `ui/` would be a copy that drifts.
+ */
+const SERVED = {
+  '/': { dir: UI_DIR, file: 'editor.html', type: 'text/html; charset=utf-8' },
+  '/editorState.js': { dir: UI_DIR, file: 'editorState.js', type: JS },
+  '/contrast.js': { dir: SRC_DIR, file: 'contrast.js', type: JS },
+};
 
 /** Avatars arrive base64-encoded, so a 2MB image is roughly 2.7MB of body. */
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -174,16 +191,17 @@ async function route(req, res, state) {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
 
-  if (req.method === 'GET' && url.pathname === '/') {
+  const asset = req.method === 'GET' ? SERVED[url.pathname] : null;
+  if (asset) {
     if (!tokenOk(state, url.searchParams.get('t'))) return send(res, 403, 'text/plain', 'bad token');
     // The token stays in the address bar deliberately: strip it and a reload
     // has nothing to authenticate with.
-    return send(res, 200, 'text/html; charset=utf-8', readFileSync(PAGE_PATH), {
-      // The page is entirely self-contained; anything reaching outward would be
-      // an injection, so refuse it at the browser rather than trusting review.
+    return send(res, 200, asset.type, readFileSync(resolve(asset.dir, asset.file)), {
+      // The page reaches nothing but this server; anything outward would be an
+      // injection, so refuse it at the browser rather than trusting review.
       'content-security-policy':
         "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; " +
-        "script-src 'unsafe-inline'; connect-src 'self'; form-action 'none'",
+        "script-src 'unsafe-inline' 'self'; connect-src 'self'; form-action 'none'",
     });
   }
 
