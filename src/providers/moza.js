@@ -107,6 +107,9 @@ export default {
   label: 'MOZA mBooster',
   // Values are read back from the pedal itself.
   verifiable: true,
+  // Profile-only, for the same reason as the wheelbase: pedal force is a
+  // safety setting, not an ambience one.
+  contexts: ['profile'],
 
   schema() {
     return [

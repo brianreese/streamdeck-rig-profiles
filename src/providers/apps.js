@@ -67,6 +67,9 @@ export default {
   id: 'apps',
   label: 'Apps & Scripts',
   verifiable: true,
+  // Both: a profile may need to prepare sim software, and a scene may want to
+  // start a playlist. Neither claim is about the other.
+  contexts: ['profile', 'scene'],
 
   schema() {
     return [

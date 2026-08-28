@@ -8,7 +8,7 @@
 //   3. The Stream Deck profile switch runs last — it changes which keys are
 //      on screen, so it must not race the other providers' renders.
 
-import { getProvider } from './providers/index.js';
+import { getProvider, supportsContext } from './providers/index.js';
 import { worstOf, STATUS } from './providers/status.js';
 
 /** Providers deferred to the end because they change what is on screen. */
@@ -22,7 +22,7 @@ const DEFERRED = new Set(['streamdeck']);
  * @property {string} detail
  */
 
-async function runOne(providerId, cfg, ctx) {
+async function runOne(providerId, cfg, ctx, sceneName = null) {
   const provider = getProvider(providerId);
 
   // Unknown ids warn but never throw: config outlives code, and a profile
@@ -37,7 +37,13 @@ async function runOne(providerId, cfg, ctx) {
     };
   }
 
-  const base = { providerId, label: provider.label };
+  // Naming the scene matters once the same provider can appear twice: two
+  // "Apps & Scripts" lines with no way to tell which ran what is worse than one.
+  const base = {
+    providerId,
+    label: sceneName ? `${provider.label} (scene "${sceneName}")` : provider.label,
+    ...(sceneName ? { scene: sceneName } : {}),
+  };
 
   try {
     await provider.apply(cfg, ctx);
@@ -68,43 +74,50 @@ async function runOne(providerId, cfg, ctx) {
 }
 
 /**
- * Expand a profile's scene references into extra provider entries.
+ * Work out what runs, and in what order.
  *
- * A profile may name scenes by id so "Brian's profile also sets Brian's
- * lighting" composes instead of duplicating provider config in two places.
+ * A profile's own providers run first, then anything its referenced scenes
+ * contribute. That ordering is the whole conflict rule: where both configure
+ * the same provider, the scene runs last and therefore wins, which is what you
+ * want from lighting. Where they are additive — a profile's script preparing
+ * SimHub and a scene's script starting a playlist — both simply run.
  *
- * The profile's own configuration always wins. A scene contributes only the
- * providers the profile does not already configure, because the alternative —
- * letting a referenced scene quietly override the wheelbase or the pedal the
- * profile explicitly set — is the kind of action-at-a-distance that makes a
- * safety-critical switch untrustworthy. Collisions are reported, not silent.
+ * An earlier version deduplicated instead, dropping the scene's entry to
+ * protect the profile's. That was wrong: it silently discarded half of a
+ * perfectly reasonable pair of scripts.
+ *
+ * Providers that do not declare the context are dropped rather than trusted.
  */
-function withScenes(profile, ctx) {
-  const refs = profile?.scenes ?? [];
-  if (!refs.length) return Object.entries(profile?.providers ?? {});
+function plan(profile, ctx) {
+  const context = ctx.context ?? 'profile';
+  const own = [];
+  for (const [id, cfg] of Object.entries(profile?.providers ?? {})) {
+    // An unknown id passes through so runOne can report it as skipped; only a
+    // provider that exists and declines this context is dropped here.
+    if (getProvider(id) && !supportsContext(id, context)) {
+      ctx.log?.(`[profileSwitch] ${id} is not available to a ${context} — skipping`);
+      continue;
+    }
+    own.push({ id, cfg });
+  }
 
-  const byId = new Map((ctx.scenes ?? []).map((s) => [s.id, s]));
-  const entries = Object.entries(profile?.providers ?? {});
-  const claimed = new Set(entries.map(([id]) => id));
-
-  for (const ref of refs) {
+  const fromScenes = [];
+  const byId = new Map((ctx.scenes ?? []).map((sc) => [sc.id, sc]));
+  for (const ref of profile?.scenes ?? []) {
     const scene = byId.get(ref);
     if (!scene) {
       ctx.log?.(`[profileSwitch] profile "${profile?.id}" references missing scene "${ref}"`);
       continue;
     }
     for (const [id, cfg] of Object.entries(scene.providers ?? {})) {
-      if (claimed.has(id)) {
-        ctx.log?.(
-          `[profileSwitch] scene "${ref}" also configures ${id}, which "${profile?.id}" sets itself — keeping the profile's`,
-        );
+      if (getProvider(id) && !supportsContext(id, 'scene')) {
+        ctx.log?.(`[profileSwitch] scene "${ref}" configures ${id}, which is not available to a scene`);
         continue;
       }
-      claimed.add(id);
-      entries.push([id, cfg]);
+      fromScenes.push({ id, cfg, scene: scene.name ?? ref });
     }
   }
-  return entries;
+  return { own, fromScenes };
 }
 
 /**
@@ -127,26 +140,30 @@ export async function applyProfile(profile, ctx = {}) {
   // provider needing a credential failed with "no API key set" however the key
   // was configured. Callers hand it in as ctx.settings.
   ctx = { ...ctx, profileId: profile?.id, profile, settings: ctx.settings ?? {} };
-  const entries = withScenes(profile, ctx);
-  if (!entries.length) {
+  const { own, fromScenes } = plan(profile, ctx);
+  if (!own.length && !fromScenes.length) {
     return { status: STATUS.SKIPPED, results: [] };
   }
-
-  const concurrent = entries.filter(([id]) => !DEFERRED.has(id));
-  const deferred = entries.filter(([id]) => DEFERRED.has(id));
 
   const report = (r) => {
     ctx.onResult?.(r);
     return r;
   };
 
-  const results = await Promise.all(
-    concurrent.map(([id, cfg]) => runOne(id, cfg, ctx).then(report)),
-  );
+  const results = [];
+  // Two waves, so a scene genuinely runs after the profile rather than racing it.
+  for (const wave of [own, fromScenes]) {
+    if (!wave.length) continue;
+    const concurrent = wave.filter((e) => !DEFERRED.has(e.id));
+    const deferred = wave.filter((e) => DEFERRED.has(e.id));
 
-  // Sequential, after everything else has settled.
-  for (const [id, cfg] of deferred) {
-    results.push(report(await runOne(id, cfg, ctx)));
+    results.push(
+      ...(await Promise.all(concurrent.map((e) => runOne(e.id, e.cfg, ctx, e.scene).then(report)))),
+    );
+    // Sequential, after everything else in this wave has settled.
+    for (const e of deferred) {
+      results.push(report(await runOne(e.id, e.cfg, ctx, e.scene)));
+    }
   }
 
   return { status: worstOf(results), results };

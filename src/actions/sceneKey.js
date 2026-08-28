@@ -94,6 +94,10 @@ export class SceneKey extends SingletonAction {
     try {
       outcome = await applyProfile(scene, {
         settings: settings?.settings ?? {},
+        // Declares which half of the plugin this is, so a provider that only
+        // offers itself to profiles cannot be reached through a scene even if
+        // a hand-edited config names it.
+        context: 'scene',
         log: (m) => streamDeck.logger.info(m),
         onResult: (r) =>
           streamDeck.logger.info(`[sceneKey] ${scene.name} · ${r.label}: ${r.status} — ${r.detail}`),

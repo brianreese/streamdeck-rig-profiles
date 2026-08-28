@@ -3,11 +3,12 @@ import { applyProfile, summarise } from './profileSwitch.js';
 import { register, _resetForTesting, STATUS, worstOf } from './providers/index.js';
 
 /** Build a stub provider with scripted behaviour. */
-function stub(id, { verifiable = true, apply, verify } = {}) {
+function stub(id, { verifiable = true, apply, verify, contexts = ['profile', 'scene'] } = {}) {
   return {
     id,
     label: id,
     verifiable,
+    contexts,
     describe: () => id,
     apply: apply ?? (async () => {}),
     verify: verify ?? (async () => ({ status: STATUS.VERIFIED, detail: 'ok' })),
@@ -168,27 +169,7 @@ describe('scene references', () => {
     expect(out.results.map((r) => r.providerId).sort()).toEqual(['lights', 'wheel']);
   });
 
-  it('keeps the profile\'s own config when a scene configures the same provider', async () => {
-    // A referenced scene silently overriding the wheelbase the profile set is
-    // exactly the action-at-a-distance a safety-critical switch must not have.
-    const seen = [];
-    register(stub('wheel', { apply: async (cfg) => { seen.push(cfg); } }));
-    await applyProfile(
-      { id: 'brian', providers: { wheel: { setup: 1 } }, scenes: ['other'] },
-      { scenes: [scene('other', { wheel: { setup: 5 } })] },
-    );
-    expect(seen).toEqual([{ setup: 1 }]);
-  });
 
-  it('says so when a collision is dropped, rather than dropping it silently', async () => {
-    const logs = [];
-    register(stub('wheel'));
-    await applyProfile(
-      { id: 'brian', providers: { wheel: {} }, scenes: ['other'] },
-      { scenes: [scene('other', { wheel: {} })], log: (m) => logs.push(m) },
-    );
-    expect(logs.join(' ')).toMatch(/also configures wheel/);
-  });
 
   it('survives a reference to a scene that no longer exists', async () => {
     const logs = [];
@@ -205,5 +186,84 @@ describe('scene references', () => {
     register(stub('lights'));
     const out = await applyProfile({ id: 'ambient', providers: { lights: {} } });
     expect(out.status).toBe(STATUS.VERIFIED);
+  });
+});
+
+describe('profile first, scene second', () => {
+  const scene = (id, providers) => ({ id, name: id, providers });
+
+  it('runs the profile then the scene, so the scene wins a conflict', async () => {
+    // The ordering IS the conflict rule. Where both set the lights, the scene
+    // runs last and therefore wins — no special-casing needed.
+    const seen = [];
+    register(stub('lights', { apply: async (cfg) => { seen.push(cfg); } }));
+    await applyProfile(
+      { id: 'brian', providers: { lights: { scene: 'from-profile' } }, scenes: ['other'] },
+      { scenes: [scene('other', { lights: { scene: 'from-scene' } })] },
+    );
+    expect(seen).toEqual([{ scene: 'from-profile' }, { scene: 'from-scene' }]);
+  });
+
+  it('runs both when they are additive rather than conflicting', async () => {
+    // A profile's script preparing SimHub and a scene's script starting a
+    // playlist are both wanted. Deduplicating silently dropped one of them.
+    const ran = [];
+    register(stub('apps', { apply: async (cfg) => { ran.push(cfg.cmd); } }));
+    await applyProfile(
+      { id: 'brian', providers: { apps: { cmd: 'simhub' } }, scenes: ['music'] },
+      { scenes: [scene('music', { apps: { cmd: 'spotify' } })] },
+    );
+    expect(ran).toEqual(['simhub', 'spotify']);
+  });
+
+  it('names the scene on its results, so two runs of one provider are legible', async () => {
+    register(stub('apps'));
+    const out = await applyProfile(
+      { id: 'brian', providers: { apps: {} }, scenes: ['music'] },
+      { scenes: [scene('music', { apps: {} })] },
+    );
+    expect(out.results.map((r) => r.label)).toEqual(['apps', 'apps (scene "music")']);
+  });
+});
+
+describe('providers declare where they may be used', () => {
+  const scene = (id, providers) => ({ id, name: id, providers });
+
+  it('drops a profile-only provider a scene tries to configure', async () => {
+    const logs = [];
+    register(stub('wheel', { contexts: ['profile'] }));
+    const out = await applyProfile(
+      { id: 'brian', providers: {}, scenes: ['bad'] },
+      { scenes: [scene('bad', { wheel: {} })], log: (m) => logs.push(m) },
+    );
+    expect(out.results).toHaveLength(0);
+    expect(logs.join(' ')).toMatch(/not available to a scene/);
+  });
+
+  it('drops it just as firmly when the scene is run directly', async () => {
+    // sceneKey applies a scene through this same function, so the guard has to
+    // hold on that path too — a hand-edited config must not reach the pedal.
+    const logs = [];
+    register(stub('wheel', { contexts: ['profile'] }));
+    const out = await applyProfile(
+      { id: 'ambient', providers: { wheel: {} } },
+      { context: 'scene', log: (m) => logs.push(m) },
+    );
+    expect(out.status).toBe(STATUS.SKIPPED);
+    expect(logs.join(' ')).toMatch(/not available to a scene/);
+  });
+
+  it('still lets a profile use a profile-only provider', async () => {
+    register(stub('wheel', { contexts: ['profile'] }));
+    const out = await applyProfile({ id: 'brian', providers: { wheel: {} } });
+    expect(out.status).toBe(STATUS.VERIFIED);
+  });
+
+  it('treats an undeclared provider as profile-only, the safe default', async () => {
+    const legacy = { id: 'old', label: 'old', describe: () => 'old', apply: async () => {},
+                     verify: async () => ({ status: STATUS.VERIFIED, detail: 'ok' }) };
+    register(legacy);
+    const out = await applyProfile({ id: 'x', providers: { old: {} } }, { context: 'scene' });
+    expect(out.status).toBe(STATUS.SKIPPED);
   });
 });

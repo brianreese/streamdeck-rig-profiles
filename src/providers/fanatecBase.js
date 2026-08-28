@@ -49,6 +49,10 @@ export default {
   id: 'fanatec-base',
   label: 'Fanatec Wheelbase',
   verifiable: true,
+  // Profile-only. A wheelbase setup is part of who is driving — it is the
+  // thing a child must not be able to reach casually — and a scene is the
+  // casual half of this plugin by design.
+  contexts: ['profile'],
 
   /**
    * Fields the property inspector should render for this provider.

@@ -52,6 +52,23 @@ export function getProvider(id) {
   return registry.get(id) ?? null;
 }
 
+/**
+ * Whether a provider is willing to be used in a given context.
+ *
+ * Declared by the provider, never inferred here. A wheelbase setup and a pedal
+ * force curve are part of who is driving and are gated accordingly; lighting
+ * and scripts are reasonable in either. The registry's job is to ask, not to
+ * decide — the same principle that took outcome reporting out of runOne.
+ *
+ * Absent declaration means profile-only, because that is the safe default for
+ * a provider written before contexts existed.
+ */
+export function supportsContext(id, context) {
+  const provider = typeof id === 'string' ? getProvider(id) : id;
+  if (!provider) return false;
+  return (provider.contexts ?? ['profile']).includes(context);
+}
+
 export function allProviders() {
   return [...registry.values()];
 }
