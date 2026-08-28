@@ -26,7 +26,7 @@ import govee from './govee.js';
 import apps from './apps.js';
 import moza from './moza.js';
 
-export { STATUS, worstOf, isConfirmed } from './status.js';
+export { STATUS, worstOf, isConfirmed, isProblem } from './status.js';
 
 const registry = new Map();
 

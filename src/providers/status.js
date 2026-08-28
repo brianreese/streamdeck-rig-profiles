@@ -43,3 +43,15 @@ export function worstOf(results) {
 export function isConfirmed(status) {
   return status === STATUS.VERIFIED;
 }
+
+/**
+ * True when the switch actually went wrong, as opposed to merely unconfirmable.
+ *
+ * Not the same question as `isConfirmed`. Govee can never be verified — its API
+ * acknowledges the call, not the lamps — so treating anything short of verified
+ * as a failure made the alert triangle fire on every single switch that touched
+ * the lights. An alarm that always sounds is not an alarm.
+ */
+export function isProblem(status) {
+  return status === STATUS.UNREACHABLE || status === STATUS.FAILED || status === STATUS.MISMATCH;
+}
