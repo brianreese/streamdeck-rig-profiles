@@ -99,6 +99,83 @@ export function matchesSearch(profile, query) {
     .includes(q);
 }
 
+// ---------------------------------------------------------------------------
+// What can be added to the thing on screen
+// ---------------------------------------------------------------------------
+
+/**
+ * Which lists a provider may be offered on.
+ *
+ * A provider declares `contexts: ['profile']` or `['profile','scene']`. One
+ * that declares nothing is treated as profile-only: profiles are the default
+ * surface, and the failure worth defaulting away from is a scene quietly
+ * reaching hardware it was never meant to touch.
+ */
+export const providerContexts = (provider) =>
+  Array.isArray(provider?.contexts) && provider.contexts.length ? provider.contexts : ['profile'];
+
+/**
+ * Everything the third column can offer for the record on screen, in one list.
+ *
+ * Providers and scenes are added the same way and are therefore searched
+ * together — the question being asked is "what else should this do?", and
+ * whether the answer is a piece of hardware or a scene is the editor's
+ * bookkeeping, not the user's. They stay in two groups so the list is still
+ * readable, and the caller renders them in the order returned.
+ *
+ * `added: true` is returned rather than filtered out. An entry that vanishes
+ * when used leaves the user wondering whether they imagined it; one that stays
+ * and greys out says "yes, that one, it is already on". Nothing is offered
+ * twice — a provider appears once in a record's providers map, and a scene
+ * reference is an id in a set.
+ *
+ * @param {object} opts
+ * @param {object[]} [opts.providers]  as sent by getProviders, with `contexts`
+ * @param {object[]} [opts.scenes]     the scene draft
+ * @param {object} [opts.record]       the profile or scene being edited
+ * @param {'profiles'|'scenes'} [opts.kind]  which list `record` came from
+ * @param {string} [opts.query]        the third column's search box
+ * @param {Function} [opts.match]      how to test one entry, for tests
+ * @returns {Array<{ type: 'provider'|'scene', id, label, added, provider?, scene? }>}
+ */
+export function offers({ providers = [], scenes = [], record = null, kind = 'profiles', query = '', match = matchesSearch } = {}) {
+  const context = kind === 'scenes' ? 'scene' : 'profile';
+  const out = [];
+
+  for (const provider of providers) {
+    if (!providerContexts(provider).includes(context)) continue;
+    if (!match({ name: provider.label, id: provider.id }, query)) continue;
+    out.push({
+      type: 'provider',
+      id: provider.id,
+      label: provider.label,
+      added: Boolean(record?.providers?.[provider.id]),
+      provider,
+    });
+  }
+
+  // Scenes are offered on profiles and nowhere else. A scene running a scene
+  // would be a graph to resolve and a cycle to detect, for a feature nobody has
+  // asked for; a profile composing scenes is the whole point of them.
+  if (context === 'profile') {
+    for (const scene of scenes) {
+      // A scene with no id has never been saved, so there is nothing for a
+      // profile to reference yet — it gets an id within the second.
+      if (!scene.id) continue;
+      if (!match(scene, query)) continue;
+      out.push({
+        type: 'scene',
+        id: scene.id,
+        label: scene.name || '(unnamed)',
+        added: referencesScene(record, scene.id),
+        scene,
+      });
+    }
+  }
+
+  return out;
+}
+
 export function slugify(name, taken = [], fallback = 'profile') {
   const base =
     String(name || fallback).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') ||

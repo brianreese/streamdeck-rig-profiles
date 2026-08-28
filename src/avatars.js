@@ -29,9 +29,19 @@ const MIME_BY_EXT = {
 export const ALLOWED_EXTENSIONS = Object.keys(MIME_BY_EXT);
 
 /** Strip anything that could escape the avatar directory. */
-function safeName(profileId, ext) {
-  const id = String(profileId).replace(/[^a-z0-9_-]/gi, '').slice(0, 40) || 'profile';
-  return `${id}${ext}`;
+function safeId(owner) {
+  return String(owner).replace(/[^a-z0-9_-]/gi, '').slice(0, 40) || 'profile';
+}
+
+/**
+ * Avatar filenames are namespaced by what owns them.
+ *
+ * Profiles and scenes have separate id spaces — "brian" can legitimately be
+ * both — and they share one directory, so an un-namespaced name lets a scene
+ * overwrite a profile's picture.
+ */
+function safeName(owner, ext, kind = 'profile') {
+  return `${kind}-${safeId(owner)}${ext}`;
 }
 
 /**
@@ -43,7 +53,7 @@ function safeName(profileId, ext) {
  * @param {object} [opts]
  * @returns {{ filename: string }}
  */
-export function saveAvatar(profileId, base64, filename, { dir = AVATAR_DIR } = {}) {
+export function saveAvatar(owner, base64, filename, { dir = AVATAR_DIR, kind = 'profile' } = {}) {
   const ext = extname(String(filename ?? '')).toLowerCase();
   if (!MIME_BY_EXT[ext]) {
     throw new Error(`unsupported image type "${ext || '(none)'}" — use ${ALLOWED_EXTENSIONS.join(', ')}`);
@@ -57,9 +67,9 @@ export function saveAvatar(profileId, base64, filename, { dir = AVATAR_DIR } = {
 
   mkdirSync(dir, { recursive: true });
 
-  // Replace any previous avatar for this profile, whatever its extension.
-  for (const existing of listAvatarsFor(profileId, dir)) {
-    if (existing !== safeName(profileId, ext)) {
+  // Replace this owner's previous avatar, whatever its extension.
+  for (const existing of listAvatarsFor(owner, dir, kind)) {
+    if (existing !== safeName(owner, ext, kind)) {
       try {
         unlinkSync(resolve(dir, existing));
       } catch {
@@ -68,15 +78,30 @@ export function saveAvatar(profileId, base64, filename, { dir = AVATAR_DIR } = {
     }
   }
 
-  const name = safeName(profileId, ext);
+  const name = safeName(owner, ext, kind);
   writeFileSync(resolve(dir, name), bytes);
   return { filename: name };
 }
 
-function listAvatarsFor(profileId, dir) {
+/**
+ * Every file that IS this owner's avatar. Matched exactly, never by prefix.
+ *
+ * This used to select on `startsWith`, so saving an avatar for "brian" deleted
+ * the avatars belonging to "brian2" and "brianx" — the cleanup meant to replace
+ * one picture quietly took every id that happened to begin with the same
+ * letters.
+ */
+function listAvatarsFor(owner, dir, kind = 'profile') {
   if (!existsSync(dir)) return [];
-  const prefix = String(profileId).replace(/[^a-z0-9_-]/gi, '');
-  return readdirSync(dir).filter((f) => f.startsWith(prefix) && MIME_BY_EXT[extname(f).toLowerCase()]);
+  const base = safeId(owner);
+  const mine = new Set(ALLOWED_EXTENSIONS.map((ext) => `${kind}-${base}${ext}`));
+
+  // Avatars written before names were namespaced have no prefix. Only a profile
+  // may claim those, because until scenes existed nothing else could have
+  // written one.
+  if (kind === 'profile') for (const ext of ALLOWED_EXTENSIONS) mine.add(`${base}${ext}`);
+
+  return readdirSync(dir).filter((f) => mine.has(f));
 }
 
 /**

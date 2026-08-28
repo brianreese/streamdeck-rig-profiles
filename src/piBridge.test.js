@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import yaml from 'js-yaml';
 import { handlePiRequest, validateProfiles, validateScenes, profilesToYaml } from './piBridge.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar, MAX_BYTES } from './avatars.js';
-import { _resetForTesting } from './providers/index.js';
+import { _resetForTesting, register, allProviders } from './providers/index.js';
 
 const silent = { warn: () => {}, info: () => {} };
 
@@ -228,6 +228,68 @@ describe('provider options', () => {
   });
 });
 
+describe('getProviders', () => {
+  // Stubs registered over every built-in id, so the registry holds these and
+  // nothing else: the real providers enumerate live hardware from options(),
+  // and a unit test must not go looking for a wheelbase.
+  const stub = (id, over = {}) => ({ id, label: id, verifiable: true, schema: () => [], ...over });
+
+  beforeEach(() => {
+    register(stub('fanatec-base', { contexts: ['profile'] }));
+    register(stub('moza', { contexts: ['profile'] }));
+    register(stub('govee', { contexts: ['profile', 'scene'] }));
+    register(stub('apps', { contexts: ['profile', 'scene'] }));
+  });
+
+  const contextsOf = async () => {
+    const reply = await handlePiRequest(
+      { request: 'getProviders' }, { settings: fakeSettings(), logger: silent });
+    return Object.fromEntries(reply.providers.map((p) => [p.id, p.contexts]));
+  };
+
+  // The editor cannot know which providers belong on a scene; the provider is
+  // the only thing that does. This is how it gets told.
+  it("passes each provider's declared contexts through to the editor", async () => {
+    expect(await contextsOf()).toEqual({
+      'fanatec-base': ['profile'],
+      moza: ['profile'],
+      govee: ['profile', 'scene'],
+      apps: ['profile', 'scene'],
+    });
+  });
+
+  // Profile-only, because the failure worth defaulting away from is a scene
+  // quietly reaching hardware nobody meant it to touch. A provider missing from
+  // the editor's add list is the cheaper mistake, and the visible one.
+  it('treats a provider that declares nothing as profile-only', async () => {
+    register(stub('mystery'));
+    expect((await contextsOf()).mystery).toEqual(['profile']);
+  });
+
+  it("copies the array rather than handing out the provider's own", async () => {
+    const declared = ['profile', 'scene'];
+    register(stub('shared', { contexts: declared }));
+    const reply = await handlePiRequest(
+      { request: 'getProviders' }, { settings: fakeSettings(), logger: silent });
+    reply.providers.find((p) => p.id === 'shared').contexts.push('nonsense');
+    expect(declared).toEqual(['profile', 'scene']);
+  });
+});
+
+describe('the provider contract the editor depends on', () => {
+  // Not which contexts each one picked — that is the provider's business — but
+  // that every one of them answers the question at all. The editor's scene
+  // list is built from these, and a provider that declares nothing silently
+  // disappears from scenes rather than failing loudly.
+  it('has every built-in provider declare which contexts it belongs in', () => {
+    for (const provider of allProviders()) {
+      expect(Array.isArray(provider.contexts), `${provider.id} declares no contexts`).toBe(true);
+      expect(provider.contexts.length).toBeGreaterThan(0);
+      expect(provider.contexts.every((c) => c === 'profile' || c === 'scene')).toBe(true);
+    }
+  });
+});
+
 describe('profilesToYaml', () => {
   it('emits the providers map verbatim', () => {
     const out = yaml.load(
@@ -341,8 +403,8 @@ describe('avatars', () => {
     const d = dir();
     saveAvatar('kai', png.toString('base64'), 'a.png', { dir: d });
     const { filename } = saveAvatar('kai', png.toString('base64'), 'b.jpg', { dir: d });
-    expect(existsSync(join(d, 'kai.png'))).toBe(false);
-    expect(filename).toBe('kai.jpg');
+    expect(existsSync(join(d, 'profile-kai.png'))).toBe(false);
+    expect(filename).toBe('profile-kai.jpg');
   });
 
   it('deletes only within the avatar directory', () => {

@@ -3,6 +3,7 @@ import {
   addProfile, addScene, newScene, removeProfile, moveProfile, keepSelection,
   matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
   sceneRefs, referencesScene, setSceneRef, profilesUsingScene, detachScene, sceneOverlap,
+  offers, providerContexts,
 } from './editorState.js';
 
 const saved = (over = {}) => ({
@@ -310,5 +311,113 @@ describe('fieldValue', () => {
 
   it('keeps false, which is a value and not an empty field', () => {
     expect(fieldValue(false)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The third column
+// ---------------------------------------------------------------------------
+
+const wheelbase = { id: 'fanatec-base', label: 'Fanatec Wheelbase', contexts: ['profile'] };
+const lights = { id: 'govee', label: 'Govee Lighting', contexts: ['profile', 'scene'] };
+const apps = { id: 'apps', label: 'Apps & Scripts', contexts: ['profile', 'scene'] };
+const kit = [wheelbase, lights, apps];
+
+describe('providerContexts', () => {
+  it('takes the provider at its word', () => {
+    expect(providerContexts(lights)).toEqual(['profile', 'scene']);
+  });
+
+  // A provider that declares nothing is profile-only. The failure worth
+  // defaulting away from is a scene quietly reaching hardware nobody meant it
+  // to touch — a missing row in a list is a far cheaper mistake.
+  it('treats a provider that declares nothing as profile-only', () => {
+    expect(providerContexts({ id: 'mystery' })).toEqual(['profile']);
+    expect(providerContexts({ id: 'mystery', contexts: [] })).toEqual(['profile']);
+  });
+});
+
+describe('offers', () => {
+  it('offers every provider on a profile, with scenes after them', () => {
+    const list = offers({
+      providers: kit,
+      scenes: [scene()],
+      record: saved(),
+      kind: 'profiles',
+    });
+    expect(list.map((o) => `${o.type}:${o.id}`)).toEqual([
+      'provider:fanatec-base', 'provider:govee', 'provider:apps', 'scene:sunset',
+    ]);
+  });
+
+  // The rule this whole function exists for: a scene is a moment of ambience
+  // and must never be able to hand a child full force feedback, so the hardware
+  // that could is not offered on one at all.
+  it('offers a scene only the providers that declare the scene context', () => {
+    const list = offers({ providers: kit, record: newScene(), kind: 'scenes' });
+    expect(list.map((o) => o.id)).toEqual(['govee', 'apps']);
+  });
+
+  it('never offers a scene on another scene', () => {
+    const list = offers({
+      providers: kit,
+      scenes: [scene(), scene({ id: 'dusk', name: 'Dusk' })],
+      record: newScene(),
+      kind: 'scenes',
+    });
+    expect(list.some((o) => o.type === 'scene')).toBe(false);
+  });
+
+  // Greyed out, not gone: a row that vanishes when used leaves the user
+  // wondering whether they imagined it, and the list shuffles under the cursor.
+  it('keeps an added provider in the list and marks it added', () => {
+    const list = offers({
+      providers: kit,
+      record: saved({ providers: { govee: { scene: 'Sunset' } } }),
+    });
+    expect(list.find((o) => o.id === 'govee').added).toBe(true);
+    expect(list.find((o) => o.id === 'apps').added).toBe(false);
+  });
+
+  it('marks a scene the profile already runs as added', () => {
+    const list = offers({
+      providers: kit,
+      scenes: [scene(), scene({ id: 'dusk', name: 'Dusk' })],
+      record: saved({ scenes: ['sunset'] }),
+    });
+    expect(list.find((o) => o.id === 'sunset').added).toBe(true);
+    expect(list.find((o) => o.id === 'dusk').added).toBe(false);
+  });
+
+  // An id is what a profile stores, so a scene without one cannot be picked
+  // yet. It gets one within the second, on its own first save.
+  it('does not offer a scene that has never been saved', () => {
+    const list = offers({ providers: [], scenes: [newScene()], record: saved() });
+    expect(list).toEqual([]);
+  });
+
+  it('searches providers and scenes together, in one query', () => {
+    const list = offers({
+      providers: kit,
+      scenes: [scene({ id: 'apps-off', name: 'Everything off' })],
+      record: saved(),
+      query: 'app',
+    });
+    expect(list.map((o) => `${o.type}:${o.id}`)).toEqual(['provider:apps', 'scene:apps-off']);
+  });
+
+  it('finds a scene by the hardware it sets, not only by its name', () => {
+    const list = offers({
+      providers: [],
+      scenes: [scene({ providers: { govee: { scene: 'Sunset' } } })],
+      record: saved(),
+      query: 'govee',
+    });
+    expect(list.map((o) => o.id)).toEqual(['sunset']);
+  });
+
+  it('survives a record with no providers map and no selection at all', () => {
+    expect(offers({ providers: kit, record: null }).every((o) => o.added === false)).toBe(true);
+    expect(offers()).toEqual([]);
   });
 });

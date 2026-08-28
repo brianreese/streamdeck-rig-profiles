@@ -79,7 +79,8 @@
         min-height: 0; min-width: 0;
       }
       #railLeft { border-right: 1px solid var(--line); }
-      #rail { border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 12px 20px; gap: 16px; }
+      #rail { border-left: 1px solid var(--line); overflow: hidden; }
+      #railBody { overflow-y: auto; padding: 6px 12px 20px; flex: 1; min-height: 0; }
 
       .rail-head {
         display: flex; align-items: center; gap: 8px;
@@ -132,6 +133,19 @@
       #list li.drop-before { box-shadow: 0 -2px 0 var(--accent); }
       #list li.drop-after { box-shadow: 0 2px 0 var(--accent); }
       #list li.empty { cursor: default; color: var(--faint); font-size: 12px; padding: 12px 8px; }
+      /* "+ New" sits at the END of the list rather than pinned to the bottom of
+         the rail, because it is the next row — after the last profile, not in a
+         different place from it. A search that shortens the list brings it up
+         with the rows, which is also where the eye already is. */
+      #list li.newrow { padding: 4px 0 0; cursor: default; background: none; }
+      #list li.newrow:hover { background: none; }
+      #list li.newrow button {
+        width: 100%; text-align: left; background: none; border: 1px dashed #3c4048;
+        color: var(--dim); padding: 7px 9px; border-radius: 8px; font: inherit; font-size: 12.5px;
+      }
+      #list li.newrow button:hover { background: #24262b; color: var(--fg); border-color: #4c515b; }
+      #list li.newrow button b { color: var(--accent); font-weight: 700; }
+      body.scenemode #list li.newrow button b { color: var(--scene); }
       #list .grip { color: #4a4d55; cursor: grab; flex: 0 0 auto; font-size: 12px; }
       #list li:hover .grip { color: #6d717a; }
       #list .who { flex: 1; min-width: 0; }
@@ -164,11 +178,84 @@
       /* ------------------------------------------------------------- pane */
       section#pane { overflow-y: auto; padding: 22px 28px 40px; min-width: 0; }
       .pane-inner { max-width: 780px; }
-      #pane h2 {
-        margin: 0 0 4px; font-size: 21px; font-weight: 650; letter-spacing: -0.2px;
-        overflow-wrap: anywhere;
+
+      /* The heading IS the name field. There was a title at the top of the pane
+         and a "Name" box a few centimetres below it, both showing the same
+         string, and the second one existed only because the first was not
+         editable. One thing on screen, edited where it is read. */
+      .pane-top {
+        display: flex; align-items: flex-start; gap: 10px; margin: 0 0 18px;
       }
-      #pane .sub { margin: 0 0 18px; color: var(--faint); font-size: 12.5px; }
+      .titlewrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; flex: 1; }
+      #pane h2 {
+        margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -0.2px;
+        overflow-wrap: anywhere; min-width: 60px;
+      }
+      h2.editable {
+        padding: 2px 8px; margin-left: -8px; border-radius: 7px;
+        border: 1px solid transparent; cursor: text;
+      }
+      h2.editable:hover { background: #1f2126; border-color: var(--hair); }
+      h2.editable:focus {
+        outline: none; background: #1b1d21; border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(76, 141, 255, 0.16);
+      }
+      body.scenemode h2.editable:focus {
+        border-color: var(--scene); box-shadow: 0 0 0 3px rgba(160, 119, 255, 0.16);
+      }
+      /* An empty heading is a name that has been cleared, which the server will
+         refuse. Say so in the space where the name should be. */
+      h2.editable:empty::before {
+        content: "Name this " attr(data-noun); color: var(--faint); font-weight: 400;
+      }
+      .pill {
+        font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+        border-radius: 20px; padding: 2px 8px; white-space: nowrap;
+        color: var(--scene); border: 1px solid #55408a; background: rgba(160, 119, 255, 0.1);
+      }
+      .pill.hold {
+        color: var(--amber); border-color: #5f4c1f; background: rgba(227, 179, 65, 0.1);
+      }
+
+      /* ----------------------------------------------------------- cog menu */
+      /* The things you do to this record rather than the record itself: the id
+         it is stored under, the hold gate, and deleting it. They were spread
+         across a subtitle, a form row and the far column; none of them is
+         something you look at while editing, and one of them is destructive. */
+      .cogwrap { position: relative; flex: 0 0 auto; }
+      #cog {
+        background: none; border: 1px solid transparent; color: var(--dim);
+        padding: 5px 9px; border-radius: 7px; font-size: 15px; line-height: 1;
+      }
+      #cog:hover, .cogwrap.open #cog { background: #2f3238; border-color: #3f434b; color: var(--fg); }
+      .cogmenu {
+        position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+        width: 296px; padding: 12px 13px;
+        background: var(--raise); border: 1px solid var(--line); border-radius: var(--r);
+        box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+      }
+      .cogwrap:not(.open) .cogmenu { display: none; }
+      .cogmenu h4 {
+        margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+        text-transform: uppercase; color: var(--faint);
+      }
+      .cogmenu .grp { display: flex; align-items: flex-start; gap: 9px; }
+      .cogmenu .sep { border-top: 1px solid var(--line); margin: 11px -13px; }
+      .cogmenu code {
+        background: #1b1d21; border: 1px solid var(--hair); border-radius: 5px;
+        padding: 1px 6px; font-size: 12px;
+      }
+
+      /* -------------------------------------------------- save status strip */
+      /* In the main column, right-aligned, level with the name: the status of
+         the thing you are looking at belongs beside the thing you are looking
+         at, not in a column of unrelated actions. */
+      .savestrip {
+        display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+        flex: 0 0 auto; max-width: 260px; text-align: right; padding-top: 4px;
+      }
+      .savestrip .savenote { margin-top: 0; }
+      .savestrip button { margin-top: 4px; padding: 4px 10px; font-size: 12px; }
 
       .card {
         background: var(--card); border: 1px solid var(--line);
@@ -229,7 +316,6 @@
         grid-column: 2; margin: -6px 0 10px; color: var(--faint);
         font-size: 11.5px; line-height: 1.45;
       }
-      .help.wide { grid-column: 1 / -1; margin-left: 0; }
       .muted { color: var(--faint); font-size: 12px; }
 
       input[type="text"], input[type="password"], input[type="search"], select, textarea {
@@ -294,12 +380,29 @@
       .addbtn .nm { flex: 1; min-width: 0; font-size: 12.5px; }
       .addbtn .nm i { display: block; font-style: normal; color: var(--faint); font-size: 11px; }
 
-      /* ------------------------------------------------------- save status */
-      .savecard {
-        background: var(--card); border: 1px solid var(--line);
-        border-radius: var(--r); padding: 11px 12px;
+      /* Already on this record: still listed, greyed, and genuinely not
+         clickable — `disabled` rather than a class that only looks the part.
+         Removing the row instead was the alternative and it makes the list
+         shuffle under the cursor as you use it, which is worse than a row that
+         has visibly done its job. */
+      .addbtn:disabled { opacity: 0.45; cursor: default; }
+      .addbtn:disabled:hover { background: #212328; border-color: var(--hair); }
+      .addbtn .tick { color: var(--green); }
+      .addbtn.scene .plus, .addbtn.scene .tick { color: var(--scene); }
+      .addbtn .sw {
+        width: 20px; height: 20px; border-radius: 6px; flex: 0 0 auto; align-self: center;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 10px; font-weight: 700; line-height: 1;
       }
-      .savecard.bad { border-color: #6b3b37; background: #271f21; }
+
+      /* The third column searches its own contents. Providers and scenes are
+         added the same way, so they are found the same way — one box over one
+         list, rather than a box that only knows about half of what is below
+         it. Outside the re-rendered body so typing never loses the caret. */
+      .rail-search { padding: 12px 12px 8px; flex: 0 0 auto; }
+      #rail.nosearch .rail-search { display: none; }
+
+      /* ------------------------------------------------------- save status */
       .state { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
       .state .dot { width: 8px; height: 8px; }
       .state.saved .dot { background: var(--green); }
@@ -308,9 +411,12 @@
       .state.bad .dot { background: var(--red); }
       .state.bad { color: var(--red); }
       .savenote { color: var(--faint); font-size: 11px; margin-top: 5px; line-height: 1.4; }
-      .savecard button { margin-top: 9px; }
 
       /* ------------------------------------------------------------ tiles */
+      /* The key preview and the two controls that change it. Colour and avatar
+         used to sit in an "Identity" form below; they do not describe the
+         profile, they draw the picture — so they live with the picture. */
+      .deck { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
       .tiles { display: flex; gap: 18px; align-items: flex-start; }
       .tiles figure { margin: 0; text-align: center; }
       .tiles img {
@@ -318,7 +424,8 @@
         display: block; border: 1px solid var(--line);
       }
       .tiles figcaption { color: var(--faint); font-size: 11px; margin-top: 6px; }
-      .tilenote { color: var(--faint); font-size: 11.5px; max-width: 300px; align-self: center; }
+      .look { flex: 1 1 260px; min-width: 240px; }
+      .look .row { grid-template-columns: 70px minmax(0, 1fr); margin-bottom: 12px; }
       .avatar-preview {
         width: 38px; height: 38px; border-radius: 8px; object-fit: cover;
         border: 1px solid #3a3d44; background: #1b1d21; flex: 0 0 auto;
@@ -335,29 +442,16 @@
       body.scenemode .addbtn .plus { color: var(--scene); }
       body.scenemode .cfglink { color: var(--scene); }
       body.scenemode .cfglink:hover { background: rgba(160, 119, 255, 0.14); }
-      body.scenemode #pane h2::after {
-        content: "Scene"; margin-left: 10px; vertical-align: 3px;
-        font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
-        color: var(--scene); border: 1px solid #55408a; border-radius: 20px;
-        padding: 2px 8px; background: rgba(160, 119, 255, 0.1);
-      }
 
-      /* One row per scene a profile can also run. A label, so the whole row is
-         the hit target rather than a 16px box. */
-      .scenepick {
-        display: flex; align-items: center; gap: 10px; padding: 7px 8px;
-        border-radius: 8px; cursor: pointer; border: 1px solid transparent;
-      }
-      .scenepick:hover { background: #282b31; }
-      .scenepick.on { background: #2a2440; border-color: #453567; }
-      .scenepick .who { flex: 1; min-width: 0; }
-      .scenepick .who b { display: block; font-weight: 600; font-size: 13px; }
-      .scenepick .who span { display: block; color: var(--faint); font-size: 11px; }
-      .scenepick.dim { opacity: 0.5; cursor: default; }
-      .scenepick.dim:hover { background: none; }
+      /* A scene a profile also runs, on the profile's own screen. Same block as
+         a provider because it was added the same way and is removed the same
+         way; the violet edge is what says it is borrowed rather than owned. */
+      .hw.sceneref::before { background: var(--scene-deep); }
+      .hw.sceneref .swatch { width: 22px; height: 22px; border-radius: 6px; font-size: 11px; }
+      .hw.sceneref.dangling::before { background: var(--red); }
       /* A scene that would set hardware the profile already sets itself. The
          runtime keeps the profile's, which is right and invisible — so say so. */
-      .clash { color: var(--amber); font-size: 11px; display: block; }
+      .clash { color: var(--amber); font-size: 11.5px; display: block; margin-top: 2px; }
 
       /* Profiles that reference the scene on screen, so deleting it is never a
          guess about what else it would take with it. */
@@ -391,15 +485,30 @@
       .err { color: var(--red); }
       .ok { color: var(--green); }
 
+      /* Below this the third column moves under the pane rather than beside it.
+         It used to do that with implicit rows and `overflow: visible`, which
+         let the row grow to its content inside a fixed-height grid: the rail
+         ran off the bottom of `main`, slid under the footer, and took its last
+         control with it. Two explicit rows and a capped, scrolling rail keep it
+         inside the area it was given — a column that scrolls is a column you
+         can still reach the end of. */
       @media (max-width: 1140px) {
-        main { grid-template-columns: 240px minmax(0, 1fr); }
+        main {
+          grid-template-columns: 240px minmax(0, 1fr);
+          grid-template-rows: minmax(0, 1fr) auto;
+        }
         #railLeft { grid-row: 1 / span 2; }
-        #pane { grid-column: 2; grid-row: 1; }
+        #pane { grid-column: 2; grid-row: 1; min-height: 0; }
         #rail {
           grid-column: 2; grid-row: 2; border-left: none; border-top: 1px solid var(--line);
-          flex-direction: row; flex-wrap: wrap; align-items: flex-start; overflow: visible;
+          max-height: 40vh; min-height: 0;
         }
-        #rail > .rail-group { flex: 1 1 220px; margin-top: 0; }
+        .rail-search { padding: 10px 12px 6px; }
+        #railBody {
+          display: flex; flex-wrap: wrap; align-items: flex-start;
+          gap: 0 16px; padding-bottom: 12px;
+        }
+        #railBody > .rail-group { flex: 1 1 240px; margin-top: 0; }
       }
     </style>
   </head>
@@ -415,7 +524,6 @@
       <aside id="railLeft">
         <div class="rail-head">
           <span class="rail-title" id="railTitle">Profiles</span>
-          <button id="add" title="Create a new profile">+ New</button>
         </div>
         <div class="seg" id="seg">
           <button data-kind="profiles" class="on">Profiles</button>
@@ -432,7 +540,15 @@
       </aside>
 
       <section id="pane"></section>
-      <aside id="rail"></aside>
+      <aside id="rail">
+        <!-- Outside #railBody on purpose: the body is re-rendered whenever the
+             draft changes, and a search box that is re-created as you type into
+             it loses both its value and the caret. -->
+        <div class="rail-search">
+          <input type="search" id="railSearch" placeholder="Search" autocomplete="off" />
+        </div>
+        <div id="railBody"></div>
+      </aside>
     </main>
 
     <footer><span id="msg" class="muted"></span></footer>
@@ -460,6 +576,7 @@
         addProfile, addScene, removeProfile, moveProfile, keepSelection,
         matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
         referencesScene, setSceneRef, profilesUsingScene, detachScene, sceneOverlap,
+        offers,
       } = await import(`./editorState.js${q}`);
       // Same module the key renderer uses, so "readable" means one thing here
       // and on the deck.
@@ -505,6 +622,12 @@
       const $ = (id) => document.getElementById(id);
       const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      /** `"scene:sun:set"` -> `["scene", "sun:set"]`. Ids own everything after
+       *  the first colon, so a colon in one cannot lose part of it. */
+      const splitOnce = (s, sep = ':') => {
+        const at = String(s).indexOf(sep);
+        return at < 0 ? [String(s), ''] : [String(s).slice(0, at), String(s).slice(at + 1)];
+      };
 
       /**
        * Global settings each provider depends on, so a provider card can point
@@ -723,7 +846,7 @@
         if (saveAgain) { saveAgain = false; commit(); }
       }
 
-      /** The status shown in the right rail, in the one place it lives. */
+      /** The status shown beside the name, in the one place it lives. */
       function saveStatus() {
         if (saveErrors.length) {
           return {
@@ -754,11 +877,10 @@
         const host = $('saveState');
         if (!host) return;
         const s = saveStatus();
-        host.className = `savecard${s.cls === 'bad' ? ' bad' : ''}`;
         host.innerHTML =
           `<div class="state ${s.cls}"><span class="dot"></span><span>${esc(s.text)}</span></div>` +
           (s.note ? `<div class="savenote">${esc(s.note)}</div>` : '') +
-          (s.retry ? '<button id="saveNow" class="wide">Try saving again</button>' : '');
+          (s.retry ? '<button id="saveNow">Try saving again</button>' : '');
       }
 
       /**
@@ -841,9 +963,15 @@
             all.length
               ? 'Nothing matches that search.'
               : scenery
-                ? 'No scenes yet — start with “+ New”. A scene is a lighting preset, a playlist, a script.'
-                : 'No profiles yet — start with “+ New”.'}</li>`;
+                ? 'No scenes yet. A scene is a lighting preset, a playlist, a script.'
+                : 'No profiles yet.'}</li>`;
         }
+
+        // The next row, not a fixture at the bottom of the rail: a filtered
+        // list brings it up under the last match, where the eye already is.
+        host.innerHTML += `<li class="newrow"><button data-new
+          title="Create a new ${scenery ? 'scene' : 'profile'}"><b>+</b> New ${
+          scenery ? 'scene' : 'profile'}</button></li>`;
       }
 
       /** Point the sidebar at one list or the other. */
@@ -853,7 +981,7 @@
         $('railTitle').textContent = next === 'scenes' ? 'Scenes' : 'Profiles';
         $('segnote').textContent = KIND_NOTE[next];
         $('search').placeholder = next === 'scenes' ? 'Search scenes' : 'Search profiles';
-        $('add').title = next === 'scenes' ? 'Create a new scene' : 'Create a new profile';
+        $('railSearch').placeholder = next === 'scenes' ? 'Search hardware & apps' : 'Search hardware, apps, scenes';
         for (const b of $('seg').children) b.classList.toggle('on', b.dataset.kind === next);
         render();
       }
@@ -914,28 +1042,28 @@
        * a profile shows only what it has actually been given.
        */
       function providerCardsHtml(p) {
-        if (!providers.length) return '<div class="muted">Loading options…</div>';
         const enabled = providers.filter((prov) => p.providers?.[prov.id]);
-
-        if (!enabled.length) {
-          return `<div class="card plain"><div class="muted">
-            Nothing here yet — this ${editingScene() ? 'scene' : 'profile'} will not change
-            anything when its key is pressed. Add hardware, lights, apps or scripts from
-            the right.
-          </div></div>`;
-        }
 
         return enabled.map((prov) => {
           const cfg = p.providers[prov.id] ?? {};
           const badge = prov.verifiable
             ? '' : '<span class="badge" title="This one cannot be read back">cannot confirm</span>';
+          // Configured here, but no longer offered here. A provider that has
+          // stopped declaring this context — or one added before the editor
+          // filtered on context at all — still has to be visible, or the config
+          // would be stuck on the record with no way to take it off.
+          const stale = !(prov.contexts ?? ['profile']).includes(editingScene() ? 'scene' : 'profile')
+            ? `<span class="badge" title="This provider is not offered on ${
+                editingScene() ? 'scenes' : 'profiles'} — remove it unless you know why it is here"
+               >not for ${editingScene() ? 'scenes' : 'profiles'}</span>`
+            : '';
           const settingsLink = PROVIDER_SETTINGS[prov.id]
             ? `<button class="cfglink" data-goto="${esc(prov.id)}"
                  title="This provider has options in Settings">⚙ ${esc(PROVIDER_SETTINGS[prov.id])} settings</button>`
             : '';
           return `<div class="hw" data-hw="${esc(prov.id)}">
             <div class="hw-head">
-              <span class="pname">${esc(prov.label)}</span>${badge}
+              <span class="pname">${esc(prov.label)}</span>${badge}${stale}
               <span style="flex:1"></span>${settingsLink}
               <button class="icon rm" data-rmprov="${esc(prov.id)}"
                       title="Remove ${esc(prov.label)} from this profile">✕</button>
@@ -958,57 +1086,97 @@
         if (view === 'settings') renderSettings();
         else if (kind === 'scenes') renderScene();
         else renderProfile();
+        // After the pane: the save status lives inside it now, so its element
+        // only exists once the pane has been drawn.
+        renderSaveState();
         renderRail();
         renderIssues();
       }
 
-      /**
-       * The scenes a profile also runs.
-       *
-       * Placed after the provider cards, and worded as an addition, because
-       * that is what it is: the profile's own hardware applies, then each
-       * referenced scene fills in what the profile did not set. Where the two
-       * overlap the profile wins — see `withScenes` in profileSwitch.js — which
-       * is the right rule and completely invisible from the outside, so the
-       * clash is called out on the row that causes it.
-       */
-      function sceneRefsHtml(p) {
-        const rows = scenes.map((s) => {
-          const on = referencesScene(p, s.id);
-          // A scene with no id has never been saved, so there is nothing for a
-          // profile to reference yet. It saves itself within the second.
-          if (!s.id) {
-            return `<div class="scenepick dim">
-              <input type="checkbox" disabled />
-              <span class="who"><b>${esc(s.name || '(unnamed)')}</b>
-                <span>saving… it can be picked once it has an id</span></span></div>`;
-          }
-          const clash = on ? sceneOverlap(p, s) : [];
-          const what = Object.keys(s.providers ?? {})
-            .map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
-          return `<label class="scenepick${on ? ' on' : ''}">
-            <input type="checkbox" data-sceneref="${esc(s.id)}"${on ? ' checked' : ''} />
-            <span class="swatch" style="background:${esc(s.color)};color:${readableTextColor(s.color)}"
-              >${esc((s.name || '?').trim().charAt(0).toUpperCase())}</span>
-            <span class="who"><b>${esc(s.name || '(unnamed)')}</b>
-              <span>${esc(what.length ? what.join(', ') : 'nothing configured')}</span>
-              ${clash.length
-                ? `<span class="clash">Also sets ${esc(clash
-                    .map((id) => providers.find((prov) => prov.id === id)?.label ?? id)
-                    .join(', '))}, which this profile sets itself — the profile's setting wins.</span>`
-                : ''}
-            </span></label>`;
-        }).join('');
+      /** The provider labels a record sets, for a one-line summary. */
+      const providerLabels = (record) =>
+        Object.keys(record?.providers ?? {})
+          .map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
 
-        return `<div class="card" data-hw="scene-refs">
-          <h3>Also run these scenes</h3>
-          <p class="muted" style="margin:-4px 0 10px">
-            In addition to everything above, not instead of it. Scenes are momentary —
-            adding one here does not change who the rig thinks is at it.
-          </p>
-          ${scenes.length ? rows : `<div class="muted">No scenes yet. Make one under
-            <b>Scenes</b> in the sidebar and it will be offered here.</div>`}
-        </div>`;
+      /**
+       * The scenes a profile also runs, one block each.
+       *
+       * These used to be a card of checkboxes listing every scene that existed,
+       * which meant two different ways to say "this profile also does that" —
+       * hardware from the third column, scenes from a form in the middle. They
+       * are the same act, so they are now added the same way and shown the same
+       * way: a scene a profile runs is a block on the profile, removed with the
+       * same ✕ as a provider.
+       *
+       * The profile's own hardware applies first and each referenced scene fills
+       * in what the profile did not set. Where the two overlap the profile wins
+       * — see `withScenes` in profileSwitch.js — which is the right rule and
+       * completely invisible from outside, so the clash is called out here.
+       */
+      function sceneCardsHtml(p) {
+        return (p.scenes ?? []).map((id) => {
+          const s = scenes.find((x) => x.id === id);
+          // A reference to a scene that is not in the list. The editor detaches
+          // references when a scene is deleted, so this is a hand-edited config
+          // — and the save is refused until it is dealt with, which it cannot be
+          // if the reference is invisible.
+          if (!s) {
+            return `<div class="hw sceneref dangling" data-hw="scene:${esc(id)}">
+              <div class="hw-head">
+                <span class="pname">${esc(id)}</span>
+                <span class="badge">missing scene</span>
+                <span style="flex:1"></span>
+                <button class="icon rm" data-rmscene="${esc(id)}"
+                        title="Remove this reference">✕</button>
+              </div>
+              <div class="hw-body"><p class="muted">No scene has this id. The profile
+                cannot be saved until the reference is removed.</p></div>
+            </div>`;
+          }
+          const clash = sceneOverlap(p, s);
+          const what = providerLabels(s);
+          return `<div class="hw sceneref" data-hw="scene:${esc(s.id)}">
+            <div class="hw-head">
+              <span class="swatch" style="background:${esc(s.color)};color:${
+                readableTextColor(s.color)}">${esc((s.name || '?').trim().charAt(0).toUpperCase())}</span>
+              <span class="pname">${esc(s.name || '(unnamed)')}</span>
+              <span class="badge">scene</span>
+              <span style="flex:1"></span>
+              <button class="cfglink" data-editscene="${esc(s.id)}"
+                      title="Open this scene">Edit scene</button>
+              <button class="icon rm" data-rmscene="${esc(s.id)}"
+                      title="Stop running this scene with this profile">✕</button>
+            </div>
+            <div class="hw-body">
+              <p class="muted" style="margin:0 0 10px">
+                Runs in addition to everything above. ${what.length
+                  ? `Sets ${esc(what.join(', '))}.`
+                  : 'Sets nothing yet.'}
+                ${clash.length
+                  ? `<span class="clash">Also sets ${esc(clash.map((cid) =>
+                      providers.find((prov) => prov.id === cid)?.label ?? cid).join(', '))}, which
+                     this profile sets itself — the profile's setting wins.</span>`
+                  : ''}
+              </p>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      /**
+       * Everything this record does, in the order it does it: its own hardware,
+       * then the scenes it borrows. One empty state for both, because "does
+       * nothing" is one fact about the record rather than two.
+       */
+      function bodyCardsHtml(p) {
+        if (!providers.length) return '<div class="muted">Loading options…</div>';
+        const cards = providerCardsHtml(p) + (editingScene() ? '' : sceneCardsHtml(p));
+        if (cards) return cards;
+        return `<div class="card plain"><div class="muted">
+          Nothing here yet — this ${editingScene() ? 'scene' : 'profile'} will not change
+          anything when its key is pressed. Add hardware, lights, apps${
+            editingScene() ? '' : ', scripts or a scene'} from the right.
+        </div></div>`;
       }
 
       /** Who leans on the scene on screen, so deleting it is never a surprise. */
@@ -1028,113 +1196,179 @@
         </div>`;
       }
 
+      /**
+       * The top of the main column: the name, edited where it is read, and the
+       * save status beside it.
+       *
+       * The heading is the field. There was a title here and a "Name" box a few
+       * centimetres below it showing the same string, and the box existed only
+       * because the title was not editable — so the title is editable now and
+       * the box is gone. `data-f="name"` is what `holdForNaming` looks for, so
+       * an unsaved record still holds its first save until the caret leaves,
+       * and its id is slugged from the finished name rather than a fragment.
+       */
+      function paneTopHtml(record, noun) {
+        const editable = Boolean(record);
+        const title = editable
+          ? `<h2 id="pname" class="editable" contenteditable="plaintext-only" data-f="name"
+               data-noun="${esc(noun)}" spellcheck="false" role="textbox"
+               aria-label="${esc(noun)} name">${esc(record.name ?? '')}</h2>`
+          : `<h2>${esc(noun)}</h2>`;
+
+        return `<div class="pane-top">
+          <div class="titlewrap">
+            ${title}
+            ${editingScene() && editable ? '<span class="pill">Scene</span>' : ''}
+            ${editable && !editingScene()
+              ? `<span class="pill hold" id="holdPill"${record.restricted ? '' : ' hidden'}
+                 >Hold to switch</span>`
+              : ''}
+            ${editable ? cogHtml(record) : ''}
+          </div>
+          <div id="saveState" class="savestrip"></div>
+        </div>`;
+      }
+
+      /**
+       * The cog: what you do TO this record, rather than what it is.
+       *
+       * Three things that had no home. The id was printed under the title where
+       * it was read constantly and needed rarely; the hold gate was a form row
+       * among the settings that make the key work, though it decides who may
+       * press it; and delete sat in the far column beside "add", one flick of
+       * the wrist from it. None of them belongs in the flow of editing, and one
+       * of them is destructive, so they are behind a deliberate click.
+       */
+      function cogHtml(record) {
+        const scene = editingScene();
+        const noun = scene ? 'scene' : 'profile';
+        return `<span class="cogwrap" id="cogwrap">
+          <button id="cog" title="${esc(noun)} settings" aria-haspopup="true"
+                  aria-expanded="false">⚙</button>
+          <div class="cogmenu" role="menu">
+            ${scene ? '' : `<h4>Switching</h4>
+              <div class="grp">
+                <input type="checkbox" id="holdToggle" data-f="restricted"
+                       ${record.restricted ? 'checked' : ''} />
+                <label for="holdToggle" class="muted" style="cursor:pointer">
+                  <b style="color:var(--fg);font-weight:600">Hold to switch</b><br />
+                  Requires a 1s press. Use for full-torque profiles.
+                </label>
+              </div>
+              <div class="sep"></div>`}
+            <h4>Stored as</h4>
+            <div class="muted">${record.id
+              ? `<code>${esc(record.id)}</code> — permanent. Renaming this ${noun} does not
+                 change it, so anything pointing at it keeps working.`
+              : `Not saved yet. The id is made from the name the first time this ${noun}
+                 saves, and is permanent afterwards.`}</div>
+            <div class="sep"></div>
+            <button class="danger wide" data-act="remove">Delete ${noun}</button>
+            <div class="savenote">${deleteCost(record)}</div>
+          </div>
+        </span>`;
+      }
+
+      /** What deleting this record costs, said before it is clicked. */
+      function deleteCost(record) {
+        if (!editingScene()) return 'Keys bound to it stop working.';
+        const users = record.id ? profilesUsingScene(profiles, record.id) : [];
+        return users.length
+          ? `Used by ${users.length} profile${users.length === 1 ? '' : 's'}: ${
+              esc(users.map((u) => u.name || u.id).join(', '))}. Deleting it removes it from
+             them; they keep everything else.`
+          : 'No profile references it.';
+      }
+
+      /**
+       * The key preview and the two things that change it.
+       *
+       * Colour and avatar are not facts about the profile, they are the picture
+       * on the key — so they sit with the picture, where a change and its effect
+       * are the same glance apart. A scene gets the colour and not the avatar:
+       * avatars are stored per id in one shared directory, and a profile and a
+       * scene are allowed to share an id, so a scene avatar would silently
+       * overwrite the profile's.
+       */
+      function deckHtml(record) {
+        const scene = editingScene();
+        const tiles = scene
+          ? `<figure><img id="prevIdle" alt="" /><figcaption>idle</figcaption></figure>
+             <figure><img id="prevRunning" alt="" /><figcaption>running</figcaption></figure>`
+          : `<figure><img id="prevOff" alt="" /><figcaption>inactive</figcaption></figure>
+             <figure><img id="prevBusy" alt="" /><figcaption>switching</figcaption></figure>
+             <figure><img id="prevOn" alt="" /><figcaption>active &amp; confirmed</figcaption></figure>`;
+
+        return `<div class="card plain">
+          <h3>On the deck</h3>
+          <div class="deck">
+            <div class="tiles">${tiles}</div>
+            <div class="look">
+              <div class="row">
+                <label>Colour</label>
+                <div class="grp">
+                  <input type="color" data-f="color" value="${esc(record.color)}"
+                         title="Key colour" />
+                  <span class="muted">The key's ground, and the swatch in the list.</span>
+                </div>
+              </div>
+              ${scene ? '' : `<div class="row">
+                <label>Avatar</label>
+                <div class="grp">
+                  <img class="avatar-preview" id="avatarPreview" src="${record.avatarDataUri || ''}"
+                       style="${record.avatarDataUri ? '' : 'visibility:hidden'}" alt="" />
+                  <input type="file" data-f="avatar" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" />
+                  ${record.avatar
+                    ? '<button class="icon rm" data-act="rmavatar" title="Remove avatar">✕</button>'
+                    : ''}
+                </div>
+              </div>`}
+              <div class="savenote">Rendered by the plugin itself, so what you see is what
+                the key will show.</div>
+            </div>
+          </div>
+        </div>`;
+      }
+
       function renderScene() {
         const s = current();
         if (!s) {
           $('pane').innerHTML = `<div class="pane-inner">
-            <h2>No scene selected</h2>
-            <p class="sub">Pick one on the left, or make a new one with “+ New”.
+            ${paneTopHtml(null, 'No scene selected')}
+            <p class="sub">Pick one on the left, or make a new one with “+ New scene”.
               A scene is a lighting preset, a playlist, a script — anything you want to
               fire without changing who is at the rig.</p></div>`;
           return;
         }
 
         $('pane').innerHTML = `<div class="pane-inner">
-          <h2>${esc(s.name || '(unnamed)')}</h2>
-          <p class="sub">${esc(s.id ? `id ${s.id}` : 'new scene')} · momentary —
-            never changes the active profile</p>
-
+          ${paneTopHtml(s, 'scene')}
           <div id="issues"></div>
-
-          <div class="card plain">
-            <h3>On the deck</h3>
-            <div class="muted">No key preview yet. The plugin's renderer draws the three
-              states a <em>profile</em> key has — inactive, switching, active and confirmed —
-              and a scene has none of them: it fires and it is over. Showing one of those
-              tiles here would be claiming something about the key that is not true.</div>
-          </div>
-
-          <div class="card">
-            <h3>Identity</h3>
-            <div class="row">
-              <label for="pname">Name</label>
-              <div class="grp">
-                <input type="text" id="pname" data-f="name" value="${esc(s.name)}"
-                       autocomplete="off" spellcheck="false" />
-                <input type="color" data-f="color" value="${esc(s.color)}" title="Key colour" />
-              </div>
-            </div>
-            <div class="help wide">No avatar and no hold-to-switch. An avatar is a face and a
-              scene is not a person; the hold gate exists so a child cannot grab full force
-              feedback by accident, and a scene has no force feedback to grab.</div>
-          </div>
-
-          ${providerCardsHtml(s)}
-
+          ${deckHtml(s)}
+          ${bodyCardsHtml(s)}
           ${sceneUsersHtml(s)}
         </div>`;
+
+        refreshPreview();
       }
 
       function renderProfile() {
         const p = current();
         if (!p) {
           $('pane').innerHTML = `<div class="pane-inner">
-            <h2>No profile selected</h2>
-            <p class="sub">Pick one on the left, or make a new one with “+ New”.</p></div>`;
+            ${paneTopHtml(null, 'No profile selected')}
+            <p class="sub">Pick one on the left, or make a new one with “+ New profile”.</p>
+            </div>`;
           return;
         }
 
         // Order matters here: what the key will look like comes first, because
         // that is the thing being made. The fields that produce it follow.
         $('pane').innerHTML = `<div class="pane-inner">
-          <h2>${esc(p.name || '(unnamed)')}</h2>
-          <p class="sub">${esc(p.id ? `id ${p.id}` : 'new profile')}${
-            p.restricted ? ' · hold to switch' : ''}</p>
-
+          ${paneTopHtml(p, 'profile')}
           <div id="issues"></div>
-
-          <div class="card plain">
-            <h3>On the deck</h3>
-            <div class="tiles">
-              <figure><img id="prevOff" alt="" /><figcaption>inactive</figcaption></figure>
-              <figure><img id="prevBusy" alt="" /><figcaption>switching</figcaption></figure>
-              <figure><img id="prevOn" alt="" /><figcaption>active &amp; confirmed</figcaption></figure>
-              <div class="tilenote">Rendered by the plugin itself, so what you see is what the
-                key will show.</div>
-            </div>
-          </div>
-
-          <div class="card">
-            <h3>Identity</h3>
-            <div class="row">
-              <label for="pname">Name</label>
-              <div class="grp">
-                <input type="text" id="pname" data-f="name" value="${esc(p.name)}"
-                       autocomplete="off" spellcheck="false" />
-                <input type="color" data-f="color" value="${esc(p.color)}" title="Key colour" />
-              </div>
-            </div>
-            <div class="row">
-              <label>Avatar</label>
-              <div class="grp">
-                <img class="avatar-preview" id="avatarPreview" src="${p.avatarDataUri || ''}"
-                     style="${p.avatarDataUri ? '' : 'visibility:hidden'}" alt="" />
-                <input type="file" data-f="avatar" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" />
-                ${p.avatar ? '<button class="icon rm" data-act="rmavatar" title="Remove avatar">✕</button>' : ''}
-              </div>
-            </div>
-            <div class="row">
-              <label>Hold to switch</label>
-              <div class="grp">
-                <input type="checkbox" data-f="restricted" ${p.restricted ? 'checked' : ''} />
-                <span class="muted">Requires a 1s press. Use for full-torque profiles.</span>
-              </div>
-            </div>
-          </div>
-
-          ${providerCardsHtml(p)}
-
-          ${sceneRefsHtml(p)}
+          ${deckHtml(p)}
+          ${bodyCardsHtml(p)}
         </div>`;
 
         refreshPreview();
@@ -1144,13 +1378,31 @@
        * The same renderer the deck uses, so an overflowing name or a colour that
        * swallows the label is visible here rather than after saving. Debounced:
        * this re-renders on every keystroke otherwise.
+       *
+       * A scene gets its own two states from `previewSceneKey`, not the
+       * profile's three. It has no "active and confirmed" — it fires and it is
+       * over — so borrowing that tile would claim something untrue about the key.
        */
       function refreshPreview() {
         clearTimeout(previewTimer);
         previewTimer = setTimeout(async () => {
           const p = current();
+          if (!p) return;
+
+          if (editingScene()) {
+            const idle = $('prevIdle');
+            if (!idle) return;
+            const reply = await ask('previewSceneKey', {
+              scene: { name: p.name, color: p.color, avatar: p.avatar },
+            });
+            if (!reply.idle) return;
+            idle.src = reply.idle;
+            $('prevRunning').src = reply.running;
+            return;
+          }
+
           const off = $('prevOff');
-          if (!p || !off) return;
+          if (!off) return;
           const reply = await ask('previewKey', {
             profile: { name: p.name, color: p.color, avatar: p.avatar },
           });
@@ -1174,7 +1426,7 @@
         const reopenPit = hardware.mozaReopenPitHouse === true;
 
         $('pane').innerHTML = `<div class="pane-inner">
-          <h2>Settings</h2>
+          ${paneTopHtml(null, 'Settings')}
           <p class="sub">Applies to every profile. Stored on this machine only.</p>
 
           <div class="card" data-sec="fanatec-base">
@@ -1265,8 +1517,46 @@
       // Right rail — everything you can DO, in one column
       // =====================================================================
 
+      /** One row in the third column, whether it is a provider or a scene. */
+      function offerHtml(offer) {
+        const scene = offer.type === 'scene';
+        const mark = offer.added
+          ? '<span class="tick">✓</span>'
+          : '<span class="plus">+</span>';
+        // A scene is identified by its colour everywhere else in the editor, so
+        // it is identified by its colour here too.
+        const face = scene
+          ? `<span class="sw" style="background:${esc(offer.scene.color)};color:${
+              readableTextColor(offer.scene.color)}">${
+              esc((offer.label || '?').trim().charAt(0).toUpperCase())}</span>`
+          : '';
+        const sub = offer.added
+          ? 'already added'
+          : scene
+            ? (providerLabels(offer.scene).join(', ') || 'nothing configured')
+            : (offer.provider.verifiable ? '' : 'cannot be confirmed');
+
+        return `<button class="addbtn${scene ? ' scene' : ''}"
+          data-add="${scene ? 'scene' : 'provider'}:${esc(offer.id)}"
+          ${offer.added ? 'disabled title="Already on this profile"' : ''}>
+          ${mark}${face}
+          <span class="nm">${esc(offer.label)}${sub ? `<i>${esc(sub)}</i>` : ''}</span>
+        </button>`;
+      }
+
+      /**
+       * The third column: everything that can be added to the thing on screen,
+       * providers and scenes in one searchable list.
+       *
+       * They were in two places — hardware here, scenes in a card in the middle
+       * of the profile — for no reason the user could see: both answer "what
+       * else should this do?". One list, one search box over it, and an entry
+       * that has been used stays where it was and greys out rather than
+       * vanishing under the cursor.
+       */
       function renderRail() {
-        const parts = [`<div class="rail-group"><div id="saveState" class="savecard"></div></div>`];
+        const parts = [];
+        $('rail').classList.toggle('nosearch', view === 'settings');
 
         if (view === 'settings') {
           parts.push(`<div class="rail-group"><h4>Jump to</h4>
@@ -1282,45 +1572,48 @@
         } else {
           const p = current();
           const noun = kind === 'scenes' ? 'scene' : 'profile';
-          if (p) {
-            const available = providers.filter((prov) => !p.providers?.[prov.id]);
+
+          if (!p) {
+            parts.push(`<div class="rail-group"><h4>${kind === 'scenes' ? 'Scenes' : 'Profiles'}</h4>
+              <div class="savenote">Pick a ${noun} on the left, or make one with
+                “+ New ${noun}”, and what you can add to it appears here.</div></div>`);
+          } else if (!providers.length) {
+            parts.push('<div class="rail-group"><div class="savenote">Loading options…</div></div>');
+          } else {
+            const query = $('railSearch').value;
+            const all = offers({ providers, scenes, record: p, kind, query });
+            // Not `hardware`: that is the global settings draft, and shadowing
+            // it here would be one rename away from writing to the wrong thing.
+            const kit = all.filter((o) => o.type === 'provider');
+            const scenery = all.filter((o) => o.type === 'scene');
+
             parts.push(`<div class="rail-group"><h4>Add to this ${noun}</h4>${
-              available.length
-                ? available.map((prov) =>
-                    `<button class="addbtn" data-addprov="${esc(prov.id)}">
-                       <span class="plus">+</span>
-                       <span class="nm">${esc(prov.label)}${
-                         prov.verifiable ? '' : '<i>cannot be confirmed</i>'}</span>
-                     </button>`).join('')
-                : `<div class="savenote">Everything available is already on this ${noun}.</div>`
+              kit.length
+                ? kit.map(offerHtml).join('')
+                : `<div class="savenote">${query.trim()
+                    ? 'Nothing here matches that search.'
+                    : `Nothing can be added to a ${noun}.`}</div>`
             }</div>`);
 
-            // What deleting costs, stated before it is clicked rather than in
-            // the confirm box alone: for a scene that is the profiles that
-            // reference it, which is the thing you cannot see from here.
-            const users = kind === 'scenes' && p.id ? profilesUsingScene(profiles, p.id) : [];
-            const cost = kind === 'scenes'
-              ? users.length
-                ? `Used by ${users.length} profile${users.length === 1 ? '' : 's'}: ${
-                    esc(users.map((u) => u.name || u.id).join(', '))}. Deleting it removes it
-                    from them; they keep everything else.`
-                : 'No profile references it.'
-              : 'Keys bound to it stop working.';
-
-            parts.push(`<div class="rail-group"><h4>This ${noun}</h4>
-              <button class="danger wide" data-act="remove">Delete ${noun}</button>
-              <div class="savenote">${p.id
-                ? `Stored as <code>${esc(p.id)}</code>. ${cost}`
-                : 'Not saved yet.'}</div></div>`);
-          } else {
-            parts.push(`<div class="rail-group"><h4>${kind === 'scenes' ? 'Scenes' : 'Profiles'}</h4>
-              <button class="addbtn" id="addRail"><span class="plus">+</span>
-                <span class="nm">New ${noun}</span></button></div>`);
+            // Scenes are offered on profiles and nowhere else: a scene running a
+            // scene would be a graph to resolve, for a feature nobody has asked
+            // for. So the group is simply absent while editing a scene.
+            if (kind !== 'scenes') {
+              parts.push(`<div class="rail-group"><h4>Scenes</h4>${
+                scenery.length
+                  ? scenery.map(offerHtml).join('') +
+                    `<div class="savenote">A scene runs in addition to this profile's own
+                      hardware. It never changes who the rig thinks is at it.</div>`
+                  : `<div class="savenote">${query.trim()
+                      ? 'No scene matches that search.'
+                      : `No saved scenes yet. Make one under <b>Scenes</b> on the left and it
+                         will be offered here.`}</div>`
+              }</div>`);
+            }
           }
         }
 
-        $('rail').innerHTML = parts.join('');
-        renderSaveState();
+        $('railBody').innerHTML = parts.join('');
       }
 
       // =====================================================================
@@ -1334,18 +1627,6 @@
         const el = e.target;
         const p = current();
         if (!p) return;
-
-        // Ticking a scene this profile also runs. Stored as an id, so renaming
-        // the scene later cannot break the reference.
-        if (el.dataset.sceneref) {
-          setSceneRef(p, el.dataset.sceneref, el.checked);
-          // Re-rendered rather than toggled in place: ticking a scene can
-          // reveal a provider clash on that row, and the sidebar's "+2 scenes"
-          // count moves too.
-          render();
-          touch('draft');
-          return;
-        }
 
         // Enabling or disabling one slider.
         if (el.dataset.fldon) {
@@ -1385,10 +1666,10 @@
         const field = el.dataset.f;
         if (!field) return;
         if (field === 'name') {
-          p.name = el.value;
-          // Only the heading and the list row — re-rendering the pane on every
-          // keystroke would steal focus mid-word.
-          $('pane').querySelector('h2').textContent = p.name || '(unnamed)';
+          // The heading IS the field, so nothing here may write to it: setting
+          // its text mid-word would put the caret back at the start. The list
+          // row and the key preview follow it instead.
+          p.name = headingText(el);
           renderList();
           refreshPreview();
           touch('draft');
@@ -1399,11 +1680,26 @@
           touch('draft');
         } else if (field === 'restricted') {
           p.restricted = el.checked;
+          // Toggled in place rather than re-rendered: this control lives in an
+          // open menu, and redrawing the pane would close it underneath the
+          // click that opened it.
+          $('holdPill')?.toggleAttribute('hidden', !el.checked);
           touch('draft');
         } else if (field === 'avatar' && el.files?.[0]) {
           uploadAvatar(p, el.files[0]);
         }
       }
+
+      /**
+       * The name as typed into the heading.
+       *
+       * `contenteditable="plaintext-only"` keeps markup out, but a browser will
+       * still put a newline in for Enter on some paths and a paste can carry
+       * leading whitespace; a name with a line break in it renders as a key
+       * label with a line break in it. Collapsed here, at the one place the
+       * value is read, rather than trusted to every caller.
+       */
+      const headingText = (el) => el.textContent.replace(/\s+/g, ' ').trim();
 
       function onSettingsInput(e) {
         const el = e.target;
@@ -1500,6 +1796,41 @@
         );
       }
 
+      /**
+       * Keep the open menu inside the pane.
+       *
+       * It hangs from the cog, and the cog sits after the name — so a long name
+       * pushes it right until the menu would hang off the edge. `#pane` scrolls
+       * vertically, which means the browser gives it a horizontal scrollbar for
+       * anything sticking out sideways, and the menu would be half off-screen
+       * behind one. Measured and pulled back rather than pinned to one side:
+       * under the cog is where it belongs whenever there is room for it.
+       */
+      function placeCog() {
+        const menu = document.querySelector('.cogmenu');
+        const pane = $('pane');
+        if (!menu || !pane) return;
+        menu.style.left = '0px';
+        // clientWidth, not the bounding box: the vertical scrollbar is not space
+        // the menu can use.
+        const limit = pane.getBoundingClientRect().left + pane.clientWidth - 14;
+        const over = menu.getBoundingClientRect().right - limit;
+        if (over > 0) menu.style.left = `${-over}px`;
+      }
+
+      /** Shut the cog menu. Safe when there is none — most panes have no cog. */
+      function closeCog() {
+        const wrap = $('cogwrap');
+        if (!wrap?.classList.contains('open')) return;
+        wrap.classList.remove('open');
+        $('cog')?.setAttribute('aria-expanded', 'false');
+      }
+
+      // A menu that only closes from inside is a menu that follows you around.
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('#cogwrap')) closeCog();
+      });
+
       /** Show a settings section and say which one, for a link from a provider. */
       function gotoSettings(section) {
         view = 'settings';
@@ -1560,6 +1891,9 @@
       };
 
       $('list').addEventListener('click', (e) => {
+        // "+ New" is the last row of the list rather than a fixture below it,
+        // so it is handled here with the rows.
+        if (e.target.closest('[data-new]')) return newRecord();
         const p = rowRecord(e.target);
         if (!p) return;
         select(p);
@@ -1609,16 +1943,33 @@
         else ({ profiles, selected: selectedProfile } = addProfile(profiles));
         view = 'editor';
         render();
-        // Focused and selected so the first keystroke names it. The id is
-        // slugged from this name, and commit() waits for the field to be left.
-        const name = $('pname');
-        name?.focus();
-        name?.select();
+        // Focused and its text selected so the first keystroke names it. The id
+        // is slugged from this name, and commit() waits for the caret to leave.
+        selectHeading();
         touch('draft');
       }
 
-      $('add').addEventListener('click', newRecord);
+      /**
+       * Put the caret in the name heading with its placeholder text selected.
+       *
+       * `select()` belongs to form controls; the heading is an editable element,
+       * so the selection has to be made by hand.
+       */
+      function selectHeading() {
+        const name = $('pname');
+        if (!name) return;
+        name.focus();
+        const range = document.createRange();
+        range.selectNodeContents(name);
+        const sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+
       $('navSettings').addEventListener('click', () => { view = 'settings'; render(); });
+      // The third column searches what it is offering. Only the body redraws,
+      // so the caret stays where it is.
+      $('railSearch').addEventListener('input', renderRail);
 
       $('pane').addEventListener('input', paneEdit);
       $('pane').addEventListener('change', paneEdit);
@@ -1630,12 +1981,101 @@
       // Enter in the key field means "I am done with this", same as clicking away.
       $('pane').addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && e.target.id === 'goveeKey') { e.preventDefault(); commit(); }
+
+        // Enter in the name heading means the same, and must not insert a line
+        // break: a key label is one line. Blurring is what releases the hold on
+        // the first save, so the name commits and the id is slugged.
+        if (e.key === 'Enter' && e.target.id === 'pname') {
+          e.preventDefault();
+          e.target.blur();
+        }
+        if (e.key === 'Escape') closeCog();
+      });
+
+      /**
+       * Paste into the heading, as text.
+       *
+       * `contenteditable="plaintext-only"` does this itself where it is
+       * supported. Where it is not, the attribute is invalid and falls back to
+       * plain `true` — and a name pasted out of a document would arrive with its
+       * markup, and its line breaks, inside the heading. The stored name is read
+       * as text either way, so the two would silently disagree.
+       */
+      $('pane').addEventListener('paste', (e) => {
+        if (e.target.id !== 'pname') return;
+        e.preventDefault();
+        const text = (e.clipboardData?.getData('text/plain') ?? '').replace(/\s+/g, ' ');
+        const sel = getSelection();
+        if (!sel?.rangeCount) return;
+        sel.deleteFromDocument();
+        sel.getRangeAt(0).insertNode(document.createTextNode(text));
+        sel.collapseToEnd();
+        e.target.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+
+      // A name that has been left is a name that is finished, so the id can be
+      // slugged from it. Also the moment to tidy what was typed: the record
+      // holds the collapsed name, and the heading should show the same string.
+      $('pane').addEventListener('focusout', (e) => {
+        if (e.target.id !== 'pname') return;
+        const p = current();
+        if (!p) return;
+        const tidy = headingText(e.target);
+        if (e.target.textContent !== tidy) e.target.textContent = tidy;
+        p.name = tidy;
+        if (isDirty()) commit();
       });
 
       $('pane').addEventListener('click', async (e) => {
         const p = current();
+
+        // The cog. Toggled rather than opened, and left open while its own
+        // controls are used — the hold toggle lives inside it.
+        if (e.target.closest('#cog')) {
+          const wrap = $('cogwrap');
+          const open = !wrap.classList.contains('open');
+          wrap.classList.toggle('open', open);
+          $('cog').setAttribute('aria-expanded', String(open));
+          if (open) placeCog();
+          return;
+        }
+        if (!e.target.closest('.cogmenu')) closeCog();
+
+        if (e.target.id === 'saveNow') return commit();
+
         const goto = e.target.closest('[data-goto]');
         if (goto) return gotoSettings(goto.dataset.goto);
+
+        // Delete, from the cog. The confirm names what it costs, which for a
+        // scene is the profiles that reference it.
+        if (e.target.closest('[data-act="remove"]') && p) {
+          if (editingScene()) return deleteScene(p);
+          if (!confirm(`Delete "${p.name}"? Keys bound to it will stop working.`)) return;
+          ({ profiles, selected: selectedProfile } = removeProfile(profiles, p));
+          render();
+          touch('draft', { now: true });
+          return;
+        }
+
+        // Stop running a scene with this profile. The scene itself is untouched
+        // — this is the reference being cut, not the thing referenced.
+        const rmScene = e.target.closest('[data-rmscene]');
+        if (rmScene && p) {
+          setSceneRef(p, rmScene.dataset.rmscene, false);
+          render();
+          touch('draft');
+          return;
+        }
+
+        const editScene = e.target.closest('[data-editscene]');
+        if (editScene) {
+          const target = scenes.find((s) => s.id === editScene.dataset.editscene);
+          if (target) {
+            selectedScene = target;
+            setKind('scenes');
+          }
+          return;
+        }
 
         // A chip on the scene's "Used by" list: go and look at that profile.
         const useby = e.target.closest('[data-useby]');
@@ -1681,15 +2121,27 @@
       $('rail').addEventListener('click', async (e) => {
         const p = current();
 
-        const add = e.target.closest('[data-addprov]');
+        // One handler for both kinds of offer, because adding a scene to a
+        // profile and adding hardware to it are the same act from here: the
+        // record gains something, a block for it appears in the middle column,
+        // and the row that was clicked greys out.
+        const add = e.target.closest('[data-add]');
         if (add && p) {
-          p.providers = p.providers ?? {};
-          p.providers[add.dataset.addprov] = {};
+          const [type, id] = splitOnce(add.dataset.add);
+          if (type === 'scene') {
+            if (referencesScene(p, id)) return;      // never twice
+            setSceneRef(p, id, true);
+          } else {
+            p.providers = p.providers ?? {};
+            if (p.providers[id]) return;             // never twice
+            p.providers[id] = {};
+          }
           render();
           touch('draft');
           // Land the user on what they just added rather than leaving it to be
           // hunted for at the bottom of a long profile.
-          const card = document.querySelector(`[data-hw="${CSS.escape(add.dataset.addprov)}"]`);
+          const card = document.querySelector(
+            `[data-hw="${CSS.escape(type === 'scene' ? `scene:${id}` : id)}"]`);
           card?.scrollIntoView({ block: 'center', behavior: 'smooth' });
           card?.classList.add('flash');
           return;
@@ -1697,18 +2149,6 @@
 
         const jump = e.target.closest('[data-jump]');
         if (jump) return gotoSettings(jump.dataset.jump);
-
-        if (e.target.id === 'addRail') return newRecord();
-        if (e.target.id === 'saveNow') return commit();
-
-        if (e.target.closest('[data-act="remove"]') && p) {
-          if (kind === 'scenes') return deleteScene(p);
-          if (!confirm(`Delete "${p.name}"? Keys bound to it will stop working.`)) return;
-          ({ profiles, selected: selectedProfile } = removeProfile(profiles, p));
-          render();
-          touch('draft', { now: true });
-          return;
-        }
 
         if (e.target.id === 'refreshHardware') {
           say('Asking the hardware…');

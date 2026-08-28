@@ -213,7 +213,20 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
               logger.warn?.(`[pi] options for ${p.id}.${f.key} failed: ${err.message}`);
             }
           }
-          return { id: p.id, label: p.label, verifiable: p.verifiable, fields };
+          return {
+            id: p.id,
+            label: p.label,
+            verifiable: p.verifiable,
+            // Which lists this provider may be offered on. A wheelbase belongs
+            // to a profile — a scene is a moment of ambience and must not be
+            // able to hand anyone force feedback — while lights and scripts
+            // make sense on both. The editor filters its add list on this, so a
+            // provider that never declared it is offered on profiles only:
+            // profiles are the default surface, and a scene reaching hardware
+            // it was never meant to is the failure worth defaulting away from.
+            contexts: Array.isArray(p.contexts) && p.contexts.length ? [...p.contexts] : ['profile'],
+            fields,
+          };
         }),
       );
       return { request, providers };
