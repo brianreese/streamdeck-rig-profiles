@@ -30,6 +30,13 @@ describe('buildScript', () => {
   it('auto-dismisses', () => {
     expect(buildScript('a', 'b')).toContain('duration="short"');
   });
+
+  it('outlives the handoff, or Windows drops the toast', () => {
+    // Show() is asynchronous over COM. A detached child that exits immediately
+    // reaches Show() and vanishes before delivery, which looks identical in the
+    // log to a toast that was delivered and suppressed.
+    expect(buildScript('a', 'b')).toMatch(/Start-Sleep/);
+  });
 });
 
 describe('notify', () => {

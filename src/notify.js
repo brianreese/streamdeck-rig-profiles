@@ -53,6 +53,12 @@ export function buildScript(title, body) {
     `$doc.LoadXml(@'\n${xml}\n'@)`,
     '$toast = New-Object Windows.UI.Notifications.ToastNotification $doc',
     `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('${POWERSHELL_APP_ID}').Show($toast)`,
+    // Show() hands the toast to Windows over COM and returns straight away. A
+    // process that exits before the handoff completes loses the notification —
+    // which is exactly what a detached, unref'd child does. The log said the
+    // toast had been sent and nothing ever appeared. Outliving the handoff is
+    // the fix; the sleep costs nothing because nobody is waiting on it.
+    'Start-Sleep -Milliseconds 1500',
   ].join('\n');
 }
 
