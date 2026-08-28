@@ -27,6 +27,7 @@
     "serialport": "^13.0.0"
   },
   "devDependencies": {
+    "@elgato/cli": "^1.9.0",
     "vitest": "^4.1.0"
   },
   "engines": {
