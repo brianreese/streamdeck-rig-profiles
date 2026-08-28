@@ -9,6 +9,12 @@
 //
 // Multi-byte values are big-endian.
 //
+// 0x7E also marks the start of a frame, so every 0x7E after the leading one is
+// escaped by doubling it, checksum byte included, and the checksum is computed
+// over the escaped bytes. Both directions do this. Missing it is not a subtle
+// bug: a value like 6.63kg encodes to 08 7E, and the write is simply ignored
+// while the read that follows is swallowed whole.
+//
 // The 0x0D in the checksum is not arbitrary — it compensates for USB framing
 // the devices expect. It is confirmed by AZOM's documented keepalive frame,
 // which is used as a test vector: 7e 00 00 12 9d, where
@@ -25,6 +31,9 @@
 
 export const START = 0x7e;
 export const CHECKSUM_MAGIC = 0x0d;
+
+/** Largest payload this protocol uses; a longer one means this is not a frame. */
+export const MAX_PAYLOAD = 32;
 
 /** Request groups. */
 export const GROUP = {
@@ -66,7 +75,17 @@ export function needsEscaping(bytes) {
  */
 export function encode({ group, device, payload = [] }) {
   const body = [START, payload.length, group, device, ...payload];
-  return Buffer.from([...body, checksum(body)]);
+  // Everything after the leading start byte is escaped by doubling, and the
+  // checksum covers the escaped bytes — see `decode` for how this was found.
+  const wire = [START];
+  for (const b of body.slice(1)) {
+    wire.push(b);
+    if (b === START) wire.push(START);
+  }
+  const chk = checksum(wire);
+  wire.push(chk);
+  if (chk === START) wire.push(START);
+  return Buffer.from(wire);
 }
 
 /**
@@ -127,30 +146,59 @@ export function decode(buf) {
   // Need at least start, len, group, device, checksum.
   if (buf.length - start < 5) return { frame: null, consumed: start };
 
-  const len = buf[start + 1];
-  const total = 5 + len; // 7E LEN GRP DEV + payload + CHK
-  if (buf.length - start < total) return { frame: null, consumed: start };
+  // Walk the wire, undoing the doubling as we go. `logical` is the frame as the
+  // firmware means it; the checksum is verified against the wire bytes.
+  const logical = [START];
+  let len = null;
+  let i = start + 1;
+  for (;;) {
+    if (i >= buf.length) return { frame: null, consumed: start };
+    let byte = buf[i];
+    if (byte === START) {
+      if (i + 1 >= buf.length) return { frame: null, consumed: start };
+      // A doubled 0x7E is one literal 0x7E; a lone one means this was never a
+      // frame, and the real one starts there.
+      if (buf[i + 1] !== START) return { frame: null, consumed: i };
+      i += 2;
+    } else {
+      i += 1;
+    }
+    logical.push(byte);
 
-  const body = buf.subarray(start, start + total - 1);
-  const expected = checksum(body);
-  const actual = buf[start + total - 1];
+    if (logical.length === 2) {
+      len = byte;
+      // A length this device would never send means this is not a frame header.
+      if (len > MAX_PAYLOAD) return { frame: null, consumed: start + 1 };
+    }
+    if (len !== null && logical.length === 4 + len) break; // 7E LEN GRP DEV + payload
+  }
+
+  const expected = checksum(buf.subarray(start, i));
+  if (i >= buf.length) return { frame: null, consumed: start };
+  const actual = buf[i];
+  let end = i + 1;
+  if (actual === START) {
+    if (i + 1 >= buf.length) return { frame: null, consumed: start };
+    if (buf[i + 1] !== START) return { frame: null, consumed: start + 1 };
+    end = i + 2; // the checksum is doubled too when it lands on 0x7E
+  }
   if (expected !== actual) {
     // Bad checksum: step past this 0x7E and let the caller resynchronise.
     return { frame: null, consumed: start + 1 };
   }
 
-  const group = buf[start + 2];
-  const device = buf[start + 3];
+  const group = logical[2];
+  const device = logical[3];
   return {
     frame: {
       group,
       device,
       isResponse: (group & RESPONSE_FLAG) !== 0,
       requestGroup: group & ~RESPONSE_FLAG,
-      payload: Buffer.from(buf.subarray(start + 4, start + total - 1)),
-      raw: Buffer.from(buf.subarray(start, start + total)),
+      payload: Buffer.from(logical.slice(4)),
+      raw: Buffer.from(buf.subarray(start, end)),
     },
-    consumed: start + total,
+    consumed: end,
   };
 }
 

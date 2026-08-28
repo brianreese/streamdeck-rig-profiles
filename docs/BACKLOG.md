@@ -394,3 +394,60 @@ valuable state the plugin holds:
 - Consider warning rather than silently importing when global settings are empty
   but a backup exists and disagrees with the YAML.
 - Log loudly on any migration that overwrites a non-empty profile list.
+
+## 9. MOZA mBooster — settings we can read but cannot yet write (2026-08-27)
+
+The brake force curve is solved: command `0xAB`, addressed by a 16-bit point
+index, values in kg scaled `× 65536 / 200`. See `src/moza/README.md` for the
+protocol, the 0x7E escaping rule, and the device identity check.
+
+Four settings are understood in Pit House's preset JSON but have no known
+command, so a profile cannot yet apply a *whole* preset — only the force curve,
+the load cell threshold and the travel range.
+
+Each is one USB capture away. The procedure that found `0xAB`: capture the
+mBooster with USBPcap (install it, pick the device from its tree, save to a
+.pcap), change only that one control in Pit House, stop the capture, then run
+`node scripts/moza-decode-capture.mjs <capture.pcap>`. It lists writes grouped
+by command and ranked by distinct-value count, so the control being moved is
+normally the top row.
+
+| Preset field | Pit House control | Why it matters |
+|---|---|---|
+| `brake_stroke_curve` | Pedal Feel curve, 6 travel points | Pairs with the force curve; sets where each force point sits in the travel |
+| `brake_forcelimit_min` | Left vertical slider on the curve | Force required before the pedal moves at all |
+| `brake_press_combine` | Sensor Output Ratio, Angle vs Load cell | Decides whether output follows travel or force — see below |
+| `brake_nonlinear1..5` | Simulator input mapping curve | Shapes the 0-100% output sent to the game |
+
+`brake_press_combine` is the important one. At 0 the output is 100% pedal angle
+and the load cell contributes nothing, which makes `force_max_coef` (`0xB3`)
+inert. Carter Brake is configured that way, which is why its inherited 200kg
+threshold is harmless rather than broken. Any advice about `0xB3` is wrong
+without checking `press_combine` first.
+
+What makes a preset usable by a child is three things together: a low force
+curve (24kg), a short travel range (4.3mm against an adult's 16mm), and
+angle-based output. Only the first and the travel range are writable today.
+
+Code carrying this gap is commented and points back here.
+
+### Also outstanding
+
+- **The identity check's passing path is untested.** `identify()` in
+  `src/moza/mbooster.js` is proven to *reject* — pointing `withDevice` at COM12,
+  another MOZA device, fails with "did not answer as an mBooster". The accepting
+  path has not run end to end because Pit House held COM6 throughout. Margins
+  are comfortable (observed axis differs from nominal by 0-2 against a tolerance
+  of 32) but it is unexercised.
+- **Two mBoosters cannot be told apart.** Windows reports a port-derived
+  instance id (`B&16963DC6&0&0000`), not a device serial, so `findPort` refuses
+  rather than guessing. The composite parent does carry a real serial
+  (`3F003D001951343112970` via `Get-PnpDevice`); walking up to it would allow
+  pinning a specific pedal. Not needed with one device.
+- **Pit House re-applies a preset on start**, even with "Auto Load Preset"
+  unchecked, because `[DefaultGamePreset_1] mBooster=<uuid>` in
+  `Presets/config.ini` is a separate mechanism. This makes Pit House unusable
+  for verifying what the plugin wrote — verify by reading back from the device
+  instead, which is stronger anyway: preset files are not live state
+  ("Test Preset Unlinked" read `brake_forcelimit_max = 79` while the pedal sat
+  at 50).

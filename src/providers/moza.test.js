@@ -13,10 +13,43 @@ vi.mock('../moza/mbooster.js', async (importOriginal) => {
   };
 });
 
+// Pit House's library lives in the user's Documents folder, so the tests
+// supply their own rather than depending on whatever is installed.
+vi.mock('../moza/presetStore.js', () => ({
+  listPresets: vi.fn(() => [
+    { id: 'brian', name: 'Brian Brake Hybrid' },
+    { id: 'carter', name: 'Carter Brake' },
+  ]),
+  findPreset: vi.fn((id) => PRESETS[id] ?? null),
+}));
+
+const PRESETS = {
+  brian: {
+    id: 'brian',
+    name: 'Brian Brake Hybrid',
+    deviceParams: {
+      brake_forces_curve: [22.415, 31.609, 37.1, 41.532, 44.443, 47.421, 50.001],
+      brake_machinelimit_min: 3.8,
+      brake_machinelimit_max: 19.82,
+      force_max_coef: 50,
+    },
+  },
+  carter: {
+    id: 'carter',
+    name: 'Carter Brake',
+    deviceParams: {
+      brake_forces_curve: [8.603, 13.735, 16.8, 19.274, 20.898, 22.56, 24],
+      brake_machinelimit_min: 3.8,
+      brake_machinelimit_max: 8.1,
+      force_max_coef: 200,
+    },
+  },
+};
+
 const { withDevice, closePitHouse, isPitHouseRunning } = await import('../moza/mbooster.js');
 
 /** A fake pedal that remembers what was written. */
-function fakePedal({ acknowledge = true, readings = {} } = {}) {
+function fakePedal({ acknowledge = true, readings = {}, curveReadback = null, curveFails = [] } = {}) {
   const written = {};
   withDevice.mockImplementation(async (fn) =>
     fn({
@@ -26,6 +59,13 @@ function fakePedal({ acknowledge = true, readings = {} } = {}) {
       },
       async read(name) {
         return name in readings ? readings[name] : (written[name] ?? null);
+      },
+      async writeCurve(values) {
+        written.curve = values;
+        return curveFails;
+      },
+      async readCurve() {
+        return curveReadback ?? written.curve ?? [];
       },
     }),
   );
@@ -40,7 +80,7 @@ beforeEach(() => {
 
 describe('validate', () => {
   it('requires at least one setting', () => {
-    expect(moza.validate({})).toContain('MOZA is enabled but no pedal setting is filled in');
+    expect(moza.validate({})).toContain('MOZA is enabled but no preset or pedal setting is chosen');
   });
 
   it('accepts a single force setting', () => {
@@ -57,7 +97,7 @@ describe('validate', () => {
   });
 
   it('rejects a non-numeric value rather than sending it', () => {
-    expect(moza.validate({ maxForceKg: 'soft' }).join()).toMatch(/no pedal setting/);
+    expect(moza.validate({ maxForceKg: 'soft' }).join()).toMatch(/no preset or pedal setting/);
   });
 });
 
@@ -164,12 +204,90 @@ describe('blank fields', () => {
 
   it('treats an all-blank config as nothing configured', () => {
     expect(moza.validate({ maxForceKg: '', travelEndMm: null }))
-      .toContain('MOZA is enabled but no pedal setting is filled in');
+      .toContain('MOZA is enabled but no preset or pedal setting is chosen');
   });
 
   it('still accepts a legitimate zero', async () => {
     const written = fakePedal();
     await moza.apply({ travelStartMm: 0 }, {});
     expect(written).toEqual({ travelStartMm: 0 });
+  });
+});
+
+describe('preset-backed profiles', () => {
+  it('writes the preset curve untouched when no peak is overridden', async () => {
+    const written = fakePedal();
+    await moza.apply({ preset: 'brian' }, {});
+    expect(written.curve).toEqual(PRESETS.brian.deviceParams.brake_forces_curve);
+    expect(written.travelEndMm).toBe(19.82);
+    expect(written.maxForceKg).toBe(50);
+  });
+
+  it('scales the whole curve when the peak is overridden, keeping its shape', async () => {
+    const written = fakePedal();
+    await moza.apply({ preset: 'brian', peakForceKg: 24 }, {});
+
+    const source = PRESETS.brian.deviceParams.brake_forces_curve;
+    expect(written.curve.at(-1)).toBeCloseTo(24, 5);
+    // Same shape: every point keeps its proportion of the peak.
+    for (let i = 0; i < source.length; i++) {
+      expect(written.curve[i] / 24).toBeCloseTo(source[i] / source.at(-1), 6);
+    }
+  });
+
+  it('scaling reproduces MOZA\'s own 24kg preset to within half a kilogram', async () => {
+    const written = fakePedal();
+    await moza.apply({ preset: 'brian', peakForceKg: 24 }, {});
+    // Not an identity — Carter's curve was authored separately — but close
+    // enough that the linear scaling is not inventing a shape of its own.
+    written.curve.forEach((kg, i) => {
+      expect(Math.abs(kg - PRESETS.carter.deviceParams.brake_forces_curve[i])).toBeLessThan(2.5);
+    });
+  });
+
+  it('lets a profile override the preset rather than the other way round', async () => {
+    const written = fakePedal();
+    await moza.apply({ preset: 'brian', travelEndMm: 8.1 }, {});
+    expect(written.travelEndMm).toBe(8.1);
+    // Untouched fields still come from the preset.
+    expect(written.travelStartMm).toBe(3.8);
+  });
+
+  it('refuses a peak below what the pedal can hold smoothly', () => {
+    expect(moza.validate({ preset: 'brian', peakForceKg: 12 }).join()).toMatch(/24-200kg/);
+  });
+
+  it('refuses to scale a curve it has no shape for', () => {
+    expect(moza.validate({ peakForceKg: 24 }).join()).toMatch(/needs a preset/);
+  });
+
+  it('reports a preset that has since been deleted', () => {
+    expect(moza.validate({ preset: 'gone' }).join()).toMatch(/no longer in Pit House/);
+  });
+
+  it('fails loudly when a curve point will not take', async () => {
+    fakePedal({ curveFails: [2, 3] });
+    await expect(moza.apply({ preset: 'brian', peakForceKg: 24 }, {})).rejects.toThrow(
+      /points 2, 3 would not take/,
+    );
+  });
+
+  it('verifies every curve point, not just the peak', async () => {
+    // Peak is right but the middle sags — what a partial write leaves behind.
+    const sagging = [22.415, 31.609, 20, 41.532, 44.443, 47.421, 50.001];
+    fakePedal({ curveReadback: sagging, readings: { maxForceKg: 50, travelStartMm: 3.8, travelEndMm: 19.82 } });
+    const result = await moza.verify({ preset: 'brian' }, {});
+    expect(result.status).toBe(STATUS.MISMATCH);
+    expect(result.detail).toMatch(/force curve point/);
+  });
+
+  it('confirms a curve that matches', async () => {
+    fakePedal({
+      curveReadback: PRESETS.brian.deviceParams.brake_forces_curve,
+      readings: { maxForceKg: 50, travelStartMm: 3.8, travelEndMm: 19.82 },
+    });
+    const result = await moza.verify({ preset: 'brian' }, {});
+    expect(result.status).toBe(STATUS.VERIFIED);
+    expect(result.detail).toMatch(/Brian Brake Hybrid/);
   });
 });

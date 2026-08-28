@@ -1,38 +1,105 @@
 // providers/moza.js — MOZA mBooster pedal, over its own serial protocol.
 //
-// Sets pedal parameters directly on the hardware and reads them back to
-// confirm. No Pit House game binding, no stand-in process, and no requirement
-// that no game be running — all of which the previous approach needed.
+// A profile points at one of Pit House's own presets by name and may override
+// individual settings on top of it. That is the shape the hardware already
+// thinks in: the grown-up preset defines the curve's shape, and a child's
+// profile reuses it at a lower peak force rather than describing a pedal from
+// scratch.
 //
-// The wire format is documented by Boxflat and AZOM; every command and scaling
-// used here has been read from, written to and restored on a real mBooster.
-// Only parameters confirmed that way are exposed: friction (0xAE) and end-stop
-// stiffness (0xB2) respond but their units do not match what Pit House stores,
-// so they are left out rather than guessed at.
+// Sets parameters directly on the hardware and reads them back to confirm. No
+// Pit House game binding and no stand-in process.
 //
-// One trade: the serial port is exclusive, so Pit House must not be running.
-// It can be closed automatically, but only if the user opts in — killing an
-// application because a button was pressed should never be a silent default.
+// Two things it deliberately does not do:
+//
+//   * It never reports which preset is "currently active". Preset files are not
+//     live state — "Test Preset Unlinked" read forcelimit_max 79 while the
+//     pedal sat at 50, because the slider had been moved without saving. What
+//     the plugin can honestly report is what it applied and what it read back.
+//   * It cannot apply a preset in full. brake_stroke_curve, forcelimit_min,
+//     press_combine and the input mapping curve have no known command yet —
+//     BACKLOG section 9 lists them and how to find them.
+//
+// The serial port is exclusive, so Pit House must not be running. It can be
+// closed automatically, but only if the user opts in — killing an application
+// because a button was pressed should never be a silent default.
 
-import { PARAMS, withDevice, closePitHouse, reopenPitHouse, isPitHouseRunning } from '../moza/mbooster.js';
+import {
+  PARAMS,
+  withDevice,
+  closePitHouse,
+  reopenPitHouse,
+  isPitHouseRunning,
+  scaleCurve,
+  CURVE_MIN_PEAK_KG,
+  CURVE_FULL_SCALE_KG,
+} from '../moza/mbooster.js';
+import { listPresets, findPreset } from '../moza/presetStore.js';
 import { STATUS } from './status.js';
 
 /** How close a read-back must be to count as applied. */
-const TOLERANCE = { maxForceKg: 0.5, travelStartMm: 0.2, travelEndMm: 0.2 };
+const TOLERANCE = { peakForceKg: 0.5, maxForceKg: 0.5, travelStartMm: 0.2, travelEndMm: 0.2 };
+
+const lastOf = (arr) => (Array.isArray(arr) && arr.length ? arr[arr.length - 1] : undefined);
+
+/** Preset fields this provider knows how to push to the pedal. */
+const FROM_PRESET = {
+  peakForceKg: (p) => lastOf(p.brake_forces_curve),
+  maxForceKg: (p) => p.force_max_coef,
+  travelStartMm: (p) => p.brake_machinelimit_min,
+  travelEndMm: (p) => p.brake_machinelimit_max,
+};
 
 /**
- * Which parameters the profile actually sets.
+ * Whether a config field holds a value.
  *
  * The blank check matters: `Number('')` is 0, which is finite, so treating an
  * empty field as a value would silently write 0 — a travel end of 0mm on a
  * brake pedal. A field left empty means "leave this alone".
  */
-function configured(cfg) {
-  return Object.keys(PARAMS).filter((k) => {
-    const raw = cfg?.[k];
-    if (raw === undefined || raw === null || String(raw).trim() === '') return false;
-    return Number.isFinite(Number(raw));
-  });
+function filled(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return false;
+  return Number.isFinite(Number(raw));
+}
+
+/** Which of the directly-writable parameters the profile overrides. */
+function overrides(cfg) {
+  return Object.keys(PARAMS).filter((k) => filled(cfg?.[k]));
+}
+
+/**
+ * Work out what should end up on the pedal.
+ *
+ * The preset supplies the baseline and the profile's own fields win over it, so
+ * "Brian's preset, but 24kg" is expressible without copying a curve around.
+ */
+function resolve(cfg, { preset = null } = {}) {
+  const params = preset?.deviceParams ?? null;
+  const plan = { curve: null, values: {}, presetName: preset?.name ?? null };
+
+  if (params) {
+    for (const [key, pick] of Object.entries(FROM_PRESET)) {
+      const value = pick(params);
+      if (Number.isFinite(value)) plan.values[key] = value;
+    }
+    if (Array.isArray(params.brake_forces_curve) && params.brake_forces_curve.length === 7) {
+      plan.curve = params.brake_forces_curve.slice();
+    }
+  }
+
+  for (const key of Object.keys(FROM_PRESET)) {
+    if (filled(cfg?.[key])) plan.values[key] = Number(cfg[key]);
+  }
+
+  // The peak is the curve's last point, so an override rescales the whole shape
+  // rather than moving one end of it. Only an actual override rescales: passing
+  // the preset's own peak back through the scaling would multiply by 1 and
+  // leave float dust on every point, which then reads back as a mismatch.
+  if (plan.curve && filled(cfg?.peakForceKg)) {
+    plan.curve = scaleCurve(plan.curve, Number(cfg.peakForceKg));
+  }
+  if (plan.curve) plan.values.peakForceKg = lastOf(plan.curve);
+
+  return plan;
 }
 
 export default {
@@ -42,46 +109,102 @@ export default {
   verifiable: true,
 
   schema() {
-    return Object.entries(PARAMS).map(([key, spec]) => ({
-      key,
-      label: `${spec.label} (${spec.unit})`,
-      type: 'range',
-      min: spec.min,
-      max: spec.max,
-      step: spec.step ?? 1,
-      unit: spec.unit,
-      help: spec.help,
+    return [
+      {
+        key: 'preset',
+        label: 'Pit House preset',
+        type: 'select',
+        // Filled from disk via options(); empty means "no preset, overrides only".
+        options: [],
+        help: 'The preset this profile starts from. Anything below overrides it.',
+      },
+      {
+        key: 'peakForceKg',
+        label: 'Peak force (kg)',
+        type: 'range',
+        min: CURVE_MIN_PEAK_KG,
+        max: CURVE_FULL_SCALE_KG,
+        step: 1,
+        unit: 'kg',
+        help: `How hard the pedal pushes back at full travel — the setting that makes it lighter for a child. Needs a preset, which supplies the curve shape. The pedal cannot hold less than ${CURVE_MIN_PEAK_KG}kg smoothly.`,
+      },
+      ...Object.entries(PARAMS).map(([key, spec]) => ({
+        key,
+        label: `${spec.label} (${spec.unit})`,
+        type: 'range',
+        min: spec.min,
+        max: spec.max,
+        step: spec.step ?? 1,
+        unit: spec.unit,
+        help: spec.help,
+      })),
+    ];
+  },
+
+  /** Pit House's own pedal presets, so a profile picks a name rather than a uuid. */
+  async options() {
+    return listPresets({ deviceType: 'Pedals', device: 'mBooster' }).map((p) => ({
+      value: p.id,
+      label: p.name,
     }));
   },
 
   validate(cfg) {
     const problems = [];
-    const set = configured(cfg);
-    if (!set.length) problems.push('MOZA is enabled but no pedal setting is filled in');
+    const hasPreset = Boolean(cfg?.preset);
+    const changed = overrides(cfg);
 
-    for (const [key, spec] of Object.entries(PARAMS)) {
-      const raw = cfg?.[key];
-      if (raw === undefined || raw === '' || raw === null) continue;
-      const value = Number(raw);
-      if (!Number.isFinite(value)) {
-        problems.push(`MOZA ${spec.label.toLowerCase()} must be a number`);
-      } else if (value < spec.min || value > spec.max) {
+    if (!hasPreset && !changed.length && !filled(cfg?.peakForceKg)) {
+      problems.push('MOZA is enabled but no preset or pedal setting is chosen');
+    }
+
+    // Scaling a curve needs a curve. Reading the live one instead would make the
+    // result depend on whichever profile ran last, which is exactly the kind of
+    // surprise a child's brake pedal should not have.
+    if (filled(cfg?.peakForceKg) && !hasPreset) {
+      problems.push('MOZA peak force needs a preset to take its curve shape from');
+    }
+    if (filled(cfg?.peakForceKg)) {
+      const peak = Number(cfg.peakForceKg);
+      if (peak < CURVE_MIN_PEAK_KG || peak > CURVE_FULL_SCALE_KG) {
         problems.push(
-          `MOZA ${spec.label.toLowerCase()} must be ${spec.min}-${spec.max}${spec.unit}`,
+          `MOZA peak force must be ${CURVE_MIN_PEAK_KG}-${CURVE_FULL_SCALE_KG}kg — below ` +
+            `${CURVE_MIN_PEAK_KG}kg the pedal feels stepped rather than light`,
         );
+      }
+    }
+
+    if (hasPreset && !findPreset(cfg.preset)) {
+      problems.push(`MOZA preset "${cfg.preset}" is no longer in Pit House's library`);
+    }
+
+    for (const key of changed) {
+      const spec = PARAMS[key];
+      const value = Number(cfg[key]);
+      if (value < spec.min || value > spec.max) {
+        problems.push(`MOZA ${spec.label.toLowerCase()} must be ${spec.min}-${spec.max}${spec.unit}`);
       }
     }
     return problems;
   },
 
   describe(cfg) {
-    const parts = configured(cfg).map((k) => `${PARAMS[k].label.toLowerCase()} ${cfg[k]}${PARAMS[k].unit}`);
+    const preset = cfg?.preset ? findPreset(cfg.preset) : null;
+    const parts = [];
+    if (preset) parts.push(`preset "${preset.name}"`);
+    if (filled(cfg?.peakForceKg)) parts.push(`peak force ${Number(cfg.peakForceKg)}kg`);
+    for (const key of overrides(cfg)) {
+      parts.push(`${PARAMS[key].label.toLowerCase()} ${Number(cfg[key])}${PARAMS[key].unit}`);
+    }
     return parts.length ? `pedal ${parts.join(', ')}` : 'pedal (not configured)';
   },
 
   async apply(cfg, ctx = {}) {
     const problems = this.validate(cfg);
     if (problems.length) throw new Error(problems[0]);
+
+    const preset = cfg?.preset ? findPreset(cfg.preset) : null;
+    const plan = resolve(cfg, { preset });
 
     // Opt-in only. Default is to fail with a clear message instead.
     if (ctx.settings?.mozaClosePitHouse) {
@@ -96,8 +219,18 @@ export default {
 
     try {
       await withDevice(async (session) => {
-        for (const key of configured(cfg)) {
-          const acknowledged = await session.write(key, Number(cfg[key]));
+        if (plan.curve) {
+          const failed = await session.writeCurve(plan.curve);
+          if (failed.length) {
+            throw new Error(
+              `force curve point${failed.length > 1 ? 's' : ''} ${failed.join(', ')} would not ` +
+                'take — the pedal may be left with an uneven curve, so apply the profile again',
+            );
+          }
+        }
+        for (const key of Object.keys(PARAMS)) {
+          if (!Number.isFinite(plan.values[key])) continue;
+          const acknowledged = await session.write(key, plan.values[key]);
           if (!acknowledged) {
             throw new Error(`${PARAMS[key].label} was not acknowledged by the pedal`);
           }
@@ -109,14 +242,19 @@ export default {
   },
 
   async verify(cfg, ctx = {}) {
-    const wanted = configured(cfg);
-    if (!wanted.length) return { status: STATUS.SKIPPED, detail: 'nothing configured' };
+    const preset = cfg?.preset ? findPreset(cfg.preset) : null;
+    const plan = resolve(cfg, { preset });
+    const wanted = Object.keys(PARAMS).filter((k) => Number.isFinite(plan.values[k]));
+    if (!wanted.length && !plan.curve) {
+      return { status: STATUS.SKIPPED, detail: 'nothing configured' };
+    }
 
     let readings;
     try {
       readings = await withDevice(async (session) => {
-        const out = {};
-        for (const key of wanted) out[key] = await session.read(key);
+        const out = { params: {} };
+        if (plan.curve) out.curve = await session.readCurve();
+        for (const key of wanted) out.params[key] = await session.read(key);
         return out;
       }, ctx);
     } catch (err) {
@@ -124,26 +262,48 @@ export default {
     }
 
     const wrong = [];
-    for (const key of wanted) {
-      const got = readings[key];
-      const want = Number(cfg[key]);
-      if (got === null || Math.abs(got - want) > (TOLERANCE[key] ?? 0.5)) {
-        wrong.push(`${PARAMS[key].label} is ${got === null ? 'unreadable' : got.toFixed(2)}, wanted ${want}`);
+    const summary = [];
+
+    if (plan.curve) {
+      const got = readings.curve ?? [];
+      const unreadable = got.filter((v) => v === null).length;
+      if (unreadable) {
+        wrong.push(`${unreadable} of ${plan.curve.length} force curve points unreadable`);
+      } else {
+        // Every point is checked, not just the peak: a partial write leaves a
+        // curve that peaks correctly but sags in the middle.
+        const off = got.filter((v, i) => Math.abs(v - plan.curve[i]) > TOLERANCE.peakForceKg);
+        if (off.length) {
+          wrong.push(`${off.length} force curve point(s) differ from the profile`);
+        } else {
+          summary.push(`peak force ${lastOf(got).toFixed(2)}kg`);
+        }
       }
     }
 
-    if (wrong.length) {
-      return { status: STATUS.MISMATCH, detail: wrong.join('; ') };
+    for (const key of wanted) {
+      const got = readings.params[key];
+      const want = plan.values[key];
+      if (got === null || Math.abs(got - want) > (TOLERANCE[key] ?? 0.5)) {
+        wrong.push(
+          `${PARAMS[key].label} is ${got === null ? 'unreadable' : got.toFixed(2)}, wanted ${want}`,
+        );
+      } else {
+        summary.push(`${PARAMS[key].label.toLowerCase()} ${got.toFixed(2)}${PARAMS[key].unit}`);
+      }
     }
-    const summary = wanted.map((k) => `${PARAMS[k].label.toLowerCase()} ${readings[k].toFixed(2)}${PARAMS[k].unit}`);
-    return { status: STATUS.VERIFIED, detail: `pedal confirmed ${summary.join(', ')}` };
+
+    if (wrong.length) return { status: STATUS.MISMATCH, detail: wrong.join('; ') };
+    const from = plan.presetName ? ` from "${plan.presetName}"` : '';
+    return { status: STATUS.VERIFIED, detail: `pedal confirmed${from} ${summary.join(', ')}` };
   },
 
   async health() {
     if (await isPitHouseRunning()) {
       return {
         ok: false,
-        reason: 'MOZA Pit House is running and holds the pedal\'s serial port — close it, or enable "Close Pit House when switching"',
+        reason:
+          'MOZA Pit House is running and holds the pedal\'s serial port — close it, or enable "Close Pit House when switching"',
       };
     }
     return { ok: true, reason: 'pedal reachable' };

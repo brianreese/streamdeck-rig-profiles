@@ -12,7 +12,7 @@ import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import {
   readFrame, writeFrame, keepAliveFrame, decodeAll, toBytes,
-  travel, force, GROUP,
+  travel, force, GROUP, DEVICE, swapNibbles,
 } from './frame.js';
 
 const run = promisify(execFile);
@@ -46,7 +46,7 @@ export const PIT_HOUSE_EXE = 'MOZA Pit House.exe';
  */
 export const PARAMS = {
   maxForceKg: {
-    label: 'Full-brake force',
+    label: 'Load cell threshold',
     command: 0xb3,
     width: 4,
     unit: 'kg',
@@ -55,7 +55,12 @@ export const PARAMS = {
     step: 1,
     toRaw: force.toRaw,
     fromRaw: force.fromRaw,
-    help: 'Pressure that counts as 100% braking. Lower means full braking arrives sooner — it does not change how stiff the pedal feels.',
+    // Pit House calls this "Maximum threshold for pressure sensors". It does
+    // nothing at all when brake_press_combine is 0, because the output then
+    // comes from pedal angle and the load cell contributes nothing — which is
+    // why MOZA's own child preset can carry an inherited 200kg here without
+    // being broken. press_combine is not writable yet; see BACKLOG section 9.
+    help: 'Pressure that counts as 100% braking. Has no effect while the pedal is set to angle-based output. To make the pedal lighter, set the peak force instead.',
   },
   travelStartMm: {
     label: 'Travel start',
@@ -121,14 +126,34 @@ export function reopenPitHouse({ env = process.env, spawnFn = spawn } = {}) {
   }
 }
 
+/**
+ * The pedal's serial port, or null when it is not connected.
+ *
+ * COM numbers move between reboots and USB ports, so nothing is hardcoded — the
+ * port is found by vendor and product id every time. `346E:0008` is the
+ * mBooster specifically; the wheelbase and flight stick enumerate under
+ * different product ids and are never candidates.
+ *
+ * Ambiguity is refused rather than guessed. Windows reports a port-derived
+ * instance id rather than a device serial for this device, so with two
+ * mBoosters attached there is nothing here to tell them apart, and picking the
+ * first would mean writing a brake curve to whichever one happened to enumerate
+ * first.
+ */
 export async function findPort({ list = () => SerialPort.list() } = {}) {
   const ports = await list();
-  const hit = ports.find(
+  const matches = ports.filter(
     (p) =>
       (p.vendorId ?? '').toUpperCase() === VENDOR_ID &&
       (p.productId ?? '').toUpperCase() === PRODUCT_ID,
   );
-  return hit?.path ?? null;
+  if (matches.length > 1) {
+    throw new Error(
+      `${matches.length} mBooster-class devices found (${matches.map((m) => m.path).join(', ')}). ` +
+        'Refusing to guess which one to write to — pass an explicit port.',
+    );
+  }
+  return matches[0]?.path ?? null;
 }
 
 /**
@@ -186,6 +211,78 @@ class Session {
     return this.frames.some((f) => f.isResponse && f.requestGroup === GROUP.WRITE);
   }
 
+  /**
+   * Read one force curve point. Command 0xAB is addressed by a 16-bit index,
+   * and a request without one answers with zeros rather than an error.
+   */
+  async readCurvePoint(index, { timeoutMs = 500, attempts = 4 } = {}) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      this.frames = [];
+      this.port.write(readFrame([CURVE_COMMAND, 0x00, index], { width: 2 }));
+      await sleep(timeoutMs);
+      const reply = this.frames.find(
+        (f) =>
+          f.isResponse &&
+          f.requestGroup === GROUP.READ &&
+          f.device === swapNibbles(DEVICE.MBOOSTER) &&
+          f.payload[0] === CURVE_COMMAND &&
+          f.payload.length >= 5 &&
+          f.payload[2] === index,
+      );
+      if (reply) return reply.payload.readUInt16BE(3);
+    }
+    return null;
+  }
+
+  /**
+   * Write one force curve point, proving it landed by reading it back.
+   *
+   * An acknowledgement is not enough here. Points quietly fail to take, and on
+   * a force curve a partial write is not cosmetic — it leaves a non-monotonic
+   * curve, a pedal that gets *lighter* part way down. The read-back is allowed
+   * to come back a unit low, because the firmware stores these as floats and
+   * truncates on the way out.
+   */
+  async writeCurvePoint(index, raw, { attempts = 4, settleMs = 250 } = {}) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      this.frames = [];
+      this.port.write(writeFrame([CURVE_COMMAND, 0x00, index], toBytes(raw, 2)));
+      await sleep(settleMs);
+      const got = await this.readCurvePoint(index);
+      if (got !== null && Math.abs(got - raw) <= 1) return true;
+    }
+    return false;
+  }
+
+  /** The seven force points, in kg, or null for any that would not answer. */
+  async readCurve() {
+    const out = [];
+    for (const index of CURVE_POINTS) {
+      const raw = await this.readCurvePoint(index);
+      out.push(raw === null ? null : curveKg(raw));
+    }
+    return out;
+  }
+
+  /**
+   * Write all seven force points.
+   *
+   * Written low to high so that an interrupted write leaves the pedal lighter
+   * than intended rather than heavier — the safe direction to fail in when a
+   * child is about to use it.
+   */
+  async writeCurve(forcesKg) {
+    if (forcesKg.length !== CURVE_POINTS.length) {
+      throw new Error(`force curve needs ${CURVE_POINTS.length} points, got ${forcesKg.length}`);
+    }
+    const failed = [];
+    for (let i = 0; i < CURVE_POINTS.length; i++) {
+      const ok = await this.writeCurvePoint(CURVE_POINTS[i], curveRaw(forcesKg[i]));
+      if (!ok) failed.push(i + 1);
+    }
+    return failed;
+  }
+
   async close() {
     clearInterval(this._heartbeat);
     await new Promise((resolve) => this.port.close(() => resolve()));
@@ -193,11 +290,78 @@ class Session {
 }
 
 /**
+ * Confirm the thing on the other end really is an mBooster.
+ *
+ * Vendor and product id say what Windows thinks is plugged in. This asks the
+ * device itself, and it is the check that matters, because being wrong here
+ * means writing brake calibration into something that is not a brake.
+ *
+ * The fingerprint is the curve's travel axis: seven fixed values the firmware
+ * holds at indices 0-6, near `i × 65536/7`. They are not exactly even — the
+ * firmware stores them as floats and reads back truncated, so observed steps
+ * run 9361-9364 — hence the tolerance. Six values each landing in a narrow band
+ * is not something another device answers by chance, and unlike a serial number
+ * it verifies the table layout we are about to write into.
+ */
+export const CURVE_COMMAND = 0xab;
+export const CURVE_POINTS = [8, 9, 10, 11, 12, 13, 14];
+export const CURVE_AXIS = [0, 1, 2, 3, 4, 5, 6].map((i) => Math.round((i * 65536) / 7));
+const AXIS_TOLERANCE = 32;
+
+/** The curve's force points are a 16-bit fraction of this range, in kg. */
+export const CURVE_FULL_SCALE_KG = 200;
+
+/**
+ * The lowest peak the pedal can hold smoothly.
+ *
+ * Pit House's slider stops here; the firmware does not. A lower peak writes and
+ * reads back perfectly and feels stepped, because the motor cannot hold a force
+ * that small without its cogging becoming detents you can feel. At 12kg it is
+ * unmistakable. Only the peak is clamped — the points below it are meant to be
+ * smaller, and MOZA's own 24kg preset starts at 8.6kg.
+ */
+export const CURVE_MIN_PEAK_KG = 24;
+
+export const curveKg = (raw) => (raw * CURVE_FULL_SCALE_KG) / 65536;
+export const curveRaw = (kg) =>
+  Math.max(0, Math.min(65535, Math.round((kg * 65536) / CURVE_FULL_SCALE_KG)));
+
+/**
+ * Scale a curve's shape to a new peak.
+ *
+ * This is what Pit House's right-hand slider does: all seven points move
+ * together so the pedal gets lighter through the whole travel, rather than
+ * merely saturating earlier. Scaling linearly reproduces MOZA's own presets to
+ * within half a kilogram against their factory 24kg curve.
+ */
+export function scaleCurve(forcesKg, peakKg) {
+  const peak = forcesKg[forcesKg.length - 1];
+  if (!(peak > 0)) throw new Error('curve has no positive peak to scale from');
+  return forcesKg.map((kg) => (kg / peak) * peakKg);
+}
+
+export async function identify(session, { indices = [1, 3, 6] } = {}) {
+  for (const index of indices) {
+    const got = await session.readCurvePoint(index);
+    if (got === null) {
+      return { ok: false, reason: `no answer for curve axis point ${index}` };
+    }
+    if (Math.abs(got - CURVE_AXIS[index]) > AXIS_TOLERANCE) {
+      return {
+        ok: false,
+        reason: `curve axis point ${index} reads ${got}, expected about ${CURVE_AXIS[index]}`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+/**
  * Open the pedal, run `fn` with a session, and always close the port.
  *
  * @param {(session: Session) => Promise<any>} fn
  */
-export async function withDevice(fn, { path = null, PortClass = SerialPort, list } = {}) {
+export async function withDevice(fn, { path = null, PortClass = SerialPort, list, verify = true } = {}) {
   const target = path ?? (await findPort(list ? { list } : {}));
   if (!target) throw new Error('mBooster not found — is it connected?');
 
@@ -216,6 +380,14 @@ export async function withDevice(fn, { path = null, PortClass = SerialPort, list
 
   const session = new Session(port);
   try {
+    if (verify) {
+      const check = await identify(session);
+      if (!check.ok) {
+        throw new Error(
+          `${target} did not answer as an mBooster (${check.reason}). Nothing was written.`,
+        );
+      }
+    }
     return await fn(session);
   } finally {
     await session.close();
