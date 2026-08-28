@@ -50,11 +50,16 @@ describe('notify', () => {
     expect(decode(calls)).toContain('MOZA mismatch');
   });
 
-  it('detaches so a profile switch never waits on a toast', () => {
+  it('never waits on the toast, but does not detach either', () => {
+    // Detaching looks like the right call and silently breaks delivery: a
+    // DETACHED_PROCESS child has no console or window station, and WinRT drops
+    // the toast without an error. unref() gets the same non-blocking behaviour
+    // without that. Pinned because the failure is invisible.
     const { fn, calls } = fakeSpawn();
     notify('a', 'b', { spawnFn: fn, platform: 'win32' });
-    expect(calls[0].options.detached).toBe(true);
+    expect(calls[0].options.detached).toBeUndefined();
     expect(calls[0].options.stdio).toBe('ignore');
+    expect(calls[0].options.windowsHide).toBe(true);
   });
 
   it('does nothing off Windows instead of spawning powershell', () => {

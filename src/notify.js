@@ -73,10 +73,17 @@ export function notify(title, body, { spawnFn = spawn, logger = null, platform =
     const child = spawnFn(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
-      { detached: true, stdio: 'ignore', windowsHide: true },
+      // NOT detached. On Windows that spawns with DETACHED_PROCESS, which cuts
+      // the child off from the console and window-station context WinRT's toast
+      // delivery depends on: Show() returns cleanly and the notification is
+      // never delivered — it does not even reach the notification centre.
+      // Proven by elimination — the same script, same template, same AUMID,
+      // delivered when attached and vanished when detached.
+      //
+      // unref() alone is enough to stop the plugin waiting on it, and the child
+      // only lives a second and a half.
+      { stdio: 'ignore', windowsHide: true },
     );
-    // Without this the plugin holds the process open and Windows shows a
-    // console window flicker on some machines.
     child.unref?.();
     child.on?.('error', (err) => logger?.warn?.(`[notify] spawn failed: ${err.message}`));
     logger?.info?.(`[notify] ${title}`);
