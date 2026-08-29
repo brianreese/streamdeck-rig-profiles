@@ -319,6 +319,86 @@ export function optionLabel(label) {
   return m ? `Setup ${m[1]}${m[2] ? ' (current)' : ''}` : String(label ?? '');
 }
 
+// ---------------------------------------------------------------------------
+// Stored values whose option has gone away
+//
+// A select field's stored value is a reference to something an external app
+// owns: a Pit House preset uuid, a Govee scene name. That app can delete,
+// rename or repackage the thing at any time without the profile changing, and
+// then the stored value matches no option in the list.
+//
+// This used to deadlock the editor. MOZA treated a missing preset as a
+// validation error; `saveProfiles` refuses the whole list when anything fails
+// validation; and the dropdown had no option matching the stored uuid, so the
+// value could not be changed either. One profile pointing at a repackaged
+// preset meant no profile could be saved, and the only way out was deleting
+// the MOZA block from every one of them.
+//
+// The rule now: an unresolved value is DATA, not an error. It is kept exactly
+// as stored, shown as itself, and the block that holds it is locked rather
+// than edited — because a config whose anchor is gone cannot be meaningfully
+// adjusted, only removed. Nothing here blocks a save.
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a stored select value could not be resolved against its options — or
+ * null when it resolves fine, is empty, or the field is not a select.
+ *
+ *   'missing'      the list is authoritative and this value is not in it. The
+ *                  thing it names is gone.
+ *   'unverifiable' no options came back at all. That is what an unreachable
+ *                  wheelbase or a closed Pit House looks like, and it says
+ *                  nothing whatsoever about the stored value — so the editor
+ *                  must not call it missing.
+ *
+ * The two are told apart by whether there is a domain to check against. A
+ * non-empty list is one, whatever its provenance: it is the provider's own
+ * account of what exists. `optionsLive` (set in piBridge) carries the other
+ * case — a provider with no options() at all, whose schema list IS the whole
+ * domain even when that list is empty.
+ */
+export function unknownSelectValue(field, value) {
+  if (field?.type !== 'select') return null;
+  if (value === undefined || value === null || value === '') return null;
+
+  const options = field.options ?? [];
+  // String-compared because that is how the option list is matched when it is
+  // rendered: a slot stored as the number 2 and offered as the string "2" is
+  // the same slot, and must not be reported missing.
+  if (options.some((o) => String(o.value) === String(value))) return null;
+
+  return {
+    key: field.key,
+    label: field.label,
+    value,
+    why: options.length || field.optionsLive ? 'missing' : 'unverifiable',
+  };
+}
+
+/**
+ * Every stored value in this provider's config that its options cannot explain.
+ *
+ * Provider-agnostic on purpose: a Govee scene renamed in the Govee app hits
+ * exactly the wall a repackaged MOZA preset does, and there is nothing about
+ * either that the editor should know by name.
+ */
+export function unknownValues(provider, cfg) {
+  return (provider?.fields ?? [])
+    .map((field) => unknownSelectValue(field, cfg?.[field.key]))
+    .filter(Boolean);
+}
+
+/**
+ * Should this whole provider block be locked?
+ *
+ * Only for a genuinely missing value, never for an unverifiable one. Locking
+ * on "no options came back" would grey out a profile's pedal forces every time
+ * Pit House happened to be closed — which is most of the time, and which is
+ * crying wolf: nothing is known to be wrong. A missing anchor is different, and
+ * the config as a whole is not meaningfully editable without it.
+ */
+export const blocksEditing = (unknowns) => (unknowns ?? []).some((u) => u.why === 'missing');
+
 /**
  * Coerce one edited field for storage; undefined means "remove this key".
  *

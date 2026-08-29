@@ -3,7 +3,7 @@ import {
   addProfile, addScene, newScene, removeProfile, moveProfile, keepSelection,
   matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
   sceneRefs, referencesScene, setSceneRef, profilesUsingScene, detachScene, sceneOverlap,
-  offers, providerContexts,
+  offers, providerContexts, unknownSelectValue, unknownValues, blocksEditing,
 } from './editorState.js';
 
 const saved = (over = {}) => ({
@@ -419,5 +419,121 @@ describe('offers', () => {
   it('survives a record with no providers map and no selection at all', () => {
     expect(offers({ providers: kit, record: null }).every((o) => o.added === false)).toBe(true);
     expect(offers()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stored values whose option has gone away
+// ---------------------------------------------------------------------------
+
+const presetField = (over = {}) => ({
+  key: 'preset', label: 'Pit House preset', type: 'select',
+  options: [{ value: 'aaa', label: 'Kai soft' }, { value: 'bbb', label: 'Race' }],
+  optionsLive: true, ...over,
+});
+
+describe('unknownSelectValue', () => {
+  it('says nothing about a value that is in the list', () => {
+    expect(unknownSelectValue(presetField(), 'aaa')).toBeNull();
+  });
+
+  it('says nothing about an empty value — that is "not set", not "missing"', () => {
+    expect(unknownSelectValue(presetField(), '')).toBeNull();
+    expect(unknownSelectValue(presetField(), undefined)).toBeNull();
+    expect(unknownSelectValue(presetField(), null)).toBeNull();
+  });
+
+  it('ignores fields that are not selects', () => {
+    expect(unknownSelectValue({ key: 'peakForceKg', type: 'range' }, 42)).toBeNull();
+    expect(unknownSelectValue({ key: 'commands', type: 'textarea' }, 'x')).toBeNull();
+  });
+
+  // The case the whole thing exists for: Pit House repackaged its presets and
+  // the stored uuid names something that is no longer offered.
+  it('reports a value the list does not contain as missing', () => {
+    expect(unknownSelectValue(presetField(), 'c903ac57')).toEqual({
+      key: 'preset', label: 'Pit House preset', value: 'c903ac57', why: 'missing',
+    });
+  });
+
+  // No options came back at all. That is what a closed Pit House or an
+  // unreachable wheelbase looks like, and it says nothing about the value.
+  it('reports a value as unverifiable when no options came back', () => {
+    const field = presetField({ options: [], optionsLive: false });
+    expect(unknownSelectValue(field, 'c903ac57').why).toBe('unverifiable');
+  });
+
+  it('treats an absent options list the same as an empty one', () => {
+    const field = presetField({ options: undefined, optionsLive: false });
+    expect(unknownSelectValue(field, 'c903ac57').why).toBe('unverifiable');
+  });
+
+  // A provider with no options() of its own declares its whole domain in the
+  // schema, so an empty list there really does mean "nothing matches".
+  it('trusts an empty list when the provider says it is authoritative', () => {
+    const field = presetField({ options: [], optionsLive: true });
+    expect(unknownSelectValue(field, 'c903ac57').why).toBe('missing');
+  });
+
+  // A wheelbase slot is stored as a number and offered as one, but the two
+  // sides have crossed the wire as strings before now. Reporting Setup 2 as
+  // missing because 2 !== "2" would lock a block for no reason at all.
+  it('matches across the string/number boundary', () => {
+    const slots = { key: 'setup', type: 'select', optionsLive: true,
+      options: [{ value: 1, label: 'Setup 1' }, { value: 2, label: 'Setup 2' }] };
+    expect(unknownSelectValue(slots, '2')).toBeNull();
+    expect(unknownSelectValue({ ...slots, options: [{ value: '2', label: 'Setup 2' }] }, 2)).toBeNull();
+  });
+});
+
+describe('unknownValues', () => {
+  const moza = {
+    id: 'moza',
+    fields: [presetField(), { key: 'peakForceKg', label: 'Peak force', type: 'range' }],
+  };
+
+  it('finds nothing wrong with a config whose preset still exists', () => {
+    expect(unknownValues(moza, { preset: 'aaa', peakForceKg: 12 })).toEqual([]);
+  });
+
+  it('picks out only the select whose value has gone', () => {
+    const found = unknownValues(moza, { preset: 'gone-uuid', peakForceKg: 12 });
+    expect(found.map((u) => u.key)).toEqual(['preset']);
+    expect(found[0].value).toBe('gone-uuid');
+  });
+
+  // Provider-agnostic by construction: a Govee scene renamed in the Govee app
+  // is the same shape of problem and gets the same answer.
+  it('works the same for a renamed Govee scene', () => {
+    const govee = { id: 'govee', fields: [{ key: 'scene', label: 'Scene', type: 'select',
+      options: [{ value: 'Sunset', label: 'Sunset' }], optionsLive: true }] };
+    expect(unknownValues(govee, { scene: 'Sunrise' })[0].why).toBe('missing');
+    expect(unknownValues(govee, { scene: 'Sunset' })).toEqual([]);
+  });
+
+  it('survives a provider with no fields and a config with nothing in it', () => {
+    expect(unknownValues({ id: 'x' }, {})).toEqual([]);
+    expect(unknownValues(undefined, undefined)).toEqual([]);
+  });
+});
+
+describe('blocksEditing', () => {
+  it('locks the block for a value that is known to be gone', () => {
+    expect(blocksEditing([{ why: 'missing' }])).toBe(true);
+  });
+
+  // Crying wolf is the failure here. Pit House is closed most of the time; the
+  // pedal forces on a profile must not grey out every time it is.
+  it('leaves the block alone when the value merely could not be checked', () => {
+    expect(blocksEditing([{ why: 'unverifiable' }])).toBe(false);
+  });
+
+  it('locks when a missing value sits beside an unverifiable one', () => {
+    expect(blocksEditing([{ why: 'unverifiable' }, { why: 'missing' }])).toBe(true);
+  });
+
+  it('leaves an untroubled block alone', () => {
+    expect(blocksEditing([])).toBe(false);
+    expect(blocksEditing(undefined)).toBe(false);
   });
 });

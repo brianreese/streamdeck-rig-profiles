@@ -298,6 +298,40 @@
         font-size: 10.5px; color: var(--faint); border: 1px solid var(--line);
         border-radius: 20px; padding: 1px 8px; white-space: nowrap;
       }
+      .badge.bad { color: var(--amber); border-color: #5f4c1f; background: rgba(227, 179, 65, 0.1); }
+
+      /* -------------------------------------------- values that have gone away
+         A stored value its provider can no longer explain — a Pit House preset
+         repackaged out from under the profile, a Govee scene renamed in the
+         Govee app. Amber, not red: nothing is broken and nothing is refused.
+         The profile still saves and the value is still exactly what it was.
+         What has gone is the ability to edit it meaningfully. */
+      .hw.locked::before { background: var(--amber); }
+      .lostbanner {
+        background: rgba(227, 179, 65, 0.08); border: 1px solid #5f4c1f;
+        border-left-width: 3px; border-radius: 8px; padding: 9px 12px; margin: 0 0 14px;
+        color: #e6d3a8; font-size: 12.5px; line-height: 1.5;
+      }
+      .lostbanner b { display: block; color: var(--amber); margin-bottom: 3px; }
+      /* The raw stored value, shown as itself. It is a uuid or a name from
+         another app's database, and with the option gone it is the only
+         identifying information left — so it is selectable text, not a label. */
+      .lostval {
+        display: inline-block; max-width: 100%; overflow-wrap: anywhere;
+        background: #1b1d21; border: 1px solid #5f4c1f; border-radius: 7px;
+        padding: 6px 9px; font-size: 12px; color: var(--fg); user-select: all;
+      }
+      .help.lost { color: #c9b183; }
+
+      /* A locked control keeps its value legible. Greyed enough to say "not
+         now", not so far that you cannot read what the profile is set to. */
+      input:disabled, select:disabled, textarea:disabled { opacity: 0.55; cursor: not-allowed; }
+      input[type="checkbox"]:disabled { cursor: not-allowed; }
+      /* A disabled slider normally means "this setting is not set on this
+         profile", which is why it fades almost out. Inside a locked block it
+         means something else entirely — the value IS set, it just cannot be
+         changed right now — so it stays as readable as the rest. */
+      .hw.locked input[type="range"]:disabled { opacity: 0.55; }
       .cfglink {
         font-size: 11.5px; color: var(--accent); background: none; border: none;
         padding: 2px 6px; border-radius: 5px; cursor: pointer; font-family: inherit;
@@ -576,7 +610,7 @@
         addProfile, addScene, removeProfile, moveProfile, keepSelection,
         matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
         referencesScene, setSceneRef, profilesUsingScene, detachScene, sceneOverlap,
-        offers,
+        offers, unknownSelectValue, unknownValues, blocksEditing,
       } = await import(`./editorState.js${q}`);
       // Same module the key renderer uses, so "readable" means one thing here
       // and on the deck.
@@ -991,19 +1025,41 @@
       // =====================================================================
 
       /** Render one schema-declared field. Identical vocabulary to the inspector. */
-      function fieldHtml(prov, field, cfg) {
+      function fieldHtml(prov, field, cfg, { locked = false } = {}) {
         const v = cfg?.[field.key];
         const id = `${prov.id}|${field.key}`;
         const help = field.help ? `<div class="help">${esc(field.help)}</div>` : '';
+        // Locked fields keep their values on screen and refuse to take new
+        // ones. `disabled` rather than a class that only looks the part.
+        const off = locked ? ' disabled' : '';
 
         if (field.type === 'select') {
+          const unknown = unknownSelectValue(field, v);
+          // A value the options cannot explain is shown AS ITSELF, never as a
+          // dropdown. A <select> can only display an option it has, so an
+          // unmatched uuid renders as "— none —" — and one change event on that
+          // select would write the blank back over the uuid and lose the only
+          // identifying information left. There is no control here to fire it.
+          if (unknown) return `<div class="row"><label>${esc(field.label)}</label>
+            <div class="grp"><code class="lostval" title="the value stored on this profile"
+              >${esc(unknown.value)}</code></div>
+            <div class="help lost">${unknown.why === 'missing'
+              ? `Not in ${esc(prov.label)}'s list any more — it was probably renamed or
+                 deleted in the app that owns it. The value is kept exactly as it is, so
+                 nothing is repointed behind your back. Remove this block with ✕ if it is
+                 no longer wanted.`
+              : `${esc(prov.label)} did not offer any options just now, so this cannot be
+                 checked — it may be perfectly fine. The value is kept as it is. Reconnect
+                 the hardware, or open the app that owns it, and reopen this editor.`}</div>
+          </div>`;
+
           const opts = (field.options ?? []).map((o) =>
             // optionLabel presents a wheelbase slot the way the Fanatec app
             // names it; everything else passes through untouched.
             `<option value="${esc(o.value)}"${String(v) === String(o.value) ? ' selected' : ''}
               >${esc(optionLabel(o.label))}</option>`).join('');
           return `<div class="row"><label>${esc(field.label)}</label>
-            <select data-fld="${id}"><option value="">— none —</option>${opts}</select>${help}</div>`;
+            <select data-fld="${id}"${off}><option value="">— none —</option>${opts}</select>${help}</div>`;
         }
         if (field.type === 'range') {
           // A slider always has a position, so it cannot express "leave this
@@ -1014,26 +1070,26 @@
           const shown = on ? v : field.min;
           return `<div class="row"><label>${esc(field.label)}</label>
             <div class="grp">
-              <input type="checkbox" data-fldon="${id}"${on ? ' checked' : ''}
+              <input type="checkbox" data-fldon="${id}"${on ? ' checked' : ''}${off}
                      title="Set this on this profile" />
               <input type="range" data-fld="${id}" min="${field.min}" max="${field.max}"
-                     step="${field.step ?? 1}" value="${esc(shown)}"${on ? '' : ' disabled'} />
+                     step="${field.step ?? 1}" value="${esc(shown)}"${on && !locked ? '' : ' disabled'} />
               <span class="rv${on ? '' : ' off'}" data-rv="${id}" data-unit="${esc(field.unit ?? '')}"
                 >${on ? esc(v) + (field.unit ?? '') : 'not set'}</span>
             </div>${help}</div>`;
         }
         if (field.type === 'boolean') {
           return `<div class="row"><label>${esc(field.label)}</label>
-            <div class="grp"><input type="checkbox" data-fld="${id}"${v ? ' checked' : ''} />
+            <div class="grp"><input type="checkbox" data-fld="${id}"${v ? ' checked' : ''}${off} />
             <span class="muted">${esc(field.help ?? '')}</span></div></div>`;
         }
         if (field.type === 'textarea') {
           return `<div class="row" style="align-items:flex-start"><label>${esc(field.label)}</label>
-            <textarea class="cmds" data-fld="${id}" spellcheck="false"
+            <textarea class="cmds" data-fld="${id}" spellcheck="false"${off}
               placeholder="${esc(field.placeholder ?? '')}">${esc(v ?? '')}</textarea>${help}</div>`;
         }
         return `<div class="row"><label>${esc(field.label)}</label>
-          <input type="text" data-fld="${id}" value="${esc(v ?? '')}" />${help}</div>`;
+          <input type="text" data-fld="${id}" value="${esc(v ?? '')}"${off} />${help}</div>`;
       }
 
       /**
@@ -1061,14 +1117,39 @@
             ? `<button class="cfglink" data-goto="${esc(prov.id)}"
                  title="This provider has options in Settings">⚙ ${esc(PROVIDER_SETTINGS[prov.id])} settings</button>`
             : '';
-          return `<div class="hw" data-hw="${esc(prov.id)}">
+
+          // A stored value whose option has gone away. The block is locked
+          // rather than hidden or dropped: the value is the only record of what
+          // this profile pointed at, and a config without its anchor cannot be
+          // adjusted into something sensible — only kept as it is, or removed.
+          // Locking is for a value known to be gone; a value that merely could
+          // not be checked leaves the rest of the block alone.
+          const unknowns = unknownValues(prov, cfg);
+          const locked = blocksEditing(unknowns);
+          const lostBadge = unknowns.length
+            ? `<span class="badge ${locked ? 'bad' : ''}" title="${locked
+                ? 'A value on this block no longer exists'
+                : 'A value on this block could not be checked'}">${
+                locked ? 'unavailable' : 'unchecked'}</span>`
+            : '';
+          const banner = locked
+            ? `<div class="lostbanner"><b>This block is locked</b>
+                 ${esc(unknowns.filter((u) => u.why === 'missing').map((u) => u.label).join(', '))}
+                 no longer ${unknowns.filter((u) => u.why === 'missing').length === 1 ? 'names' : 'name'}
+                 anything ${esc(prov.label)} offers, so the rest of these settings have nothing to
+                 apply to. Everything is kept exactly as stored and this profile still saves —
+                 remove the block with ✕ when you no longer want it.</div>`
+            : '';
+
+          return `<div class="hw${locked ? ' locked' : ''}" data-hw="${esc(prov.id)}">
             <div class="hw-head">
-              <span class="pname">${esc(prov.label)}</span>${badge}${stale}
+              <span class="pname">${esc(prov.label)}</span>${badge}${stale}${lostBadge}
               <span style="flex:1"></span>${settingsLink}
               <button class="icon rm" data-rmprov="${esc(prov.id)}"
                       title="Remove ${esc(prov.label)} from this profile">✕</button>
             </div>
-            <div class="hw-body">${(prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg)).join('')}</div>
+            <div class="hw-body">${banner}${
+              (prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg, { locked })).join('')}</div>
           </div>`;
         }).join('');
       }

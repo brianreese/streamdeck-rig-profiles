@@ -276,6 +276,58 @@ describe('getProviders', () => {
   });
 });
 
+describe('getProviders: whether an options list can be trusted', () => {
+  // The editor has to tell "this list was read and your value is not in it"
+  // from "no list came back". The first means the thing the profile points at
+  // is gone; the second means nothing at all, and saying "missing" for it would
+  // grey out a block every time Pit House happened to be shut.
+  const select = () => [{ key: 'preset', label: 'Preset', type: 'select', options: [] }];
+  const stub = (id, over = {}) => ({ id, label: id, verifiable: true, schema: select, ...over });
+
+  const fieldOf = async (id) => {
+    const reply = await handlePiRequest(
+      { request: 'getProviders' }, { settings: fakeSettings(), logger: silent });
+    return reply.providers.find((p) => p.id === id).fields[0];
+  };
+
+  it('marks a list read back from the hardware as authoritative', async () => {
+    register(stub('moza', { options: async () => [{ value: 'aaa', label: 'Kai soft' }] }));
+    const field = await fieldOf('moza');
+    expect(field.optionsLive).toBe(true);
+    expect(field.options).toEqual([{ value: 'aaa', label: 'Kai soft' }]);
+  });
+
+  // Pit House closed, wheelbase asleep, no Govee key. The schema's own list
+  // stands, and the editor is told not to draw conclusions from it.
+  it('does not claim authority when enumeration comes back empty', async () => {
+    register(stub('moza', { options: async () => [] }));
+    expect((await fieldOf('moza')).optionsLive).toBe(false);
+  });
+
+  it('does not claim authority when enumeration throws', async () => {
+    register(stub('moza', { options: async () => { throw new Error('pit house is closed'); } }));
+    const field = await fieldOf('moza');
+    expect(field.optionsLive).toBe(false);
+    expect(field.options).toEqual([]);
+  });
+
+  // Nothing to ask: the schema is the whole domain, so it is authoritative
+  // even when it is short.
+  it('trusts the schema of a provider that enumerates nothing', async () => {
+    register(stub('moza', { schema: () => [{ key: 'setup', type: 'select',
+      options: [{ value: 1, label: 'Setup 1' }] }] }));
+    expect((await fieldOf('moza')).optionsLive).toBe(true);
+  });
+
+  it('leaves fields that are not selects alone', async () => {
+    register(stub('moza', {
+      schema: () => [{ key: 'peakForceKg', type: 'range', min: 1, max: 9 }],
+      options: async () => [{ value: 'aaa', label: 'Kai soft' }],
+    }));
+    expect((await fieldOf('moza')).optionsLive).toBeUndefined();
+  });
+});
+
 describe('the provider contract the editor depends on', () => {
   // Not which contexts each one picked — that is the provider's business — but
   // that every one of them answers the question at all. The editor's scene

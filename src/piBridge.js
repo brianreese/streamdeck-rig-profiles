@@ -205,10 +205,22 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         allProviders().map(async (p) => {
           const fields = p.schema?.() ?? [];
           for (const f of fields) {
-            if (f.type !== 'select' || !p.options) continue;
+            if (f.type !== 'select') continue;
+            // Whether this list can be trusted to be the whole domain.
+            //
+            // It decides what the editor says about a stored value it cannot
+            // find: a value missing from a list we just read out of the
+            // hardware is genuinely gone, and a value missing from a list that
+            // never arrived proves nothing at all. A provider with no options()
+            // is authoritative by declaration — its schema IS the domain.
+            f.optionsLive = !p.options;
+            if (!p.options) continue;
             try {
               const live = await p.options({ settings: settingsBlob });
-              if (live?.length) f.options = live;
+              if (live?.length) {
+                f.options = live;
+                f.optionsLive = true;
+              }
             } catch (err) {
               logger.warn?.(`[pi] options for ${p.id}.${f.key} failed: ${err.message}`);
             }
