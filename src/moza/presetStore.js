@@ -18,6 +18,7 @@
 // different presets.
 
 import { readFileSync, existsSync, readdirSync } from 'fs';
+import { inflateRawSync } from 'zlib';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -71,21 +72,66 @@ export function parseIni(text) {
  *                                   not show up for an mBooster.
  * @returns {Array<{id,name,deviceType,devices,isOfficial,lastModified,paramCount}>}
  */
+/**
+ * Read one preset file, whichever container Pit House wrote it in.
+ *
+ * Pit House 1.4 repackaged every preset as `<uuid>.mzpreset`: a ZIP holding a
+ * single `preset.json`. The JSON inside is unchanged — same name, deviceType,
+ * devices and deviceParams — so only the wrapper needs handling.
+ *
+ * Both forms are read, because the old ones still exist in the Backup folder
+ * the upgrade left behind, and a second machine may not have upgraded yet.
+ *
+ * The ZIP is parsed directly rather than with a dependency. These archives hold
+ * one small entry, so it is a local file header, a length and an inflate — less
+ * code than justifying a package for it.
+ */
+function readPresetFile(path) {
+  try {
+    const buf = readFileSync(path);
+    if (!path.endsWith('.mzpreset')) return JSON.parse(buf.toString('utf8'));
+
+    // Local file header: PK, then sizes at 18/22 and the name at 26.
+    if (buf.length < 30 || buf.readUInt32LE(0) !== 0x04034b50) return null;
+    const method = buf.readUInt16LE(8);
+    const compressed = buf.readUInt32LE(18);
+    const nameLen = buf.readUInt16LE(26);
+    const extraLen = buf.readUInt16LE(28);
+    const start = 30 + nameLen + extraLen;
+    const body = buf.subarray(start, start + compressed);
+
+    // 0 is stored, 8 is deflate. Anything else is a container we do not know.
+    if (method === 0) return JSON.parse(body.toString('utf8'));
+    if (method !== 8) return null;
+    return JSON.parse(inflateRawSync(body).toString('utf8'));
+  } catch {
+    // A malformed preset must never break the list it appears in.
+    return null;
+  }
+}
+
+/** Preset containers, newest format first. */
+const PRESET_EXTENSIONS = ['.mzpreset', '.json'];
+
 export function listPresets({ dir = resolvePitHouseDir(), deviceType = 'Pedals', device = null } = {}) {
   if (!dir) return [];
   const folder = join(dir, 'Presets', deviceType);
   if (!existsSync(folder)) return [];
 
   const presets = [];
+  const seen = new Set();
   for (const file of readdirSync(folder)) {
-    if (!file.endsWith('.json')) continue;
-    let parsed;
-    try {
-      parsed = JSON.parse(readFileSync(join(folder, file), 'utf8'));
-    } catch {
-      continue; // a malformed preset must not break the whole list
-    }
+    const ext = PRESET_EXTENSIONS.find((e) => file.endsWith(e));
+    if (!ext) continue;
+
+    // An upgrade leaves both forms side by side for a while; listing a preset
+    // twice would put two identical names in the picker.
+    const stem = file.slice(0, -ext.length);
+    if (seen.has(stem)) continue;
+
+    const parsed = readPresetFile(join(folder, file));
     if (!parsed?.name) continue;
+    seen.add(stem);
 
     const devices = Array.isArray(parsed.devices) ? parsed.devices : [];
     if (device && devices.length && !devices.some((d) => sameDevice(d, device))) continue;
@@ -118,13 +164,11 @@ function sameDevice(a, b) {
 /** Read one preset in full, including its deviceParams. */
 export function readPreset(id, { dir = resolvePitHouseDir(), deviceType = 'Pedals' } = {}) {
   if (!dir) return null;
-  const path = join(dir, 'Presets', deviceType, `${id}.json`);
-  if (!existsSync(path)) return null;
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return null;
+  for (const ext of PRESET_EXTENSIONS) {
+    const path = join(dir, 'Presets', deviceType, `${id}${ext}`);
+    if (existsSync(path)) return readPresetFile(path);
   }
+  return null;
 }
 
 /**

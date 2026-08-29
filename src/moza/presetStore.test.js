@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { deflateRawSync } from 'zlib';
 import {
   parseIni,
   listPresets,
@@ -146,5 +147,97 @@ describe('resolvePitHouseDir', () => {
     // Documents is often redirected into OneDrive, so the path is configurable.
     const dir = makeLibrary([preset()]);
     expect(resolvePitHouseDir({ home: tmpdir(), env: { MOZA_PITHOUSE_DIR: dir } })).toBe(dir);
+  });
+});
+
+describe('the .mzpreset container', () => {
+  /**
+   * Build a real single-entry ZIP, the way Pit House 1.4 writes presets.
+   *
+   * Hand-rolled rather than mocked: the point of these tests is that we parse
+   * the actual container, so a fake would test nothing.
+   */
+  function mzpreset(json, { method = 8 } = {}) {
+    const name = Buffer.from('preset.json', 'utf8');
+    const body = Buffer.from(JSON.stringify(json), 'utf8');
+    const stored = method === 0 ? body : deflateRawSync(body);
+
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(0x04034b50, 0); // PK\x03\x04
+    header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(2, 6);
+    header.writeUInt16LE(method, 8);
+    header.writeUInt32LE(0, 14); // crc, unchecked by the reader
+    header.writeUInt32LE(stored.length, 18);
+    header.writeUInt32LE(body.length, 22);
+    header.writeUInt16LE(name.length, 26);
+    header.writeUInt16LE(0, 28);
+    return Buffer.concat([header, name, stored]);
+  }
+
+  const preset = (id, name) => ({
+    id,
+    name,
+    deviceType: 'Pedals',
+    devices: ['mBooster'],
+    deviceParams: { brake_forcelimit_max: 24 },
+  });
+
+  function seedZipped(entries, { method = 8 } = {}) {
+    const dir = mkdtempSync(join(tmpdir(), 'pithouse-mz-'));
+    const pedals = join(dir, 'Presets', 'Pedals');
+    mkdirSync(pedals, { recursive: true });
+    for (const p of entries) {
+      writeFileSync(join(pedals, `${p.id}.mzpreset`), mzpreset(p, { method }));
+    }
+    return dir;
+  }
+
+  it('reads a preset out of the zip', () => {
+    const dir = seedZipped([preset('a', 'Carter Brake')]);
+    expect(listPresets({ dir }).map((p) => p.name)).toEqual(['Carter Brake']);
+    expect(readPreset('a', { dir }).deviceParams.brake_forcelimit_max).toBe(24);
+  });
+
+  it('reads a stored entry as well as a deflated one', () => {
+    const dir = seedZipped([preset('a', 'Uncompressed')], { method: 0 });
+    expect(listPresets({ dir }).map((p) => p.name)).toEqual(['Uncompressed']);
+  });
+
+  it('still reads the pre-upgrade json form', () => {
+    // The Backup folder the upgrade left behind is full of these, and a second
+    // machine may not have upgraded yet.
+    const dir = mkdtempSync(join(tmpdir(), 'pithouse-legacy-'));
+    const pedals = join(dir, 'Presets', 'Pedals');
+    mkdirSync(pedals, { recursive: true });
+    writeFileSync(join(pedals, 'a.json'), JSON.stringify(preset('a', 'Legacy')), 'utf8');
+    expect(listPresets({ dir }).map((p) => p.name)).toEqual(['Legacy']);
+    expect(readPreset('a', { dir }).name).toBe('Legacy');
+  });
+
+  it('lists a preset once when the upgrade left both forms behind', () => {
+    const dir = seedZipped([preset('a', 'Carter Brake')]);
+    writeFileSync(
+      join(dir, 'Presets', 'Pedals', 'a.json'),
+      JSON.stringify(preset('a', 'Carter Brake')),
+      'utf8',
+    );
+    expect(listPresets({ dir })).toHaveLength(1);
+  });
+
+  it('prefers the new container when both exist', () => {
+    const dir = seedZipped([preset('a', 'From the zip')]);
+    writeFileSync(
+      join(dir, 'Presets', 'Pedals', 'a.json'),
+      JSON.stringify(preset('a', 'From the json')),
+      'utf8',
+    );
+    expect(readPreset('a', { dir }).name).toBe('From the zip');
+  });
+
+  it('skips a corrupt archive rather than losing the whole list', () => {
+    const dir = seedZipped([preset('a', 'Good')]);
+    writeFileSync(join(dir, 'Presets', 'Pedals', 'bad.mzpreset'), Buffer.from('not a zip'));
+    expect(listPresets({ dir }).map((p) => p.name)).toEqual(['Good']);
   });
 });

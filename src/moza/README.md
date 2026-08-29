@@ -7,7 +7,7 @@ not involved at runtime.
 |---|---|
 | `frame.js` | Wire format: framing, escaping, checksum, value scaling |
 | `mbooster.js` | Serial session, confirmed parameters, Pit House control |
-| `presetStore.js` | Reads Pit House's preset library (reference only) |
+| `presetStore.js` | Reads Pit House's preset library (both container formats) |
 
 ## Confirmed parameters
 
@@ -81,6 +81,17 @@ Values read back up to one raw unit low (0.003kg on the force scale). The
 firmware stores them as floats: a write of 2175 logged
 `Table 2, Param 42 Written: 1079273428`, which is `3.318830` — the value as a
 percentage of full scale. The read path truncates on the way back.
+
+## Preset files
+
+Pit House 1.4 repackaged every preset as  — a ZIP holding a
+single . The JSON inside is unchanged, so only the wrapper needed
+handling, and both forms are read: the upgrade leaves the old ones in a Backup
+folder, and another machine may not have upgraded yet. Where both exist for one
+id the archive wins and the preset is listed once.
+
+The archive is parsed directly. One small entry means a local file header, a
+length and an inflate — less code than justifying a dependency for it.
 
 ## Pit House
 
