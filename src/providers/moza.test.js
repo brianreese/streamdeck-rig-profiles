@@ -274,8 +274,27 @@ describe('preset-backed profiles', () => {
     expect(moza.validate({ peakForceKg: 24 }).join()).toMatch(/needs a preset/);
   });
 
-  it('reports a preset that has since been deleted', () => {
-    expect(moza.validate({ preset: 'gone' }).join()).toMatch(/no longer in Pit House/);
+  it('does not treat a missing preset as a malformed config', async () => {
+    // Existence is environmental, not structural. Pit House can delete or
+    // repackage a preset without the config changing — an upgrade to the
+    // .mzpreset container did exactly that — and making it a validation error
+    // meant one profile pointing at a missing preset blocked saving every
+    // profile, with no way to change the value because the dropdown had no
+    // option for it.
+    expect(moza.validate({ preset: 'gone' })).toEqual([]);
+  });
+
+  it('refuses to apply a preset that is not there, rather than half-applying', async () => {
+    // Silently dropping the curve would turn "Brian's shape at 24kg" into
+    // "24kg of whatever is already loaded" — the wrong surprise on a brake.
+    fakePedal();
+    await expect(moza.apply({ preset: 'gone', peakForceKg: 24 }, {})).rejects.toThrow(
+      /not in Pit House's library/,
+    );
+  });
+
+  it('says a preset is missing when describing it, rather than showing nothing', () => {
+    expect(moza.describe({ preset: 'gone' })).toMatch(/missing/);
   });
 
   it('fails loudly when a curve point will not take', async () => {

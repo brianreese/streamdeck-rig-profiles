@@ -152,6 +152,19 @@ export default {
     }));
   },
 
+  /**
+   * Is this configuration well formed?
+   *
+   * Deliberately NOT "does the preset still exist". That is environmental, not
+   * structural: Pit House can delete or repackage a preset without the config
+   * changing, and treating it as a validation error meant one profile pointing
+   * at a missing preset blocked saving *every* profile — with no way to change
+   * the value, because the dropdown had no option for it. A Pit House upgrade
+   * hit exactly that.
+   *
+   * A missing preset is caught in apply(), where it stops the switch and says
+   * so, and shown in the editor, which greys the block and offers to remove it.
+   */
   validate(cfg) {
     const problems = [];
     const hasPreset = Boolean(cfg?.preset);
@@ -177,10 +190,6 @@ export default {
       }
     }
 
-    if (hasPreset && !findPreset(cfg.preset)) {
-      problems.push(`MOZA preset "${cfg.preset}" is no longer in Pit House's library`);
-    }
-
     for (const key of changed) {
       const spec = PARAMS[key];
       const value = Number(cfg[key]);
@@ -195,6 +204,7 @@ export default {
     const preset = cfg?.preset ? findPreset(cfg.preset) : null;
     const parts = [];
     if (preset) parts.push(`preset "${preset.name}"`);
+    else if (cfg?.preset) parts.push(`preset "${cfg.preset}" (missing)`);
     if (filled(cfg?.peakForceKg)) parts.push(`peak force ${Number(cfg.peakForceKg)}kg`);
     for (const key of overrides(cfg)) {
       parts.push(`${PARAMS[key].label.toLowerCase()} ${Number(cfg[key])}${PARAMS[key].unit}`);
@@ -207,6 +217,16 @@ export default {
     if (problems.length) throw new Error(problems[0]);
 
     const preset = cfg?.preset ? findPreset(cfg.preset) : null;
+    if (cfg?.preset && !preset) {
+      // Caught here rather than in validate(), because whether a preset still
+      // exists is environmental and can change without the config changing.
+      // Failing beats quietly applying the overrides without the curve they
+      // were meant to modify: "Brian's shape at 24kg" silently becoming "24kg
+      // of whatever is already loaded" is the wrong surprise on a brake pedal.
+      throw new Error(
+        `preset "${cfg.preset}" is not in Pit House's library — pick another in the editor`,
+      );
+    }
     const plan = resolve(cfg, { preset });
 
     // On by default, matching Fanatec's auto-start. Pit House holds the serial
