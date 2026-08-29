@@ -323,6 +323,44 @@
       }
       .help.lost { color: #c9b183; }
 
+      /* ------------------------------------------- blocks holding nothing yet
+         The third state, and the one this palette has to keep separate from the
+         other two. `unavailable` is amber and means a value that is GONE;
+         `unchecked` is quiet and means a value that could not be verified. A
+         block that has never held a value is neither, so it borrows neither
+         colour. Accent while it is still being filled in — the same blue as
+         "+ add", because it is the same act, unfinished — and red only once the
+         user has plainly walked away from it. */
+      .hw.blank::before { background: #3f434b; }
+      .badge.todo { color: var(--accent); border-color: #2c4675; background: rgba(76, 141, 255, 0.1); }
+      body.scenemode .hw.blank::before { background: #3f434b; }
+      body.scenemode .badge.todo {
+        color: var(--scene); border-color: #55408a; background: rgba(160, 119, 255, 0.1);
+      }
+      .newbanner {
+        border: 1px dashed #3c4048; border-radius: 8px; padding: 9px 12px; margin: 0 0 14px;
+        color: var(--dim); font-size: 12.5px; line-height: 1.5;
+      }
+
+      /* Left blank on purpose, now. Same red as a save failure, because the
+         consequence is the same shape: something on screen is not in the store.
+         It is worded as what happened rather than as a refusal — the record
+         saved perfectly well, without this. */
+      .hw.unset::before, body.scenemode .hw.unset::before { background: var(--red); }
+      .badge.unset, body.scenemode .badge.unset {
+        color: var(--red); border-color: #6b3b37; background: rgba(241, 106, 96, 0.1);
+      }
+      .unsetbanner {
+        background: #2a1f21; border: 1px solid #6b3b37; border-left-width: 3px;
+        border-radius: 8px; padding: 9px 12px; margin: 0 0 14px;
+        color: #e2b7b3; font-size: 12.5px; line-height: 1.5;
+      }
+      .unsetbanner b { color: var(--red); }
+      .issues.unset p { margin: 0; color: #e2b7b3; font-size: 12.5px; }
+      .issues + .issues { margin-top: -8px; }
+      #list .warn { color: var(--amber); font-weight: 700; flex: 0 0 auto; }
+      .state.holding .dot { background: var(--amber); }
+
       /* A locked control keeps its value legible. Greyed enough to say "not
          now", not so far that you cannot read what the profile is set to. */
       input:disabled, select:disabled, textarea:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -611,6 +649,7 @@
         matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
         referencesScene, setSceneRef, profilesUsingScene, detachScene, sceneOverlap,
         offers, unknownSelectValue, unknownValues, blocksEditing,
+        isBlank, blankBlocks, forStorage,
       } = await import(`./editorState.js${q}`);
       // Same module the key renderer uses, so "readable" means one thing here
       // and on the deck.
@@ -753,6 +792,86 @@
       let broken = new Map();
       let savedOnce = false;
 
+      // =====================================================================
+      // Blocks that hold nothing yet
+      // =====================================================================
+      //
+      // A provider block is created empty — adding MOZA to a profile means
+      // `providers.moza = {}` and nothing else. Every provider refuses that,
+      // rightly, so with autosave running the act of adding one used to be the
+      // act of being told off for a state the user had had no chance to leave.
+      //
+      // Three states, and the third is the new one:
+      //
+      //   unavailable  a stored value its provider can no longer find. Amber,
+      //                the block is locked, the value is kept. (Unchanged.)
+      //   unchecked    a value that could not be verified because no options
+      //                came back. Quiet, nothing locked. (Unchanged.)
+      //   blank        nothing has been chosen here yet. Not an error, because
+      //                the user has not finished; not saved either, because
+      //                incomplete configuration is not configuration.
+      //
+      // `blank` is calm exactly until the user is done with it, and then it is
+      // not. Two things end the grace:
+      //
+      //   * a decision — a `change` event on one of its fields that leaves it
+      //     still empty. Choosing "— none —" is a choice, and gets an answer.
+      //     `input` deliberately does not count: clearing a textarea to retype
+      //     is mid-thought, not a decision;
+      //   * walking away — selecting another record, switching lists, opening
+      //     Settings. Leaving it blank IS leaving it blank.
+      //
+      // Once raised, the block says it was not saved, in red, and keeps saying
+      // it until it is filled in or removed.
+
+      // record object -> the provider ids on it whose blank block has stopped
+      // being new. Keyed by object for the same reason `broken` is: a record
+      // that has never been saved has no id to key by. Weak because it is only
+      // ever read by key — a deleted record must not be held alive by a note
+      // about a block it no longer has.
+      let raisedBlanks = new WeakMap();
+
+      const isRaised = (record, providerId) =>
+        raisedBlanks.get(record)?.has(providerId) ?? false;
+
+      /** Blank blocks on this record that have been left blank. */
+      const raisedOn = (record) => blankBlocks(record).filter((id) => isRaised(record, id));
+
+      function setRaised(record, providerId, on) {
+        if (!record) return;
+        const ids = raisedBlanks.get(record) ?? new Set();
+        if (on) ids.add(providerId);
+        else ids.delete(providerId);
+        if (ids.size) raisedBlanks.set(record, ids);
+        else raisedBlanks.delete(record);
+      }
+
+      /**
+       * About to show something else. Anything still blank on the record being
+       * left has now been left that way, so it stops being new.
+       *
+       * Called before the selection moves rather than after, because it needs
+       * the record the user is leaving, not the one they are arriving at.
+       */
+      function leaveRecord() {
+        // Nothing is being left if nothing was on screen — the Settings pane
+        // shows no record, so coming back out of it is arriving, not leaving.
+        if (view !== 'editor') return;
+        const p = current();
+        if (!p) return;
+        const fresh = blankBlocks(p).filter((id) => !isRaised(p, id));
+        if (!fresh.length) return;
+        for (const id of fresh) setRaised(p, id, true);
+        const names = fresh.map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
+        say(
+          `${names.join(', ')} on “${p.name || '(unnamed)'}” ${fresh.length === 1 ? 'has' : 'have'} ` +
+            `nothing chosen, so ${fresh.length === 1 ? 'it was' : 'they were'} not saved. ` +
+            `Open the ${editingScene() ? 'scene' : 'profile'} again to finish or remove ${
+              fresh.length === 1 ? 'it' : 'them'}.`,
+          'err',
+        );
+      }
+
       /** Mark a draft changed and schedule the save. */
       function touch(what, { now = false, defer = false } = {}) {
         if (what === 'settings') dirtySettings = true;
@@ -846,8 +965,17 @@
           // Global settings are deliberately not sent here: saveProfiles merges
           // what it is given over the stored blob, and this page is never told
           // the Govee key, so sending "the settings" back would erase it.
-          const payload = profiles.map(({ avatarDataUri, ...rest }) => rest);
-          const reply = await ask('saveProfiles', { profiles: payload, scenes });
+          //
+          // forStorage leaves out provider blocks that hold nothing at all. It
+          // is the draft that keeps them, not the store: a block with no
+          // setting in it configures nothing, and every provider says so when
+          // asked. Sending it would have the server refuse the whole list —
+          // both profiles AND scenes, since they save together — so a provider
+          // half-added to one profile would block an unrelated rename on
+          // another. The server's rules are untouched; it is simply not handed
+          // a block that says nothing. See editorState.js for the full case.
+          const payload = forStorage(profiles).map(({ avatarDataUri, ...rest }) => rest);
+          const reply = await ask('saveProfiles', { profiles: payload, scenes: forStorage(scenes) });
           if (!reply.ok) {
             // Every problem, not just the first: they are named per record, and
             // showing one at a time means a fix per round-trip. Scene problems
@@ -900,6 +1028,21 @@
               : 'Saving automatically…',
           };
         }
+        // Everything that could be saved has been — but a block holding nothing
+        // was left out of it, so "all changes saved" would be a small lie told
+        // in green. This is the calm state made visible: neutral wording, no
+        // failure, and an accurate count of what is not in the store yet.
+        const waiting = [...profiles, ...scenes].reduce((n, r) => n + blankBlocks(r).length, 0);
+        if (waiting) {
+          return {
+            cls: 'holding',
+            text: `Saved — ${waiting} block${waiting === 1 ? '' : 's'} not set up`,
+            note: `A block with nothing chosen in it is not stored, so nothing is broken by
+                   it. Give ${waiting === 1 ? 'it' : 'them'} a setting and ${
+                     waiting === 1 ? 'it saves itself' : 'they save themselves'}.`,
+          };
+        }
+
         return {
           cls: 'saved',
           text: 'All changes saved',
@@ -941,11 +1084,30 @@
       function renderIssues() {
         const host = $('issues');
         if (!host) return;
-        const mine = broken.get(current()) ?? [];
-        host.innerHTML = mine.length
-          ? `<div class="issues"><b>This ${editingScene() ? 'scene' : 'profile'} cannot be saved yet</b><ul>${
-              mine.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>`
-          : '';
+        const p = current();
+        const noun = editingScene() ? 'scene' : 'profile';
+        const mine = broken.get(p) ?? [];
+
+        // Blocks left blank are a different kind of news and must not borrow
+        // the wording above: this record HAS been saved, and saved correctly —
+        // what it was saved without is the point. Said separately, and only
+        // once the grace has been used up.
+        const unset = raisedOn(p).map((id) =>
+          providers.find((prov) => prov.id === id)?.label ?? id);
+
+        host.innerHTML =
+          (mine.length
+            ? `<div class="issues"><b>This ${noun} cannot be saved yet</b><ul>${
+                mine.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>`
+            : '') +
+          (unset.length
+            ? `<div class="issues unset"><b>Saved without ${esc(unset.join(', '))}</b>
+                 <p>Nothing is chosen ${unset.length === 1 ? 'on it' : 'on them'}, so
+                 ${unset.length === 1 ? 'it is' : 'they are'} not stored and
+                 ${unset.length === 1 ? 'does' : 'do'} nothing when this ${noun}'s key is
+                 pressed. Fill ${unset.length === 1 ? 'it' : 'them'} in below, or remove the
+                 block with ✕.</p></div>`
+            : '');
       }
 
       // =====================================================================
@@ -989,6 +1151,9 @@
               <span>${esc(names.length ? names.join(', ') : 'nothing configured')}</span>
             </span>
             ${broken.has(p) ? '<span class="bad" title="Cannot be saved yet">!</span>' : ''}
+            ${!broken.has(p) && raisedOn(p).length
+              ? '<span class="warn" title="Something on it was left with nothing chosen, and was not saved">!</span>'
+              : ''}
           </li>`;
         }).join('');
 
@@ -1010,6 +1175,7 @@
 
       /** Point the sidebar at one list or the other. */
       function setKind(next) {
+        leaveRecord();
         kind = next;
         view = 'editor';
         $('railTitle').textContent = next === 'scenes' ? 'Scenes' : 'Profiles';
@@ -1093,6 +1259,71 @@
       }
 
       /**
+       * The head badge for a block that holds nothing.
+       *
+       * Its own colour, not amber and not red until it earns red: `unavailable`
+       * is already amber and means a value that is gone, and reusing that here
+       * would say something untrue about a block that has never held a value.
+       */
+      const blankBadgeHtml = (blank, raised) =>
+        !blank
+          ? ''
+          : `<span class="badge ${raised ? 'unset' : 'todo'}" title="${raised
+              ? 'Nothing is chosen here, so this block was not saved'
+              : 'Not stored until something is chosen'}">${
+              raised ? 'not set up' : 'needs setting up'}</span>`;
+
+      /** The line inside a blank block: an invitation, or an answer. */
+      const blankNoteHtml = (prov, blank, raised) => {
+        if (!blank) return '';
+        const noun = editingScene() ? 'scene' : 'profile';
+        return raised
+          ? `<div class="unsetbanner"><b>Not saved</b> Nothing is chosen here, so this
+               ${noun} was stored without ${esc(prov.label)} and its key will not touch it.
+               Choose something below, or remove the block with ✕.</div>`
+          : `<div class="newbanner">Nothing chosen yet. A block with no setting in it is not
+               stored — pick one below and it saves itself.</div>`;
+      };
+
+      /**
+       * Repaint one block's blank/unset chrome in place.
+       *
+       * In place rather than by re-rendering the pane, for the same reason the
+       * hold toggle is: a field edit that redrew everything would take the caret
+       * out of the select or textarea that caused it. Only the classes, the
+       * badge and the note move; the fields themselves are already correct,
+       * because the user is the one who just changed them.
+       */
+      function paintBlock(record, providerId) {
+        const card = document.querySelector(`[data-hw="${CSS.escape(providerId)}"]`);
+        const prov = providers.find((x) => x.id === providerId);
+        if (!card || !prov) return;
+
+        const blank = isBlank(record.providers?.[providerId]);
+        const raised = blank && isRaised(record, providerId);
+        card.classList.toggle('blank', blank);
+        card.classList.toggle('unset', raised);
+
+        card.querySelector('.badge.todo, .badge.unset')?.remove();
+        const badge = blankBadgeHtml(blank, raised);
+        // Last among the badges, where a full render puts it.
+        const anchor =
+          [...card.querySelectorAll('.hw-head .badge')].pop() ?? card.querySelector('.pname');
+        if (badge) anchor?.insertAdjacentHTML('afterend', badge);
+
+        card.querySelector('.newbanner, .unsetbanner')?.remove();
+        const note = blankNoteHtml(prov, blank, raised);
+        // After the locked banner when there is one, so the two never swap
+        // places as a block changes state.
+        if (note) {
+          const body = card.querySelector('.hw-body');
+          const after = body?.querySelector('.lostbanner');
+          if (after) after.insertAdjacentHTML('afterend', note);
+          else body?.insertAdjacentHTML('afterbegin', note);
+        }
+      }
+
+      /**
        * One card per thing this profile changes, built entirely from declared
        * schemas. The editor knows nothing about wheelbases, lights or scripts:
        * a profile shows only what it has actually been given.
@@ -1141,14 +1372,26 @@
                  remove the block with ✕ when you no longer want it.</div>`
             : '';
 
-          return `<div class="hw${locked ? ' locked' : ''}" data-hw="${esc(prov.id)}">
+          // A block that has been added and not yet filled in. It is not an
+          // error — nothing has gone wrong, the user simply has not finished —
+          // so it is not stored and it is not painted red. It becomes red when
+          // they have plainly finished with it: a `change` that leaves it empty,
+          // or leaving the record with it still empty. See the block of notes
+          // above `raisedBlanks`.
+          const blank = isBlank(cfg);
+          const raised = blank && isRaised(p, prov.id);
+          const blankBadge = blankBadgeHtml(blank, raised);
+          const blankNote = blankNoteHtml(prov, blank, raised);
+
+          return `<div class="hw${locked ? ' locked' : ''}${blank ? ' blank' : ''}${
+              raised ? ' unset' : ''}" data-hw="${esc(prov.id)}">
             <div class="hw-head">
-              <span class="pname">${esc(prov.label)}</span>${badge}${stale}${lostBadge}
+              <span class="pname">${esc(prov.label)}</span>${badge}${stale}${lostBadge}${blankBadge}
               <span style="flex:1"></span>${settingsLink}
               <button class="icon rm" data-rmprov="${esc(prov.id)}"
                       title="Remove ${esc(prov.label)} from this profile">✕</button>
             </div>
-            <div class="hw-body">${banner}${
+            <div class="hw-body">${banner}${blankNote}${
               (prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg, { locked })).join('')}</div>
           </div>`;
         }).join('');
@@ -1709,6 +1952,36 @@
         const p = current();
         if (!p) return;
 
+        /**
+         * The block this edit landed in has just changed shape.
+         *
+         * A block that now holds something is no longer blank, and stops being
+         * flagged whatever it was before. A block that is still empty after a
+         * `change` has been decided upon — "— none —" is an answer — and gets
+         * one back. `input` is not a decision: clearing a textarea to retype it
+         * is mid-thought, and going red under the caret would be exactly the
+         * rudeness this whole change is about.
+         */
+        function settled(providerId) {
+          const empty = isBlank(p.providers?.[providerId]);
+          if (!empty) setRaised(p, providerId, false);
+          else if (e.type === 'change') setRaised(p, providerId, true);
+
+          // Most edits do not move the block between states — typing into a
+          // textarea that already has text in it is every keystroke of a long
+          // command list — and repainting the sidebar for each of those is work
+          // nobody asked for. Compare against what is already on screen.
+          const card = document.querySelector(`[data-hw="${CSS.escape(providerId)}"]`);
+          const unchanged =
+            card &&
+            card.classList.contains('blank') === empty &&
+            card.classList.contains('unset') === (empty && isRaised(p, providerId));
+          if (unchanged) return;
+
+          paintBlock(p, providerId);
+          renderList();     // the marker on the row follows the block
+        }
+
         // Enabling or disabling one slider.
         if (el.dataset.fldon) {
           const [providerId, key] = el.dataset.fldon.split('|');
@@ -1727,6 +2000,7 @@
             readout.textContent = 'not set';
             readout.classList.add('off');
           }
+          settled(providerId);
           touch('draft');
           return;
         }
@@ -1740,6 +2014,7 @@
           const readout = document.querySelector(`[data-rv="${el.dataset.fld}"]`);
           if (readout && el.type === 'range') readout.textContent = el.value + (readout.dataset.unit ?? '');
           delete p.needsWheelbaseSetup;
+          settled(providerId);
           touch('draft');
           return;
         }
@@ -1943,6 +2218,19 @@
         // No avatars on scenes: a scene is not a person. Only the providers map
         // needs defaulting, so an older record without one still edits.
         for (const s of scenes) if (!s.providers) s.providers = {};
+
+        // Every record is a fresh object, so the old notes key nothing.
+        //
+        // A blank block that arrived from storage was never added in this
+        // session, so there is no grace to give it: the editor did not write it
+        // — nothing here ever stores a blank block — which means a hand-edited
+        // config put it there, and it is exactly the config that used to be
+        // unsaveable. It starts flagged, and it is left out of the next save.
+        raisedBlanks = new WeakMap();
+        for (const r of [...profiles, ...scenes]) {
+          for (const id of blankBlocks(r)) setRaised(r, id, true);
+        }
+
         selectedProfile = keepSelection(profiles, selectedProfile);
         selectedScene = keepSelection(scenes, selectedScene);
       }
@@ -1977,6 +2265,10 @@
         if (e.target.closest('[data-new]')) return newRecord();
         const p = rowRecord(e.target);
         if (!p) return;
+        // Clicking the row you are already on is not going anywhere, so it must
+        // not count as walking away from a block you are still filling in.
+        // Neither is arriving from Settings, where no record was on screen.
+        if (view === 'editor' && p !== current()) leaveRecord();
         select(p);
         view = 'editor';
         render();
@@ -2020,6 +2312,7 @@
 
       /** Add to whichever list is showing, and land the caret in its name. */
       function newRecord() {
+        leaveRecord();
         if (kind === 'scenes') ({ scenes, selected: selectedScene } = addScene(scenes));
         else ({ profiles, selected: selectedProfile } = addProfile(profiles));
         view = 'editor';
@@ -2047,7 +2340,11 @@
         sel.addRange(range);
       }
 
-      $('navSettings').addEventListener('click', () => { view = 'settings'; render(); });
+      $('navSettings').addEventListener('click', () => {
+        leaveRecord();
+        view = 'settings';
+        render();
+      });
       // The third column searches what it is offering. Only the body redraws,
       // so the caret stays where it is.
       $('railSearch').addEventListener('input', renderRail);
@@ -2172,6 +2469,10 @@
         const rm = e.target.closest('[data-rmprov]');
         if (rm && p) {
           delete p.providers[rm.dataset.rmprov];
+          // Removing the block settles the question, so the note about it goes
+          // too: adding the same provider again later is a fresh start, and
+          // deserves the same grace the first attempt had.
+          setRaised(p, rm.dataset.rmprov, false);
           render();
           touch('draft');
           return;
@@ -2215,7 +2516,11 @@
           } else {
             p.providers = p.providers ?? {};
             if (p.providers[id]) return;             // never twice
+            // Empty, and deliberately not an error: it is not stored until it
+            // holds something, and it is not painted red until the user is
+            // plainly finished with it. See `raisedBlanks`.
             p.providers[id] = {};
+            setRaised(p, id, false);
           }
           render();
           touch('draft');

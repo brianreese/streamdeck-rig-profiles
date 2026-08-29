@@ -4,6 +4,7 @@ import {
   matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
   sceneRefs, referencesScene, setSceneRef, profilesUsingScene, detachScene, sceneOverlap,
   offers, providerContexts, unknownSelectValue, unknownValues, blocksEditing,
+  isBlank, blankBlocks, configuredBlocks, withoutBlankBlocks, forStorage,
 } from './editorState.js';
 
 const saved = (over = {}) => ({
@@ -535,5 +536,121 @@ describe('blocksEditing', () => {
   it('leaves an untroubled block alone', () => {
     expect(blocksEditing([])).toBe(false);
     expect(blocksEditing(undefined)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Blocks that hold nothing yet
+//
+// The bug: adding a provider creates `providers.moza = {}`, autosave fires half
+// a second later, and MOZA correctly reports that no preset is chosen — so the
+// user is told off for a state they had had no chance to leave. An empty block
+// is incomplete, not invalid, and incomplete configuration is not stored.
+// ---------------------------------------------------------------------------
+
+describe('isBlank', () => {
+  it('is what a provider looks like the instant it is added', () => {
+    expect(isBlank({})).toBe(true);
+  });
+
+  it('is not blank once anything at all has been chosen', () => {
+    expect(isBlank({ preset: 'aaa' })).toBe(false);
+    // Including a value the provider will go on to reject: "wrong" is a
+    // different state from "empty", and only the empty one is withheld.
+    expect(isBlank({ peakForceKg: 2 })).toBe(false);
+    // And including a falsy one. An unticked boolean is a decision.
+    expect(isBlank({ wait: false })).toBe(false);
+  });
+
+  it('treats a missing block as blank rather than throwing', () => {
+    expect(isBlank(undefined)).toBe(true);
+    expect(isBlank(null)).toBe(true);
+  });
+});
+
+describe('blankBlocks / configuredBlocks', () => {
+  const mixed = saved({ providers: { moza: {}, govee: { scene: 'Sunset' }, apps: {} } });
+
+  it('separates the blocks that say something from the ones that do not', () => {
+    expect(blankBlocks(mixed)).toEqual(['moza', 'apps']);
+    expect(configuredBlocks(mixed)).toEqual(['govee']);
+  });
+
+  it('copes with a record that has no providers map at all', () => {
+    expect(blankBlocks({})).toEqual([]);
+    expect(configuredBlocks(undefined)).toEqual([]);
+  });
+});
+
+describe('withoutBlankBlocks', () => {
+  it('leaves an empty block out of what gets stored', () => {
+    const p = saved({ providers: { moza: {}, govee: { scene: 'Sunset' } } });
+    expect(withoutBlankBlocks(p).providers).toEqual({ govee: { scene: 'Sunset' } });
+  });
+
+  // The editor keeps showing these same objects. Deleting the block in place
+  // would make it vanish from the screen the moment it autosaved, and the user
+  // would watch the thing they just added disappear.
+  it('never touches the draft the editor is still showing', () => {
+    const p = saved({ providers: { moza: {} } });
+    withoutBlankBlocks(p);
+    expect(p.providers).toEqual({ moza: {} });
+  });
+
+  it('hands back the record itself when there is nothing to leave out', () => {
+    const p = saved({ providers: { govee: { scene: 'Sunset' } } });
+    expect(withoutBlankBlocks(p)).toBe(p);
+  });
+
+  it('keeps everything else about the record', () => {
+    const p = saved({ providers: { moza: {} }, scenes: ['sunset'], restricted: true });
+    const out = withoutBlankBlocks(p);
+    expect(out.id).toBe('kai');
+    expect(out.scenes).toEqual(['sunset']);
+    expect(out.restricted).toBe(true);
+  });
+});
+
+describe('forStorage', () => {
+  // Scenes and profiles save in one request, so one blank block on one profile
+  // would otherwise have the server refuse BOTH lists — an unrelated rename on
+  // another profile blocked by a provider someone half-added. That is the
+  // deadlock the unresolved-value work already had to undo once.
+  it('cleans both lists the same way, because a scene gets providers too', () => {
+    const list = [
+      saved({ providers: { moza: {} } }),
+      scene({ providers: { govee: { scene: 'Sunset' }, apps: {} } }),
+    ];
+    expect(forStorage(list).map((r) => r.providers)).toEqual([
+      {},
+      { govee: { scene: 'Sunset' } },
+    ]);
+  });
+
+  it('is happy with no list at all', () => {
+    expect(forStorage(undefined)).toEqual([]);
+  });
+});
+
+describe('sceneOverlap ignores blocks that hold nothing', () => {
+  // A profile with an empty Govee block does not beat the scene's Govee at
+  // runtime — it is not stored, so the scene's lighting is what fires. Claiming
+  // the clash would warn about something that does not happen, and in the wrong
+  // direction.
+  it('does not let a blank block on the profile claim the scene loses', () => {
+    const p = saved({ providers: { govee: {} } });
+    const s = scene({ providers: { govee: { scene: 'Sunset' } } });
+    expect(sceneOverlap(p, s)).toEqual([]);
+  });
+
+  it('does not let a blank block on the scene invent a clash either', () => {
+    const p = saved({ providers: { govee: { scene: 'Race' } } });
+    expect(sceneOverlap(p, scene({ providers: { govee: {} } }))).toEqual([]);
+  });
+
+  it('still names a real one', () => {
+    const p = saved({ providers: { govee: { scene: 'Race' } } });
+    const s = scene({ providers: { govee: { scene: 'Sunset' } } });
+    expect(sceneOverlap(p, s)).toEqual(['govee']);
   });
 });

@@ -270,8 +270,13 @@ export function detachScene(profiles, sceneId) {
  * rather than discovering it when the room stays the wrong colour.
  */
 export function sceneOverlap(profile, scene) {
-  const mine = Object.keys(profile?.providers ?? {});
-  return Object.keys(scene?.providers ?? {}).filter((id) => mine.includes(id));
+  // Blank blocks on either side are excluded because they are not stored — see
+  // `blankBlocks` below. A profile with an empty Govee block does NOT beat the
+  // scene's Govee at runtime; it contributes nothing at all, and the scene's
+  // lighting is what actually fires. Counting it would make the editor warn
+  // about a clash that does not happen, in the profile's favour, wrongly.
+  const mine = configuredBlocks(profile);
+  return configuredBlocks(scene).filter((id) => mine.includes(id));
 }
 
 /**
@@ -398,6 +403,70 @@ export function unknownValues(provider, cfg) {
  * the config as a whole is not meaningfully editable without it.
  */
 export const blocksEditing = (unknowns) => (unknowns ?? []).some((u) => u.why === 'missing');
+
+// ---------------------------------------------------------------------------
+// Blocks that hold nothing yet
+//
+// Adding a provider to a profile creates `providers.moza = {}` — a block with
+// no configuration in it, because the user has not had a chance to configure it
+// yet. Every provider quite correctly refuses that: "MOZA is enabled but no
+// preset or pedal setting is chosen", "govee is enabled but no scene is
+// selected". With autosave running, the act of adding a provider was therefore
+// the act of being told off, half a second later, for a state the user had had
+// no opportunity to leave.
+//
+// The rule now: an empty block is INCOMPLETE, not invalid, and incomplete
+// configuration is not stored. The draft in the page keeps it — it is on
+// screen, it can be filled in, it can be removed — but it is left out of the
+// save. `saveProfiles` still refuses a genuinely invalid list; it is simply
+// never handed a block that says nothing.
+//
+// Withholding rather than saving-and-explaining, because the alternative is
+// worse in both directions. Sending an empty block means the server refuses the
+// WHOLE list — one half-added provider would stop an unrelated profile's rename
+// from saving, which is the deadlock the unresolved-value work already had to
+// undo once. And a block that were somehow stored empty would fail at the one
+// moment it matters, when a key is pressed. Withheld, the stored profile always
+// does exactly what it appears to do, and the worst case is a provider the user
+// walked away from not being there — which the editor says, loudly, in
+// `unset`-flagged form.
+// ---------------------------------------------------------------------------
+
+/** Does this provider block hold no configuration whatsoever? */
+export const isBlank = (cfg) => !cfg || typeof cfg !== 'object' || Object.keys(cfg).length === 0;
+
+/** Provider ids on this record whose block holds nothing. */
+export function blankBlocks(record) {
+  return Object.entries(record?.providers ?? {})
+    .filter(([, cfg]) => isBlank(cfg))
+    .map(([id]) => id);
+}
+
+/** Provider ids on this record that actually configure something. */
+export function configuredBlocks(record) {
+  return Object.entries(record?.providers ?? {})
+    .filter(([, cfg]) => !isBlank(cfg))
+    .map(([id]) => id);
+}
+
+/**
+ * One record as it should be STORED: blank blocks left behind.
+ *
+ * Copied rather than edited, and only when there is something to leave out. The
+ * editor keeps showing these same objects — a record whose blank block was
+ * deleted in place would lose the block from the screen the moment it saved,
+ * and the user would watch the thing they just added disappear.
+ */
+export function withoutBlankBlocks(record) {
+  const blanks = blankBlocks(record);
+  if (!blanks.length) return record;
+  const providers = { ...record.providers };
+  for (const id of blanks) delete providers[id];
+  return { ...record, providers };
+}
+
+/** A whole list, ready to be sent to `saveProfiles`. */
+export const forStorage = (records) => (records ?? []).map(withoutBlankBlocks);
 
 /**
  * Coerce one edited field for storage; undefined means "remove this key".

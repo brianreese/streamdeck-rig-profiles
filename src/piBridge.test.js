@@ -410,6 +410,26 @@ describe('provider-driven validation', () => {
     // A space-sim profile may have nothing to say about a wheelbase.
     expect(validateProfiles([validProfile({ providers: {} })]).ok).toBe(true);
   });
+
+  // The editor stopped SENDING these — a provider that has just been added and
+  // not yet filled in is left out of the save, so the user is not told off for
+  // a state they have had no chance to leave. The rules here did not move an
+  // inch, and must not: this is the check that a page which sends an empty
+  // block anyway — an old tab, a hand-edited config, a bug — is still refused.
+  it('still refuses an enabled provider with nothing configured on it', () => {
+    const empty = validProfile({ providers: { moza: {} } });
+    const { ok, errors } = validateProfiles([empty]);
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/no preset or pedal setting is chosen/);
+  });
+
+  it('refuses a blank block on a scene by exactly the same rule', () => {
+    const { ok, errors } = validateScenes([
+      { id: 'sunset', name: 'Sunset', color: '#7c5cff', providers: { govee: {} } },
+    ]);
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/no scene is selected/);
+  });
 });
 
 describe('avatars', () => {
