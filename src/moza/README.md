@@ -84,11 +84,14 @@ percentage of full scale. The read path truncates on the way back.
 
 ## Preset files
 
-Pit House 1.4 repackaged every preset as  — a ZIP holding a
-single . The JSON inside is unchanged, so only the wrapper needed
-handling, and both forms are read: the upgrade leaves the old ones in a Backup
+Pit House 1.4 repackaged every preset as `<uuid>.mzpreset` — a ZIP holding a
+single `preset.json`. The directory and the uuid filenames are unchanged, and
+so is the JSON inside, so only the wrapper needed handling.
+
+Both forms are read: the upgrade leaves the pre-upgrade files in a `Backup`
 folder, and another machine may not have upgraded yet. Where both exist for one
-id the archive wins and the preset is listed once.
+id the archive wins and the preset is listed once rather than twice under the
+same name.
 
 The archive is parsed directly. One small entry means a local file header, a
 length and an inflate — less code than justifying a dependency for it.
