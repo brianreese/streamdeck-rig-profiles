@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { applyProfile, summarise } from './profileSwitch.js';
+import { applyProfile, readModeState, unapplyMode, summarise } from './profileSwitch.js';
 import { register, _resetForTesting, STATUS, worstOf } from './providers/index.js';
 
 /** Build a stub provider with scripted behaviour. */
-function stub(id, { verifiable = true, apply, verify, contexts = ['profile', 'scene'] } = {}) {
+function stub(id, { verifiable = true, apply, verify, contexts = ['profile', 'mode'] } = {}) {
   return {
     id,
     label: id,
@@ -156,50 +156,50 @@ describe('provider context', () => {
   });
 });
 
-describe('scene references', () => {
-  const scene = (id, providers) => ({ id, name: id, providers });
+describe('mode references', () => {
+  const mode = (id, providers) => ({ id, name: id, providers });
 
-  it('runs a referenced scene alongside the profile', async () => {
+  it('runs a referenced mode alongside the profile', async () => {
     register(stub('wheel'));
     register(stub('lights'));
     const out = await applyProfile(
-      { id: 'brian', providers: { wheel: {} }, scenes: ['ambient'] },
-      { scenes: [scene('ambient', { lights: {} })] },
+      { id: 'brian', providers: { wheel: {} }, modes: ['ambient'] },
+      { modes: [mode('ambient', { lights: {} })] },
     );
     expect(out.results.map((r) => r.providerId).sort()).toEqual(['lights', 'wheel']);
   });
 
 
 
-  it('survives a reference to a scene that no longer exists', async () => {
+  it('survives a reference to a mode that no longer exists', async () => {
     const logs = [];
     register(stub('wheel'));
     const out = await applyProfile(
-      { id: 'brian', providers: { wheel: {} }, scenes: ['deleted'] },
-      { scenes: [], log: (m) => logs.push(m) },
+      { id: 'brian', providers: { wheel: {} }, modes: ['deleted'] },
+      { modes: [], log: (m) => logs.push(m) },
     );
     expect(out.status).toBe(STATUS.VERIFIED);
-    expect(logs.join(' ')).toMatch(/references missing scene "deleted"/);
+    expect(logs.join(' ')).toMatch(/references missing mode "deleted"/);
   });
 
-  it('applies a scene on its own, since it is the same shape', async () => {
+  it('applies a mode on its own, since it is the same shape', async () => {
     register(stub('lights'));
     const out = await applyProfile({ id: 'ambient', providers: { lights: {} } });
     expect(out.status).toBe(STATUS.VERIFIED);
   });
 });
 
-describe('profile first, scene second', () => {
-  const scene = (id, providers) => ({ id, name: id, providers });
+describe('profile first, mode second', () => {
+  const mode = (id, providers) => ({ id, name: id, providers });
 
-  it('runs the profile then the scene, so the scene wins a conflict', async () => {
+  it('runs the profile then the mode, so the mode wins a conflict', async () => {
     // The ordering IS the conflict rule. Where both set the lights, the scene
     // runs last and therefore wins — no special-casing needed.
     const seen = [];
     register(stub('lights', { apply: async (cfg) => { seen.push(cfg); } }));
     await applyProfile(
-      { id: 'brian', providers: { lights: { scene: 'from-profile' } }, scenes: ['other'] },
-      { scenes: [scene('other', { lights: { scene: 'from-scene' } })] },
+      { id: 'brian', providers: { lights: { scene: 'from-profile' } }, modes: ['other'] },
+      { modes: [mode('other', { lights: { scene: 'from-scene' } })] },
     );
     expect(seen).toEqual([{ scene: 'from-profile' }, { scene: 'from-scene' }]);
   });
@@ -210,47 +210,47 @@ describe('profile first, scene second', () => {
     const ran = [];
     register(stub('apps', { apply: async (cfg) => { ran.push(cfg.cmd); } }));
     await applyProfile(
-      { id: 'brian', providers: { apps: { cmd: 'simhub' } }, scenes: ['music'] },
-      { scenes: [scene('music', { apps: { cmd: 'spotify' } })] },
+      { id: 'brian', providers: { apps: { cmd: 'simhub' } }, modes: ['music'] },
+      { modes: [mode('music', { apps: { cmd: 'spotify' } })] },
     );
     expect(ran).toEqual(['simhub', 'spotify']);
   });
 
-  it('names the scene on its results, so two runs of one provider are legible', async () => {
+  it('names the mode on its results, so two runs of one provider are legible', async () => {
     register(stub('apps'));
     const out = await applyProfile(
-      { id: 'brian', providers: { apps: {} }, scenes: ['music'] },
-      { scenes: [scene('music', { apps: {} })] },
+      { id: 'brian', providers: { apps: {} }, modes: ['music'] },
+      { modes: [mode('music', { apps: {} })] },
     );
-    expect(out.results.map((r) => r.label)).toEqual(['apps', 'apps (scene "music")']);
+    expect(out.results.map((r) => r.label)).toEqual(['apps', 'apps (mode "music")']);
   });
 });
 
 describe('providers declare where they may be used', () => {
-  const scene = (id, providers) => ({ id, name: id, providers });
+  const mode = (id, providers) => ({ id, name: id, providers });
 
-  it('drops a profile-only provider a scene tries to configure', async () => {
+  it('drops a profile-only provider a mode tries to configure', async () => {
     const logs = [];
     register(stub('wheel', { contexts: ['profile'] }));
     const out = await applyProfile(
-      { id: 'brian', providers: {}, scenes: ['bad'] },
-      { scenes: [scene('bad', { wheel: {} })], log: (m) => logs.push(m) },
+      { id: 'brian', providers: {}, modes: ['bad'] },
+      { modes: [mode('bad', { wheel: {} })], log: (m) => logs.push(m) },
     );
     expect(out.results).toHaveLength(0);
-    expect(logs.join(' ')).toMatch(/not available to a scene/);
+    expect(logs.join(' ')).toMatch(/not available to a mode/);
   });
 
-  it('drops it just as firmly when the scene is run directly', async () => {
+  it('drops it just as firmly when the mode is run directly', async () => {
     // sceneKey applies a scene through this same function, so the guard has to
     // hold on that path too — a hand-edited config must not reach the pedal.
     const logs = [];
     register(stub('wheel', { contexts: ['profile'] }));
     const out = await applyProfile(
       { id: 'ambient', providers: { wheel: {} } },
-      { context: 'scene', log: (m) => logs.push(m) },
+      { context: 'mode', log: (m) => logs.push(m) },
     );
     expect(out.status).toBe(STATUS.SKIPPED);
-    expect(logs.join(' ')).toMatch(/not available to a scene/);
+    expect(logs.join(' ')).toMatch(/not available to a mode/);
   });
 
   it('still lets a profile use a profile-only provider', async () => {
@@ -263,7 +263,85 @@ describe('providers declare where they may be used', () => {
     const legacy = { id: 'old', label: 'old', describe: () => 'old', apply: async () => {},
                      verify: async () => ({ status: STATUS.VERIFIED, detail: 'ok' }) };
     register(legacy);
-    const out = await applyProfile({ id: 'x', providers: { old: {} } }, { context: 'scene' });
+    const out = await applyProfile({ id: 'x', providers: { old: {} } }, { context: 'mode' });
     expect(out.status).toBe(STATUS.SKIPPED);
+  });
+});
+
+describe('a Mode reports what its providers can answer', () => {
+  const reporting = (id, active) => ({
+    id, label: id, contexts: ['profile', 'mode'], describe: () => id,
+    apply: async () => {},
+    unapply: async () => {},
+    isActive: async () => active,
+    verify: async () => ({ status: STATUS.VERIFIED, detail: 'ok' }),
+  });
+
+  it('claims nothing when nothing in it can tell', async () => {
+    // Lighting and scripts cannot honestly answer "are you currently on", so a
+    // Mode of only those has no state — and must not pretend to.
+    register(stub('lights'));
+    expect(await readModeState({ id: 'm', providers: { lights: {} } })).toBeNull();
+  });
+
+  it('is on only when every reporting provider agrees', async () => {
+    register(reporting('flagA', true));
+    register(reporting('flagB', true));
+    expect(await readModeState({ id: 'm', providers: { flagA: {}, flagB: {} } })).toBe(true);
+  });
+
+  it('is off if any one of them says so', async () => {
+    register(reporting('flagA', true));
+    register(reporting('flagB', false));
+    expect(await readModeState({ id: 'm', providers: { flagA: {}, flagB: {} } })).toBe(false);
+  });
+
+  it('ignores providers that cannot answer, rather than counting them as agreement', async () => {
+    // The whole point of the aggregation rule: a script riding along in a VR
+    // Mode must not be able to make it read as on.
+    register(reporting('flag', true));
+    register(stub('lights'));
+    register(stub('apps'));
+    expect(await readModeState({ id: 'm', providers: { flag: {}, lights: {}, apps: {} } })).toBe(true);
+  });
+
+  it('counts a provider that throws as off, never as on', async () => {
+    // Unreadable state is not active state. Pressing the key re-applies and recovers.
+    const logs = [];
+    register({ ...reporting('flag', true), isActive: async () => { throw new Error('file gone'); } });
+    expect(await readModeState({ id: 'm', providers: { flag: {} } }, { log: (m) => logs.push(m) })).toBe(false);
+    expect(logs.join(' ')).toMatch(/could not report state/);
+  });
+});
+
+describe('switching a Mode off', () => {
+  it('reverses only the providers that can be reversed', async () => {
+    // Turning VR off must not try to undo a throwaway script.
+    const undone = [];
+    register({
+      id: 'flag', label: 'flag', contexts: ['profile', 'mode'], describe: () => 'flag',
+      apply: async () => {}, unapply: async () => { undone.push('flag'); },
+      isActive: async () => false, verify: async () => ({ status: STATUS.VERIFIED, detail: 'ok' }),
+    });
+    register(stub('apps'));
+    const out = await unapplyMode({ id: 'm', providers: { flag: {}, apps: {} } });
+    expect(undone).toEqual(['flag']);
+    expect(out.results.map((r) => r.providerId)).toEqual(['flag']);
+  });
+
+  it('is skipped entirely when nothing can be reversed', async () => {
+    register(stub('apps'));
+    expect((await unapplyMode({ id: 'm', providers: { apps: {} } })).status).toBe(STATUS.SKIPPED);
+  });
+
+  it('reports a failure to reverse rather than throwing', async () => {
+    register({
+      id: 'flag', label: 'flag', contexts: ['profile', 'mode'], describe: () => 'flag',
+      apply: async () => {}, unapply: async () => { throw new Error('read-only'); },
+      isActive: async () => true, verify: async () => ({ status: STATUS.VERIFIED, detail: 'ok' }),
+    });
+    const out = await unapplyMode({ id: 'm', providers: { flag: {} } });
+    expect(out.status).toBe(STATUS.FAILED);
+    expect(out.results[0].detail).toMatch(/read-only/);
   });
 });

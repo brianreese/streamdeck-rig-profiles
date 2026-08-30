@@ -31,13 +31,13 @@
   </head>
   <body>
     <div class="row">
-      <label for="scene">Scene</label>
-      <select id="scene"><option value="">Loading…</option></select>
+      <label for="mode">Mode</label>
+      <select id="mode"><option value="">Loading…</option></select>
     </div>
-    <div class="hint" id="summary">This key runs the selected scene.</div>
+    <div class="hint" id="summary">This key runs the selected mode.</div>
 
     <div class="actions">
-      <button id="edit">Edit scenes…</button>
+      <button id="edit">Edit modes…</button>
     </div>
     <div class="hint" id="editState">
       Opens the full editor in your browser. It closes the moment you close the tab.
@@ -84,39 +84,39 @@
       }
 
       function renderKeyPicker() {
-        const select = document.getElementById('scene');
+        const select = document.getElementById('mode');
         const summary = document.getElementById('summary');
-        const scenes = globals?.scenes ?? [];
-        const chosen = settings?.sceneId ?? '';
+        const modes = globals?.modes ?? globals?.scenes ?? [];
+        const chosen = settings?.modeId ?? '';
 
-        if (!scenes.length) {
-          select.innerHTML = '<option value="">No scenes yet</option>';
-          summary.textContent = 'Add one with "Edit scenes…".';
+        if (!modes.length) {
+          select.innerHTML = '<option value="">No modes yet</option>';
+          summary.textContent = 'Add one with "Edit modes…".';
           return;
         }
 
         // Without a placeholder the browser shows the first entry as though it
         // were selected, no change event fires, and the key stays unassigned
         // while looking set — the exact bug this panel had for profiles.
-        const placeholder = chosen ? '' : '<option value="" selected>— Select a scene —</option>';
-        select.innerHTML = placeholder + scenes
+        const placeholder = chosen ? '' : '<option value="" selected>— Select a mode —</option>';
+        select.innerHTML = placeholder + modes
           .map((s) => `<option value="${s.id}"${s.id === chosen ? ' selected' : ''}>${esc(s.name)}</option>`)
           .join('');
         select.classList.toggle('unset', !chosen);
 
         if (!chosen) {
-          summary.textContent = 'This key does nothing until you pick a scene.';
+          summary.textContent = 'This key does nothing until you pick a mode.';
           return;
         }
-        const active = scenes.find((s) => s.id === chosen);
+        const active = modes.find((s) => s.id === chosen);
         const names = Object.keys(active?.providers ?? {});
         summary.textContent = names.length
           ? `Runs: ${names.join(', ')}`
-          : 'This scene does not do anything yet.';
+          : 'This mode does not do anything yet.';
       }
 
-      document.getElementById('scene').addEventListener('change', (e) => {
-        saveKeySettings({ sceneId: e.target.value });
+      document.getElementById('mode').addEventListener('change', (e) => {
+        saveKeySettings({ modeId: e.target.value });
         renderKeyPicker();
       });
 

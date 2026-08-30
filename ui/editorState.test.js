@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  addProfile, addScene, newScene, removeProfile, moveProfile, keepSelection,
+  addProfile, addMode, newMode, removeProfile, moveProfile, keepSelection,
   matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
-  sceneRefs, referencesScene, setSceneRef, profilesUsingScene, detachScene, sceneOverlap,
+  modeRefs, referencesMode, setModeRef, profilesUsingMode, detachMode, modeOverlap,
+  reportsState, modeStatefulness,
   offers, providerContexts, unknownSelectValue, unknownValues, blocksEditing,
   isBlank, blankBlocks, configuredBlocks, withoutBlankBlocks, forStorage,
 } from './editorState.js';
@@ -11,7 +12,7 @@ const saved = (over = {}) => ({
   id: 'kai', name: 'Kai', color: '#22aa44', restricted: false, providers: {}, ...over,
 });
 
-const scene = (over = {}) => ({
+const mode = (over = {}) => ({
   id: 'sunset', name: 'Sunset', color: '#7c5cff', providers: {}, ...over,
 });
 
@@ -177,121 +178,121 @@ describe('holdForNaming', () => {
   });
 });
 
-describe('newScene', () => {
+describe('newMode', () => {
   it('has no restricted flag at all — not even a false one', () => {
-    // A scene cannot hand anyone full force feedback, so a hold gate in front
+    // A mode cannot hand anyone full force feedback, so a hold gate in front
     // of it would be a gate in front of nothing. Storing `restricted: false`
     // would still put the word in the record and invite the next reader to
-    // wonder what a gated scene is.
-    expect('restricted' in newScene()).toBe(false);
+    // wonder what a gated mode is.
+    expect('restricted' in newMode()).toBe(false);
   });
 
   it('is otherwise exactly the shape a profile is', () => {
-    expect(Object.keys(newScene()).sort()).toEqual(['color', 'id', 'name', 'providers']);
+    expect(Object.keys(newMode()).sort()).toEqual(['color', 'id', 'name', 'providers']);
   });
 
-  it('appends to the scene list and selects the new one', () => {
-    const { scenes, selected } = addScene([scene()]);
-    expect(scenes).toHaveLength(2);
-    expect(selected).toBe(scenes[1]);
+  it('appends to the mode list and selects the new one', () => {
+    const { modes, selected } = addMode([mode()]);
+    expect(modes).toHaveLength(2);
+    expect(selected).toBe(modes[1]);
   });
 });
 
 describe('slugify and withIds across the two lists', () => {
-  it('falls back to "scene" rather than "profile" for an unnameable scene', () => {
-    expect(slugify('!!!', [], 'scene')).toBe('scene');
+  it('falls back to "mode" rather than "profile" for an unnameable mode', () => {
+    expect(slugify('!!!', [], 'mode')).toBe('mode');
   });
 
   it('slugs the two lists independently, so a name may exist in both', () => {
-    // Separate lists and separate lookups: a profile only ever names a scene
-    // from the scene list, so `brian` being both is never ambiguous.
+    // Separate lists and separate lookups: a profile only ever names a mode
+    // from the mode list, so `brian` being both is never ambiguous.
     const ps = [{ id: '', name: 'Brian', providers: {} }];
     const ss = [{ id: '', name: 'Brian', providers: {} }];
     withIds(ps);
-    withIds(ss, 'scene');
+    withIds(ss, 'mode');
     expect(ps[0].id).toBe('brian');
     expect(ss[0].id).toBe('brian');
   });
 });
 
-describe('scene references', () => {
-  it('reports no references for a profile written before scenes existed', () => {
-    expect(sceneRefs(saved())).toEqual([]);
-    expect(referencesScene(saved(), 'sunset')).toBe(false);
+describe('mode references', () => {
+  it('reports no references for a profile written before modes existed', () => {
+    expect(modeRefs(saved())).toEqual([]);
+    expect(referencesMode(saved(), 'sunset')).toBe(false);
   });
 
   it('adds and removes one reference', () => {
     const p = saved();
-    setSceneRef(p, 'sunset', true);
-    expect(p.scenes).toEqual(['sunset']);
-    expect(referencesScene(p, 'sunset')).toBe(true);
-    setSceneRef(p, 'sunset', false);
-    expect(referencesScene(p, 'sunset')).toBe(false);
+    setModeRef(p, 'sunset', true);
+    expect(p.modes).toEqual(['sunset']);
+    expect(referencesMode(p, 'sunset')).toBe(true);
+    setModeRef(p, 'sunset', false);
+    expect(referencesMode(p, 'sunset')).toBe(false);
   });
 
   it('deletes the key rather than leaving an empty array behind', () => {
     // So a profile referencing nothing looks in storage exactly like one
-    // written before scenes were a thing.
-    const p = saved({ scenes: ['sunset'] });
-    setSceneRef(p, 'sunset', false);
-    expect('scenes' in p).toBe(false);
+    // written before modes were a thing.
+    const p = saved({ modes: ['sunset'] });
+    setModeRef(p, 'sunset', false);
+    expect('modes' in p).toBe(false);
   });
 
-  it('never stores the same scene twice', () => {
-    const p = saved({ scenes: ['sunset'] });
-    setSceneRef(p, 'sunset', true);
-    expect(p.scenes).toEqual(['sunset']);
+  it('never stores the same mode twice', () => {
+    const p = saved({ modes: ['sunset'] });
+    setModeRef(p, 'sunset', true);
+    expect(p.modes).toEqual(['sunset']);
   });
 
-  it('finds every profile that runs a scene', () => {
-    const a = saved({ id: 'a', scenes: ['sunset'] });
+  it('finds every profile that runs a mode', () => {
+    const a = saved({ id: 'a', modes: ['sunset'] });
     const b = saved({ id: 'b' });
-    const c = saved({ id: 'c', scenes: ['dusk', 'sunset'] });
-    expect(profilesUsingScene([a, b, c], 'sunset')).toEqual([a, c]);
-    expect(profilesUsingScene([a, b, c], 'nobody')).toEqual([]);
+    const c = saved({ id: 'c', modes: ['dusk', 'sunset'] });
+    expect(profilesUsingMode([a, b, c], 'sunset')).toEqual([a, c]);
+    expect(profilesUsingMode([a, b, c], 'nobody')).toEqual([]);
   });
 });
 
-describe('detachScene', () => {
-  it('removes a deleted scene from every profile that referenced it', () => {
-    // The whole point: deleting a scene must not leave a profile claiming to
+describe('detachMode', () => {
+  it('removes a deleted mode from every profile that referenced it', () => {
+    // The whole point: deleting a mode must not leave a profile claiming to
     // run something that no longer exists, which the runtime would skip with a
     // log line nobody reads while the lights quietly stayed off.
-    const a = saved({ id: 'a', scenes: ['sunset', 'dusk'] });
-    const b = saved({ id: 'b', scenes: ['dusk'] });
-    const c = saved({ id: 'c', scenes: ['sunset'] });
+    const a = saved({ id: 'a', modes: ['sunset', 'dusk'] });
+    const b = saved({ id: 'b', modes: ['dusk'] });
+    const c = saved({ id: 'c', modes: ['sunset'] });
 
-    expect(detachScene([a, b, c], 'sunset')).toEqual([a, c]);
-    expect(a.scenes).toEqual(['dusk']);
-    expect(b.scenes).toEqual(['dusk']);   // untouched
-    expect('scenes' in c).toBe(false);    // its only reference is gone
+    expect(detachMode([a, b, c], 'sunset')).toEqual([a, c]);
+    expect(a.modes).toEqual(['dusk']);
+    expect(b.modes).toEqual(['dusk']);   // untouched
+    expect('modes' in c).toBe(false);    // its only reference is gone
   });
 
   it('reports nothing changed when no profile referenced it', () => {
-    expect(detachScene([saved()], 'sunset')).toEqual([]);
+    expect(detachMode([saved()], 'sunset')).toEqual([]);
   });
 });
 
-describe('sceneOverlap', () => {
+describe('modeOverlap', () => {
   it('names the providers a profile already sets itself', () => {
-    // The runtime keeps the profile's setting and skips the scene's, which is
+    // The runtime keeps the profile's setting and skips the mode's, which is
     // right and completely invisible — so the editor has to say it.
     const p = saved({ providers: { govee: { scene: 'Race' }, apps: {} } });
-    const s = scene({ providers: { govee: { scene: 'Sunset' }, moza: {} } });
-    expect(sceneOverlap(p, s)).toEqual(['govee']);
+    const s = mode({ providers: { govee: { scene: 'Sunset' }, moza: {} } });
+    expect(modeOverlap(p, s)).toEqual(['govee']);
   });
 
-  it('is empty when the scene only fills in gaps', () => {
+  it('is empty when the mode only fills in gaps', () => {
     const p = saved({ providers: { 'fanatec-base': { setup: 2 } } });
-    expect(sceneOverlap(p, scene({ providers: { govee: {} } }))).toEqual([]);
+    expect(modeOverlap(p, mode({ providers: { govee: {} } }))).toEqual([]);
   });
 });
 
 describe('holdForNaming across both lists', () => {
-  it('holds for an unsaved scene too — a scene id is slugged the same way', () => {
+  it('holds for an unsaved mode too — a mode id is slugged the same way', () => {
     const stored = { id: 'kai', name: 'Kai' };
-    const unsavedScene = { id: '', name: 'New scene' };
-    expect(holdForNaming([stored, unsavedScene], 'name')).toBe(true);
+    const unsavedMode = { id: '', name: 'New mode' };
+    expect(holdForNaming([stored, unsavedMode], 'name')).toBe(true);
   });
 });
 
@@ -320,17 +321,23 @@ describe('fieldValue', () => {
 // ---------------------------------------------------------------------------
 
 const wheelbase = { id: 'fanatec-base', label: 'Fanatec Wheelbase', contexts: ['profile'] };
-const lights = { id: 'govee', label: 'Govee Lighting', contexts: ['profile', 'scene'] };
-const apps = { id: 'apps', label: 'Apps & Scripts', contexts: ['profile', 'scene'] };
+const lights = { id: 'govee', label: 'Govee Lighting', contexts: ['profile', 'mode'] };
+const apps = { id: 'apps', label: 'Apps & Scripts', contexts: ['profile', 'mode'] };
+// The one that can answer "am I in effect?". Note it declares the same contexts
+// Govee does — being usable in a Mode and being able to report yourself are
+// different capabilities, and the pair below is what keeps that honest.
+const flag = {
+  id: 'state-flag', label: 'Rig State Flag', contexts: ['profile', 'mode'], reportsState: true,
+};
 const kit = [wheelbase, lights, apps];
 
 describe('providerContexts', () => {
   it('takes the provider at its word', () => {
-    expect(providerContexts(lights)).toEqual(['profile', 'scene']);
+    expect(providerContexts(lights)).toEqual(['profile', 'mode']);
   });
 
   // A provider that declares nothing is profile-only. The failure worth
-  // defaulting away from is a scene quietly reaching hardware nobody meant it
+  // defaulting away from is a mode quietly reaching hardware nobody meant it
   // to touch — a missing row in a list is a far cheaper mistake.
   it('treats a provider that declares nothing as profile-only', () => {
     expect(providerContexts({ id: 'mystery' })).toEqual(['profile']);
@@ -338,35 +345,131 @@ describe('providerContexts', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Whether a Mode's key will have an on/off state
+//
+// The merge of Scenes and Modes turned one action into two behaviours, and this
+// is what keeps that from being confusing: the difference is derived from the
+// providers inside, never declared, and the editor says which one you have got.
+// ---------------------------------------------------------------------------
+
+describe('reportsState', () => {
+  it('believes only an explicit true', () => {
+    expect(reportsState(flag)).toBe(true);
+    expect(reportsState(lights)).toBe(false);
+    expect(reportsState({ id: 'x' })).toBe(false);
+    expect(reportsState(undefined)).toBe(false);
+  });
+});
+
+describe('modeStatefulness', () => {
+  const all = [...kit, flag];
+
+  // The whole rule in one test: the Mode asserts nothing, its contents decide.
+  it('is stateful when one provider inside can report itself', () => {
+    const m = mode({ providers: { 'state-flag': { flag: 'display', value: 'vr' } } });
+    expect(modeStatefulness(m, all)).toMatchObject({
+      stateful: true, reporters: ['Rig State Flag'], quiet: [],
+    });
+  });
+
+  it('is not stateful when nothing inside can, however much is in it', () => {
+    const m = mode({ providers: { govee: { scene: 'Sunset' }, apps: { commands: 'x' } } });
+    expect(modeStatefulness(m, all)).toMatchObject({
+      stateful: false, reporters: [], quiet: ['Govee Lighting', 'Apps & Scripts'],
+    });
+  });
+
+  // The user's actual case: one flag, some lights, a throwaway script, one key.
+  // Mixing is the point — the providers that cannot answer neither add to the
+  // verdict nor spoil it.
+  it('mixes freely, and only the ones that answer count', () => {
+    const m = mode({
+      providers: {
+        'state-flag': { flag: 'display', value: 'vr' },
+        govee: { scene: 'Sunset' },
+        apps: { commands: 'start vr.exe' },
+      },
+    });
+    const { stateful, reporters, quiet } = modeStatefulness(m, all);
+    expect(stateful).toBe(true);
+    expect(reporters).toEqual(['Rig State Flag']);
+    expect(quiet).toEqual(['Govee Lighting', 'Apps & Scripts']);
+  });
+
+  // Being allowed in a Mode is not a promise to report state. If these two ever
+  // got conflated, Govee and Apps could not be in a Mode at all.
+  it('does not treat the mode context as a promise to report state', () => {
+    expect(providerContexts(lights)).toContain('mode');
+    expect(reportsState(lights)).toBe(false);
+    expect(modeStatefulness(mode({ providers: { govee: { scene: 'S' } } }), all).stateful).toBe(false);
+  });
+
+  // A blank block is not stored, so it does not run, so it cannot report
+  // anything. Same rule modeOverlap follows, for the same reason: describe the
+  // Mode that will be saved, not the draft on screen.
+  it('does not let a blank block make a Mode stateful', () => {
+    const m = mode({ providers: { 'state-flag': {} } });
+    expect(modeStatefulness(m, all).stateful).toBe(false);
+  });
+
+  // But it is called out rather than ignored. Adding the one provider that
+  // would make the key stateful and seeing nothing change would read as a bug.
+  it('names a state-reporting block that has not been filled in yet', () => {
+    const m = mode({ providers: { 'state-flag': {}, govee: { scene: 'Sunset' } } });
+    expect(modeStatefulness(m, all)).toMatchObject({
+      stateful: false, reporters: [], quiet: ['Govee Lighting'], pending: ['Rig State Flag'],
+    });
+  });
+
+  it('does not list a blank block that could never report anything as pending', () => {
+    expect(modeStatefulness(mode({ providers: { govee: {} } }), all).pending).toEqual([]);
+  });
+
+  it('falls back to the id when the provider list has no label for it', () => {
+    // Config outlives code: a provider id this build does not know must not
+    // crash the pane, and must not silently claim to report state either.
+    const m = mode({ providers: { 'warp-drive': { coils: 3 } } });
+    expect(modeStatefulness(m, all)).toMatchObject({ stateful: false, quiet: ['warp-drive'] });
+  });
+
+  it('survives an empty Mode and no provider list at all', () => {
+    expect(modeStatefulness(newMode(), all)).toEqual({
+      stateful: false, reporters: [], quiet: [], pending: [],
+    });
+    expect(modeStatefulness(undefined).stateful).toBe(false);
+  });
+});
+
 describe('offers', () => {
-  it('offers every provider on a profile, with scenes after them', () => {
+  it('offers every provider on a profile, with modes after them', () => {
     const list = offers({
       providers: kit,
-      scenes: [scene()],
+      modes: [mode()],
       record: saved(),
       kind: 'profiles',
     });
     expect(list.map((o) => `${o.type}:${o.id}`)).toEqual([
-      'provider:fanatec-base', 'provider:govee', 'provider:apps', 'scene:sunset',
+      'provider:fanatec-base', 'provider:govee', 'provider:apps', 'mode:sunset',
     ]);
   });
 
-  // The rule this whole function exists for: a scene is a moment of ambience
+  // The rule this whole function exists for: a mode is a moment of ambience
   // and must never be able to hand a child full force feedback, so the hardware
   // that could is not offered on one at all.
-  it('offers a scene only the providers that declare the scene context', () => {
-    const list = offers({ providers: kit, record: newScene(), kind: 'scenes' });
+  it('offers a mode only the providers that declare the mode context', () => {
+    const list = offers({ providers: kit, record: newMode(), kind: 'modes' });
     expect(list.map((o) => o.id)).toEqual(['govee', 'apps']);
   });
 
-  it('never offers a scene on another scene', () => {
+  it('never offers a mode on another mode', () => {
     const list = offers({
       providers: kit,
-      scenes: [scene(), scene({ id: 'dusk', name: 'Dusk' })],
-      record: newScene(),
-      kind: 'scenes',
+      modes: [mode(), mode({ id: 'dusk', name: 'Dusk' })],
+      record: newMode(),
+      kind: 'modes',
     });
-    expect(list.some((o) => o.type === 'scene')).toBe(false);
+    expect(list.some((o) => o.type === 'mode')).toBe(false);
   });
 
   // Greyed out, not gone: a row that vanishes when used leaves the user
@@ -380,37 +483,37 @@ describe('offers', () => {
     expect(list.find((o) => o.id === 'apps').added).toBe(false);
   });
 
-  it('marks a scene the profile already runs as added', () => {
+  it('marks a mode the profile already runs as added', () => {
     const list = offers({
       providers: kit,
-      scenes: [scene(), scene({ id: 'dusk', name: 'Dusk' })],
-      record: saved({ scenes: ['sunset'] }),
+      modes: [mode(), mode({ id: 'dusk', name: 'Dusk' })],
+      record: saved({ modes: ['sunset'] }),
     });
     expect(list.find((o) => o.id === 'sunset').added).toBe(true);
     expect(list.find((o) => o.id === 'dusk').added).toBe(false);
   });
 
-  // An id is what a profile stores, so a scene without one cannot be picked
+  // An id is what a profile stores, so a mode without one cannot be picked
   // yet. It gets one within the second, on its own first save.
-  it('does not offer a scene that has never been saved', () => {
-    const list = offers({ providers: [], scenes: [newScene()], record: saved() });
+  it('does not offer a mode that has never been saved', () => {
+    const list = offers({ providers: [], modes: [newMode()], record: saved() });
     expect(list).toEqual([]);
   });
 
-  it('searches providers and scenes together, in one query', () => {
+  it('searches providers and modes together, in one query', () => {
     const list = offers({
       providers: kit,
-      scenes: [scene({ id: 'apps-off', name: 'Everything off' })],
+      modes: [mode({ id: 'apps-off', name: 'Everything off' })],
       record: saved(),
       query: 'app',
     });
-    expect(list.map((o) => `${o.type}:${o.id}`)).toEqual(['provider:apps', 'scene:apps-off']);
+    expect(list.map((o) => `${o.type}:${o.id}`)).toEqual(['provider:apps', 'mode:apps-off']);
   });
 
-  it('finds a scene by the hardware it sets, not only by its name', () => {
+  it('finds a mode by the hardware it sets, not only by its name', () => {
     const list = offers({
       providers: [],
-      scenes: [scene({ providers: { govee: { scene: 'Sunset' } } })],
+      modes: [mode({ providers: { govee: { scene: 'Sunset' } } })],
       record: saved(),
       query: 'govee',
     });
@@ -503,7 +606,7 @@ describe('unknownValues', () => {
     expect(found[0].value).toBe('gone-uuid');
   });
 
-  // Provider-agnostic by construction: a Govee scene renamed in the Govee app
+  // Provider-agnostic by construction: a Govee mode renamed in the Govee app
   // is the same shape of problem and gets the same answer.
   it('works the same for a renamed Govee scene', () => {
     const govee = { id: 'govee', fields: [{ key: 'scene', label: 'Scene', type: 'select',
@@ -603,23 +706,23 @@ describe('withoutBlankBlocks', () => {
   });
 
   it('keeps everything else about the record', () => {
-    const p = saved({ providers: { moza: {} }, scenes: ['sunset'], restricted: true });
+    const p = saved({ providers: { moza: {} }, modes: ['sunset'], restricted: true });
     const out = withoutBlankBlocks(p);
     expect(out.id).toBe('kai');
-    expect(out.scenes).toEqual(['sunset']);
+    expect(out.modes).toEqual(['sunset']);
     expect(out.restricted).toBe(true);
   });
 });
 
 describe('forStorage', () => {
-  // Scenes and profiles save in one request, so one blank block on one profile
+  // Modes and profiles save in one request, so one blank block on one profile
   // would otherwise have the server refuse BOTH lists — an unrelated rename on
   // another profile blocked by a provider someone half-added. That is the
   // deadlock the unresolved-value work already had to undo once.
-  it('cleans both lists the same way, because a scene gets providers too', () => {
+  it('cleans both lists the same way, because a mode gets providers too', () => {
     const list = [
       saved({ providers: { moza: {} } }),
-      scene({ providers: { govee: { scene: 'Sunset' }, apps: {} } }),
+      mode({ providers: { govee: { scene: 'Sunset' }, apps: {} } }),
     ];
     expect(forStorage(list).map((r) => r.providers)).toEqual([
       {},
@@ -632,25 +735,25 @@ describe('forStorage', () => {
   });
 });
 
-describe('sceneOverlap ignores blocks that hold nothing', () => {
-  // A profile with an empty Govee block does not beat the scene's Govee at
-  // runtime — it is not stored, so the scene's lighting is what fires. Claiming
+describe('modeOverlap ignores blocks that hold nothing', () => {
+  // A profile with an empty Govee block does not beat the mode's Govee at
+  // runtime — it is not stored, so the mode's lighting is what fires. Claiming
   // the clash would warn about something that does not happen, and in the wrong
   // direction.
-  it('does not let a blank block on the profile claim the scene loses', () => {
+  it('does not let a blank block on the profile claim the mode loses', () => {
     const p = saved({ providers: { govee: {} } });
-    const s = scene({ providers: { govee: { scene: 'Sunset' } } });
-    expect(sceneOverlap(p, s)).toEqual([]);
+    const s = mode({ providers: { govee: { scene: 'Sunset' } } });
+    expect(modeOverlap(p, s)).toEqual([]);
   });
 
-  it('does not let a blank block on the scene invent a clash either', () => {
+  it('does not let a blank block on the mode invent a clash either', () => {
     const p = saved({ providers: { govee: { scene: 'Race' } } });
-    expect(sceneOverlap(p, scene({ providers: { govee: {} } }))).toEqual([]);
+    expect(modeOverlap(p, mode({ providers: { govee: {} } }))).toEqual([]);
   });
 
   it('still names a real one', () => {
     const p = saved({ providers: { govee: { scene: 'Race' } } });
-    const s = scene({ providers: { govee: { scene: 'Sunset' } } });
-    expect(sceneOverlap(p, s)).toEqual(['govee']);
+    const s = mode({ providers: { govee: { scene: 'Sunset' } } });
+    expect(modeOverlap(p, s)).toEqual(['govee']);
   });
 });

@@ -9,21 +9,28 @@
 // exactly one place: carrying the selection across a reload, which replaces
 // every object with a fresh one and leaves the id as the only thing in common.
 //
-// Scenes
-// ------
-// A scene has the same SHAPE as a profile — `{ id, name, color, providers }` —
+// Modes
+// -----
+// A Mode has the same SHAPE as a profile — `{ id, name, color, providers }` —
 // and none of its meaning. A profile is a claim about who is at the rig: it is
 // exclusive, it persists, and a restricted one is gated behind a deliberate
-// hold. A scene is a moment: lights, a playlist, a script, fired and forgotten.
-// It never writes the shared active-profile state, because that state answers
-// "which human is at the rig" and a lighting preset must not be able to change
-// what a child is allowed to launch.
+// hold. A Mode is something the rig does rather than someone it thinks is at
+// it: lights, VR, a playlist, a script. It never writes the shared
+// active-profile state, because that state answers "which human is at the rig"
+// and a lighting preset must not be able to change what a child may launch.
+//
+// Whether a Mode is stateful is not a property it asserts. It is a property of
+// the providers inside it: one that implements isActive() can say whether it is
+// currently in effect, and a Mode holding at least one of those has an
+// active/inactive state on its key. A Mode holding none fires and forgets. The
+// entity does not decide; the providers do — see `modeStatefulness` below.
 //
 // Because the shape is identical, the list operations below are shape-generic
 // and are used for both lists. The names kept their `Profile` suffix where
 // existing callers and tests already use them; what a function does not do is
 // care which list it was handed. Only the functions that touch the *reference*
-// between the two — a profile naming scenes it also runs — know the difference.
+// between the two — a profile naming Modes it also activates — know the
+// difference.
 
 /** A blank profile. Colour matches the inspector's own accent. */
 export const newProfile = () => ({
@@ -35,20 +42,22 @@ export const newProfile = () => ({
 });
 
 /**
- * A blank scene.
+ * A blank Mode.
  *
  * Deliberately missing `restricted`: there is nothing to gate. A hold exists to
- * stop a child pressing a key that hands them full force feedback, and a scene
- * cannot hand them anything — it does not touch who is at the rig. Storing the
- * flag as `false` would still put the word in the record, and the next reader
- * of the JSON would reasonably wonder what a gated scene is.
+ * stop a child pressing a key that hands them full force feedback, and a Mode
+ * cannot hand them anything — it does not touch who is at the rig. That holds
+ * for a Mode that reports itself active too: its on/off is a fact about the
+ * Mode, not about who is sitting there. Storing the flag as `false` would still
+ * put the word in the record, and the next reader of the JSON would reasonably
+ * wonder what a gated Mode is.
  *
- * The violet is the scene accent used throughout the editor, so a new scene
- * looks like a scene before it is named.
+ * The violet is the Mode accent used throughout the editor, so a new Mode looks
+ * like a Mode before it is named.
  */
-export const newScene = () => ({
+export const newMode = () => ({
   id: '',
-  name: 'New scene',
+  name: 'New mode',
   color: '#7c5cff',
   providers: {},
 });
@@ -58,12 +67,12 @@ export function addProfile(profiles) {
   return { profiles: [...profiles, profile], selected: profile };
 }
 
-export function addScene(scenes) {
-  const scene = newScene();
-  return { scenes: [...scenes, scene], selected: scene };
+export function addMode(modes) {
+  const mode = newMode();
+  return { modes: [...modes, mode], selected: mode };
 }
 
-/** Drop one record from its list. Shape-generic: profiles and scenes both. */
+/** Drop one record from its list. Shape-generic: profiles and Modes both. */
 export function removeProfile(profiles, profile) {
   const next = profiles.filter((p) => p !== profile);
   return { profiles: next, selected: next[0] ?? null };
@@ -106,10 +115,14 @@ export function matchesSearch(profile, query) {
 /**
  * Which lists a provider may be offered on.
  *
- * A provider declares `contexts: ['profile']` or `['profile','scene']`. One
+ * A provider declares `contexts: ['profile']` or `['profile','mode']`. One
  * that declares nothing is treated as profile-only: profiles are the default
- * surface, and the failure worth defaulting away from is a scene quietly
+ * surface, and the failure worth defaulting away from is a Mode quietly
  * reaching hardware it was never meant to touch.
+ *
+ * Says nothing about whether the provider can report its own state — that is
+ * `reportsState`, and the two are independent. Govee belongs in a Mode and
+ * cannot report itself; both facts are true at once.
  */
 export const providerContexts = (provider) =>
   Array.isArray(provider?.contexts) && provider.contexts.length ? provider.contexts : ['profile'];
@@ -117,29 +130,29 @@ export const providerContexts = (provider) =>
 /**
  * Everything the third column can offer for the record on screen, in one list.
  *
- * Providers and scenes are added the same way and are therefore searched
+ * Providers and Modes are added the same way and are therefore searched
  * together — the question being asked is "what else should this do?", and
- * whether the answer is a piece of hardware or a scene is the editor's
+ * whether the answer is a piece of hardware or a Mode is the editor's
  * bookkeeping, not the user's. They stay in two groups so the list is still
  * readable, and the caller renders them in the order returned.
  *
  * `added: true` is returned rather than filtered out. An entry that vanishes
  * when used leaves the user wondering whether they imagined it; one that stays
  * and greys out says "yes, that one, it is already on". Nothing is offered
- * twice — a provider appears once in a record's providers map, and a scene
+ * twice — a provider appears once in a record's providers map, and a Mode
  * reference is an id in a set.
  *
  * @param {object} opts
  * @param {object[]} [opts.providers]  as sent by getProviders, with `contexts`
- * @param {object[]} [opts.scenes]     the scene draft
- * @param {object} [opts.record]       the profile or scene being edited
- * @param {'profiles'|'scenes'} [opts.kind]  which list `record` came from
+ * @param {object[]} [opts.modes]      the Mode draft
+ * @param {object} [opts.record]       the profile or Mode being edited
+ * @param {'profiles'|'modes'} [opts.kind]  which list `record` came from
  * @param {string} [opts.query]        the third column's search box
  * @param {Function} [opts.match]      how to test one entry, for tests
- * @returns {Array<{ type: 'provider'|'scene', id, label, added, provider?, scene? }>}
+ * @returns {Array<{ type: 'provider'|'mode', id, label, added, provider?, mode? }>}
  */
-export function offers({ providers = [], scenes = [], record = null, kind = 'profiles', query = '', match = matchesSearch } = {}) {
-  const context = kind === 'scenes' ? 'scene' : 'profile';
+export function offers({ providers = [], modes = [], record = null, kind = 'profiles', query = '', match = matchesSearch } = {}) {
+  const context = kind === 'modes' ? 'mode' : 'profile';
   const out = [];
 
   for (const provider of providers) {
@@ -154,21 +167,21 @@ export function offers({ providers = [], scenes = [], record = null, kind = 'pro
     });
   }
 
-  // Scenes are offered on profiles and nowhere else. A scene running a scene
+  // Modes are offered on profiles and nowhere else. A Mode activating a Mode
   // would be a graph to resolve and a cycle to detect, for a feature nobody has
-  // asked for; a profile composing scenes is the whole point of them.
+  // asked for; a profile composing Modes is the whole point of them.
   if (context === 'profile') {
-    for (const scene of scenes) {
-      // A scene with no id has never been saved, so there is nothing for a
+    for (const mode of modes) {
+      // A Mode with no id has never been saved, so there is nothing for a
       // profile to reference yet — it gets an id within the second.
-      if (!scene.id) continue;
-      if (!match(scene, query)) continue;
+      if (!mode.id) continue;
+      if (!match(mode, query)) continue;
       out.push({
-        type: 'scene',
-        id: scene.id,
-        label: scene.name || '(unnamed)',
-        added: referencesScene(record, scene.id),
-        scene,
+        type: 'mode',
+        id: mode.id,
+        label: mode.name || '(unnamed)',
+        added: referencesMode(record, mode.id),
+        mode,
       });
     }
   }
@@ -193,9 +206,9 @@ export function slugify(name, taken = [], fallback = 'profile') {
  * copy would leave the panel displaying a profile with no id while the stored
  * one has one.
  *
- * Profiles and scenes are slugged independently — they are separate lists and
- * a profile only ever names a scene from the scene list, so `brian` may be both
- * a profile and a scene without either becoming ambiguous.
+ * Profiles and Modes are slugged independently — they are separate lists and
+ * a profile only ever names a Mode from the Mode list, so `brian` may be both
+ * a profile and a Mode without either becoming ambiguous.
  */
 export function withIds(profiles, fallback = 'profile') {
   const taken = [];
@@ -207,76 +220,140 @@ export function withIds(profiles, fallback = 'profile') {
 }
 
 // ---------------------------------------------------------------------------
-// Scene references
+// Mode references
 //
-// A profile names the scenes it also runs, by id, in `profile.scenes`. Ids
+// A profile names the Modes it also activates, by id, in `profile.modes`. Ids
 // rather than objects because this is what gets stored: the reference has to
 // survive being written to global settings and read back by the plugin, and an
 // id is the only thing that does. Ids are permanent once slugged, so renaming a
-// scene never breaks a profile that names it.
+// Mode never breaks a profile that names it.
+//
+// The reference is one-way and one-shot. A profile ACTIVATES the Modes it
+// names, and takes no further interest: whether a Mode goes on to report itself
+// active is the Mode key's business, not the profile's. Nothing here reads
+// `reportsState`, and that is the point — a profile behaves identically towards
+// a Mode that can report itself and one that cannot.
 // ---------------------------------------------------------------------------
 
-/** The scene ids a profile references, always an array. */
-export const sceneRefs = (profile) => profile?.scenes ?? [];
+/** The Mode ids a profile references, always an array. */
+export const modeRefs = (profile) => profile?.modes ?? [];
 
-/** Does this profile run that scene as well as its own providers? */
-export function referencesScene(profile, sceneId) {
-  return sceneRefs(profile).includes(sceneId);
+/** Does this profile activate that Mode as well as its own providers? */
+export function referencesMode(profile, modeId) {
+  return modeRefs(profile).includes(modeId);
 }
 
 /**
- * Add or remove one scene reference, in place.
+ * Add or remove one Mode reference, in place.
  *
  * The key is deleted rather than left as an empty array when the last reference
  * goes, so a profile that references nothing looks in storage exactly like one
- * written before scenes existed.
+ * written before Modes existed.
  */
-export function setSceneRef(profile, sceneId, on) {
-  if (!profile || !sceneId) return profile;
-  const next = sceneRefs(profile).filter((id) => id !== sceneId);
-  if (on) next.push(sceneId);
-  if (next.length) profile.scenes = next;
-  else delete profile.scenes;
+export function setModeRef(profile, modeId, on) {
+  if (!profile || !modeId) return profile;
+  const next = modeRefs(profile).filter((id) => id !== modeId);
+  if (on) next.push(modeId);
+  if (next.length) profile.modes = next;
+  else delete profile.modes;
   return profile;
 }
 
-/** Every profile that references this scene, in list order. */
-export function profilesUsingScene(profiles, sceneId) {
-  return (profiles ?? []).filter((p) => referencesScene(p, sceneId));
+/** Every profile that references this Mode, in list order. */
+export function profilesUsingMode(profiles, modeId) {
+  return (profiles ?? []).filter((p) => referencesMode(p, modeId));
 }
 
 /**
- * Drop a scene from every profile that references it, in place.
+ * Drop a Mode from every profile that references it, in place.
  *
- * Called when a scene is deleted. Leaving the reference behind would give the
- * profile a silent dead limb: it would still claim to run a scene, and the
- * runtime would log a missing-scene warning that nobody reads. Returns the
+ * Called when a Mode is deleted. Leaving the reference behind would give the
+ * profile a silent dead limb: it would still claim to activate a Mode, and the
+ * runtime would log a missing-mode warning that nobody reads. Returns the
  * profiles that changed, so the deletion can say what it touched.
  */
-export function detachScene(profiles, sceneId) {
-  const affected = profilesUsingScene(profiles, sceneId);
-  for (const p of affected) setSceneRef(p, sceneId, false);
+export function detachMode(profiles, modeId) {
+  const affected = profilesUsingMode(profiles, modeId);
+  for (const p of affected) setModeRef(p, modeId, false);
   return affected;
 }
 
+// ---------------------------------------------------------------------------
+// Whether a Mode's key will have an on/off state
+//
+// This is the one thing about a Mode the user cannot see by reading its
+// provider list, and it decides how the key behaves. Two Modes can look
+// identical on screen — same shape, same three blocks — and one of them lights
+// up to say it is on while the other fires and is over. What separates them is
+// a capability that is invisible in the UI: whether any provider inside can
+// answer "am I currently in effect?".
+//
+// So the editor says it, in words, next to the key preview. Without that, one
+// action with two behaviours is exactly the confusion it sounds like.
+//
+// Three rules, and each is load-bearing:
+//
+//   * the verdict comes from the PROVIDERS, never from the Mode. A Mode does
+//     not declare itself stateful and cannot be made stateful by ticking
+//     something; adding a provider that reports state is the only way in;
+//   * only providers that answer count. A Mode may freely mix them with ones
+//     that cannot — lights and throwaway scripts have no honest answer to give
+//     — and the non-answering ones neither add to the verdict nor spoil it;
+//   * only CONFIGURED blocks count. A block holding nothing is not stored and
+//     therefore does not run, so it cannot report anything either. Same rule
+//     `modeOverlap` follows, for the same reason: the editor must describe what
+//     the saved Mode will do, not what the draft looks like.
+//
+// The last rule has a visible consequence worth handling rather than hiding.
+// Add the one provider that reports state, and until you fill it in the key
+// still has no state — so `pending` names those blocks and the caller can say
+// "once you have set it up" instead of appearing to ignore what was just added.
+// ---------------------------------------------------------------------------
+
+/** Can this provider, as sent by getProviders, report whether it is in effect? */
+export const reportsState = (provider) => provider?.reportsState === true;
+
 /**
- * Provider ids a referenced scene would contribute but the profile already sets
+ * What a Mode's key will show, derived from what is actually inside it.
+ *
+ * @param {object} record            the Mode being edited
+ * @param {object[]} providers       as sent by getProviders, with `reportsState`
+ * @returns {{ stateful: boolean, reporters: string[], quiet: string[], pending: string[] }}
+ *   `reporters` are the configured providers that give the key its on/off,
+ *   `quiet` the configured ones that simply run, and `pending` the ones that
+ *   would report state but hold nothing yet. Labels, not ids: every caller is
+ *   about to show them to a human.
+ */
+export function modeStatefulness(record, providers = []) {
+  const label = (id) => providers.find((p) => p.id === id)?.label ?? id;
+  const knows = (id) => reportsState(providers.find((p) => p.id === id));
+
+  const configured = configuredBlocks(record);
+  const reporters = configured.filter(knows).map(label);
+  const quiet = configured.filter((id) => !knows(id)).map(label);
+  const pending = blankBlocks(record).filter(knows).map(label);
+
+  return { stateful: reporters.length > 0, reporters, quiet, pending };
+}
+
+/**
+ * Provider ids a referenced Mode would contribute but the profile already sets
  * itself.
  *
  * The runtime resolves this collision in the profile's favour — see
- * `withScenes` in profileSwitch.js — which is the right call and also invisible
- * unless the editor says so. A user who sets Govee on a profile and then adds a
- * lighting scene to it should be told the scene's lighting will not be used,
- * rather than discovering it when the room stays the wrong colour.
+ * profileSwitch.js — which is the right call and also invisible unless the
+ * editor says so. A user who sets Govee on a profile and then adds a lighting
+ * Mode to it should be told the Mode's lighting will not be used, rather than
+ * discovering it when the room stays the wrong colour.
  */
-export function sceneOverlap(profile, scene) {
+export function modeOverlap(profile, mode) {
   // Blank blocks on either side are excluded because they are not stored — see
   // `blankBlocks` below. A profile with an empty Govee block does NOT beat the
-  // scene's Govee at runtime; it contributes nothing at all, and the scene's
+  // Mode's Govee at runtime; it contributes nothing at all, and the Mode's
   // lighting is what actually fires. Counting it would make the editor warn
   // about a clash that does not happen, in the profile's favour, wrongly.
   const mine = configuredBlocks(profile);
-  return configuredBlocks(scene).filter((id) => mine.includes(id));
+  return configuredBlocks(mode).filter((id) => mine.includes(id));
 }
 
 /**

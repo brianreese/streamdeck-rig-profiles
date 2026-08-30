@@ -3,9 +3,9 @@ import { mkdtempSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import yaml from 'js-yaml';
-import { handlePiRequest, validateProfiles, validateScenes, profilesToYaml } from './piBridge.js';
+import { handlePiRequest, validateProfiles, validateModes, profilesToYaml } from './piBridge.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar, MAX_BYTES } from './avatars.js';
-import { _resetForTesting, register, allProviders } from './providers/index.js';
+import { _resetForTesting, register, allProviders, reportsState } from './providers/index.js';
 
 const silent = { warn: () => {}, info: () => {} };
 
@@ -70,151 +70,151 @@ describe('saveProfiles', () => {
 
 });
 
-describe('validateScenes', () => {
-  const validScene = (over = {}) => ({
+describe('validateModes', () => {
+  const validMode = (over = {}) => ({
     id: 'sunset', name: 'Sunset', color: '#7C5CFF',
     providers: { govee: { scene: 'Sunset' } }, ...over,
   });
 
-  it('accepts a well-formed scene', () => {
-    expect(validateScenes([validScene()]).ok).toBe(true);
+  it('accepts a well-formed mode', () => {
+    expect(validateModes([validMode()]).ok).toBe(true);
   });
 
-  it('holds a scene to the same structural rules as a profile', () => {
-    expect(validateScenes([validScene({ color: 'violet' })]).ok).toBe(false);
-    expect(validateScenes([validScene({ name: '  ' })]).ok).toBe(false);
-    expect(validateScenes([validScene(), validScene({ name: 'Sunset 2' })]).ok).toBe(false);
+  it('holds a mode to the same structural rules as a profile', () => {
+    expect(validateModes([validMode({ color: 'violet' })]).ok).toBe(false);
+    expect(validateModes([validMode({ name: '  ' })]).ok).toBe(false);
+    expect(validateModes([validMode(), validMode({ name: 'Sunset 2' })]).ok).toBe(false);
   });
 
-  it('applies each provider validate() to scene config exactly as to a profile', () => {
-    const bad = validScene({ providers: { 'fanatec-base': { setup: 99 } } });
-    const { ok, errors } = validateScenes([bad]);
+  it('applies each provider validate() to mode config exactly as to a profile', () => {
+    const bad = validMode({ providers: { 'fanatec-base': { setup: 99 } } });
+    const { ok, errors } = validateModes([bad]);
     expect(ok).toBe(false);
     expect(errors.join()).toMatch(/wheelbase setup must be 1-5/);
   });
 
-  it('refuses a restricted scene — a hold gate in front of nothing', () => {
-    // A scene never writes the shared active-profile state, so it cannot hand
+  it('refuses a restricted mode — a hold gate in front of nothing', () => {
+    // A mode never writes the shared active-profile state, so it cannot hand
     // a child full force feedback and has nothing to gate. Storing the flag
-    // would also suggest scenes carry the authority profiles do.
-    const { ok, errors } = validateScenes([validScene({ restricted: true })]);
+    // would also suggest modes carry the authority profiles do.
+    const { ok, errors } = validateModes([validMode({ restricted: true })]);
     expect(ok).toBe(false);
     expect(errors.join()).toMatch(/nothing to gate/);
   });
 
-  it('rejects a scene list that is not a list', () => {
-    expect(validateScenes(undefined).ok).toBe(false);
+  it('rejects a mode list that is not a list', () => {
+    expect(validateModes(undefined).ok).toBe(false);
   });
 });
 
-describe('scene references on a profile', () => {
-  it('accepts a profile referencing a scene that exists', () => {
-    const p = validProfile({ scenes: ['sunset'] });
-    expect(validateProfiles([p], { sceneIds: ['sunset'] }).ok).toBe(true);
+describe('mode references on a profile', () => {
+  it('accepts a profile referencing a mode that exists', () => {
+    const p = validProfile({ modes: ['sunset'] });
+    expect(validateProfiles([p], { modeIds: ['sunset'] }).ok).toBe(true);
   });
 
-  it('refuses a profile referencing a scene that does not', () => {
-    // Not cosmetic: the runtime skips the missing scene with a log line nobody
+  it('refuses a profile referencing a mode that does not', () => {
+    // Not cosmetic: the runtime skips the missing mode with a log line nobody
     // reads, so the lights quietly do not come on.
-    const p = validProfile({ scenes: ['gone'] });
-    const { ok, errors } = validateProfiles([p], { sceneIds: ['sunset'] });
+    const p = validProfile({ modes: ['gone'] });
+    const { ok, errors } = validateProfiles([p], { modeIds: ['sunset'] });
     expect(ok).toBe(false);
-    expect(errors.join()).toMatch(/references a scene that does not exist \("gone"\)/);
+    expect(errors.join()).toMatch(/references a mode that does not exist \("gone"\)/);
   });
 
-  it('does not check references at all when no scene list is given', () => {
+  it('does not check references at all when no mode list is given', () => {
     // A caller that only has profiles to hand must not be made to invent an
-    // empty scene list, which would reject every reference.
-    expect(validateProfiles([validProfile({ scenes: ['sunset'] })]).ok).toBe(true);
+    // empty mode list, which would reject every reference.
+    expect(validateProfiles([validProfile({ modes: ['sunset'] })]).ok).toBe(true);
   });
 });
 
-describe('saveProfiles with scenes', () => {
-  const aScene = { id: 'sunset', name: 'Sunset', color: '#7C5CFF', providers: {} };
+describe('saveProfiles with modes', () => {
+  const aMode = { id: 'sunset', name: 'Sunset', color: '#7C5CFF', providers: {} };
 
-  it('stores scenes as a sibling of profiles', async () => {
+  it('stores modes as a sibling of profiles', async () => {
     const settings = fakeSettings({ profiles: [] });
     const reply = await handlePiRequest(
-      { request: 'saveProfiles', profiles: [validProfile()], scenes: [aScene] },
+      { request: 'saveProfiles', profiles: [validProfile()], modes: [aMode] },
       { settings, logger: silent },
     );
     expect(reply.ok).toBe(true);
-    expect(settings.written().scenes).toEqual([aScene]);
+    expect(settings.written().modes).toEqual([aMode]);
     expect(settings.written().profiles).toHaveLength(1);
   });
 
-  it('carries stored scenes through a save that does not mention them', async () => {
-    // The property inspector knows nothing about scenes. Its save must not be
+  it('carries stored modes through a save that does not mention them', async () => {
+    // The property inspector knows nothing about modes. Its save must not be
     // able to erase them.
-    const settings = fakeSettings({ profiles: [], scenes: [aScene] });
+    const settings = fakeSettings({ profiles: [], modes: [aMode] });
     await handlePiRequest(
       { request: 'saveProfiles', profiles: [validProfile()] },
       { settings, logger: silent },
     );
-    expect(settings.written().scenes).toEqual([aScene]);
+    expect(settings.written().modes).toEqual([aMode]);
   });
 
-  it('refuses the whole save when a scene is malformed, leaving both lists alone', async () => {
-    const settings = fakeSettings({ profiles: [validProfile()], scenes: [aScene] });
+  it('refuses the whole save when a mode is malformed, leaving both lists alone', async () => {
+    const settings = fakeSettings({ profiles: [validProfile()], modes: [aMode] });
     const reply = await handlePiRequest(
       {
         request: 'saveProfiles',
         profiles: [validProfile({ name: 'Renamed' })],
-        scenes: [{ ...aScene, color: 'violet' }],
+        modes: [{ ...aMode, color: 'violet' }],
       },
       { settings, logger: silent },
     );
     expect(reply.ok).toBe(false);
-    expect(reply.sceneErrors.join()).toMatch(/colour/);
+    expect(reply.modeErrors.join()).toMatch(/colour/);
     expect(settings.written().profiles[0].name).toBe('Kai');
-    expect(settings.written().scenes).toEqual([aScene]);
+    expect(settings.written().modes).toEqual([aMode]);
   });
 
-  it('validates a profile reference against the scenes in the same request', async () => {
+  it('validates a profile reference against the modes in the same request', async () => {
     // One request, so the pair is judged together — there is no window where a
-    // stored profile names a scene that has not been written yet.
+    // stored profile names a mode that has not been written yet.
     const settings = fakeSettings({ profiles: [] });
     const reply = await handlePiRequest(
       {
         request: 'saveProfiles',
-        profiles: [validProfile({ scenes: ['sunset'] })],
-        scenes: [aScene],
+        profiles: [validProfile({ modes: ['sunset'] })],
+        modes: [aMode],
       },
       { settings, logger: silent },
     );
     expect(reply.ok).toBe(true);
-    expect(settings.written().profiles[0].scenes).toEqual(['sunset']);
+    expect(settings.written().profiles[0].modes).toEqual(['sunset']);
   });
 
-  it('reports profile and scene problems separately, so the editor can place them', async () => {
+  it('reports profile and mode problems separately, so the editor can place them', async () => {
     const settings = fakeSettings({ profiles: [] });
     const reply = await handlePiRequest(
       {
         request: 'saveProfiles',
-        profiles: [validProfile({ scenes: ['nope'] })],
-        scenes: [aScene],
+        profiles: [validProfile({ modes: ['nope'] })],
+        modes: [aMode],
       },
       { settings, logger: silent },
     );
     expect(reply.ok).toBe(false);
-    expect(reply.errors.join()).toMatch(/references a scene/);
-    expect(reply.sceneErrors).toEqual([]);
+    expect(reply.errors.join()).toMatch(/references a mode/);
+    expect(reply.modeErrors).toEqual([]);
   });
 
-  it('lists scenes back to the editor', async () => {
+  it('lists modes back to the editor', async () => {
     const reply = await handlePiRequest(
       { request: 'getProfiles' },
-      { settings: fakeSettings({ profiles: [], scenes: [aScene] }), logger: silent },
+      { settings: fakeSettings({ profiles: [], modes: [aMode] }), logger: silent },
     );
-    expect(reply.scenes).toEqual([aScene]);
+    expect(reply.modes).toEqual([aMode]);
   });
 
-  it('returns an empty scene list rather than undefined on a config that predates scenes', async () => {
+  it('returns an empty mode list rather than undefined on a config that predates modes', async () => {
     const reply = await handlePiRequest(
       { request: 'getProfiles' },
       { settings: fakeSettings({ profiles: [validProfile()] }), logger: silent },
     );
-    expect(reply.scenes).toEqual([]);
+    expect(reply.modes).toEqual([]);
   });
 });
 
@@ -237,8 +237,11 @@ describe('getProviders', () => {
   beforeEach(() => {
     register(stub('fanatec-base', { contexts: ['profile'] }));
     register(stub('moza', { contexts: ['profile'] }));
-    register(stub('govee', { contexts: ['profile', 'scene'] }));
-    register(stub('apps', { contexts: ['profile', 'scene'] }));
+    register(stub('govee', { contexts: ['profile', 'mode'] }));
+    register(stub('apps', { contexts: ['profile', 'mode'] }));
+    // Same contexts as Govee, and unlike Govee it can answer for itself. The
+    // pair is the point: the two capabilities are independent.
+    register(stub('state-flag', { contexts: ['profile', 'mode'], isActive: async () => true }));
   });
 
   const contextsOf = async () => {
@@ -247,18 +250,59 @@ describe('getProviders', () => {
     return Object.fromEntries(reply.providers.map((p) => [p.id, p.contexts]));
   };
 
-  // The editor cannot know which providers belong on a scene; the provider is
+  const reportsStateOf = async () => {
+    const reply = await handlePiRequest(
+      { request: 'getProviders' }, { settings: fakeSettings(), logger: silent });
+    return Object.fromEntries(reply.providers.map((p) => [p.id, p.reportsState]));
+  };
+
+  // The editor cannot know which providers belong on a Mode; the provider is
   // the only thing that does. This is how it gets told.
   it("passes each provider's declared contexts through to the editor", async () => {
     expect(await contextsOf()).toEqual({
       'fanatec-base': ['profile'],
       moza: ['profile'],
-      govee: ['profile', 'scene'],
-      apps: ['profile', 'scene'],
+      govee: ['profile', 'mode'],
+      apps: ['profile', 'mode'],
+      'state-flag': ['profile', 'mode'],
     });
   });
 
-  // Profile-only, because the failure worth defaulting away from is a scene
+  // A Mode's active/inactive state is derived from this and nothing else, so
+  // the editor cannot say which Modes will have one without being told.
+  it('tells the editor which providers can report whether they are in effect', async () => {
+    expect(await reportsStateOf()).toEqual({
+      'fanatec-base': false,
+      moza: false,
+      govee: false,
+      apps: false,
+      'state-flag': true,
+    });
+  });
+
+  // The rule that makes the user's own VR Mode possible: a flag that reports
+  // itself, lighting that cannot, and scripts that cannot, all in one Mode.
+  // If declaring 'mode' implied isActive, Govee could not be in a Mode at all.
+  it('does not infer one capability from the other, in either direction', async () => {
+    const contexts = await contextsOf();
+    const reports = await reportsStateOf();
+    // Allowed in a Mode, cannot report itself.
+    expect(contexts.govee).toContain('mode');
+    expect(reports.govee).toBe(false);
+    // Reports itself, and says so without being asked to declare it twice.
+    expect(contexts['state-flag']).toContain('mode');
+    expect(reports['state-flag']).toBe(true);
+  });
+
+  // Derived from the method, never from a flag a provider sets. A provider that
+  // claimed to report state without implementing it would give the editor a
+  // promise nothing keeps, and a key with an on/off that never moves.
+  it('ignores a reportsState claim that no isActive backs up', async () => {
+    register(stub('liar', { contexts: ['profile', 'mode'], reportsState: true }));
+    expect((await reportsStateOf()).liar).toBe(false);
+  });
+
+  // Profile-only, because the failure worth defaulting away from is a mode
   // quietly reaching hardware nobody meant it to touch. A provider missing from
   // the editor's add list is the cheaper mistake, and the visible one.
   it('treats a provider that declares nothing as profile-only', async () => {
@@ -267,12 +311,12 @@ describe('getProviders', () => {
   });
 
   it("copies the array rather than handing out the provider's own", async () => {
-    const declared = ['profile', 'scene'];
+    const declared = ['profile', 'mode'];
     register(stub('shared', { contexts: declared }));
     const reply = await handlePiRequest(
       { request: 'getProviders' }, { settings: fakeSettings(), logger: silent });
     reply.providers.find((p) => p.id === 'shared').contexts.push('nonsense');
-    expect(declared).toEqual(['profile', 'scene']);
+    expect(declared).toEqual(['profile', 'mode']);
   });
 });
 
@@ -330,15 +374,36 @@ describe('getProviders: whether an options list can be trusted', () => {
 
 describe('the provider contract the editor depends on', () => {
   // Not which contexts each one picked — that is the provider's business — but
-  // that every one of them answers the question at all. The editor's scene
-  // list is built from these, and a provider that declares nothing silently
-  // disappears from scenes rather than failing loudly.
+  // that every one of them answers the question at all. The editor's Mode list
+  // is built from these, and a provider that declares nothing silently
+  // disappears from Modes rather than failing loudly.
   it('has every built-in provider declare which contexts it belongs in', () => {
     for (const provider of allProviders()) {
       expect(Array.isArray(provider.contexts), `${provider.id} declares no contexts`).toBe(true);
       expect(provider.contexts.length).toBeGreaterThan(0);
-      expect(provider.contexts.every((c) => c === 'profile' || c === 'scene')).toBe(true);
+      expect(provider.contexts.every((c) => c === 'profile' || c === 'mode')).toBe(true);
     }
+  });
+
+  // Deliberately NOT asserting that a 'mode' provider implements isActive.
+  // Requiring that would put Govee and Apps out of Modes entirely and take the
+  // user's own VR Mode — a flag, some lighting, a throwaway script, one key —
+  // with them. What must hold is the other direction: anything claiming to
+  // report state has to have the method that does it.
+  it('backs every reported state with an isActive that can answer', () => {
+    for (const provider of allProviders()) {
+      const reply = reportsState(provider);
+      expect(typeof reply).toBe('boolean');
+      if (reply) expect(typeof provider.isActive).toBe('function');
+    }
+  });
+
+  it('has at least one built-in that can report state, and at least one that cannot', () => {
+    // Otherwise the editor's two derived messages could not both be reached,
+    // and one of them would be dead text nobody ever sees.
+    const flags = allProviders().map(reportsState);
+    expect(flags).toContain(true);
+    expect(flags).toContain(false);
   });
 });
 
@@ -363,24 +428,24 @@ describe('profilesToYaml', () => {
     expect(out.profiles[0].providers['warp-drive']).toEqual({ coils: 3, mode: 'cruise' });
   });
 
-  it('exports scenes and the profile references that name them', () => {
-    // A committed YAML that has the references but not the scenes is a file
+  it('exports modes and the profile references that name them', () => {
+    // A committed YAML that has the references but not the modes is a file
     // describing profiles that do less than they say.
     const out = yaml.load(profilesToYaml({
-      profiles: [validProfile({ scenes: ['sunset'] })],
-      scenes: [{ id: 'sunset', name: 'Sunset', color: '#7C5CFF', providers: { govee: { scene: 'Sunset' } } }],
+      profiles: [validProfile({ modes: ['sunset'] })],
+      modes: [{ id: 'sunset', name: 'Sunset', color: '#7C5CFF', providers: { govee: { scene: 'Sunset' } } }],
       settings: {},
     }));
-    expect(out.profiles[0].scenes).toEqual(['sunset']);
-    expect(out.scenes[0]).toMatchObject({
+    expect(out.profiles[0].modes).toEqual(['sunset']);
+    expect(out.modes[0]).toMatchObject({
       id: 'sunset', name: 'Sunset', providers: { govee: { scene: 'Sunset' } },
     });
   });
 
-  it('omits the scenes key entirely when there are none', () => {
+  it('omits the modes key entirely when there are none', () => {
     const out = yaml.load(profilesToYaml({ profiles: [validProfile()], settings: {} }));
-    expect(out.scenes).toBeUndefined();
-    expect(out.profiles[0].scenes).toBeUndefined();
+    expect(out.modes).toBeUndefined();
+    expect(out.profiles[0].modes).toBeUndefined();
   });
 
   it('omits the providers key entirely when a profile configures nothing', () => {
@@ -423,8 +488,8 @@ describe('provider-driven validation', () => {
     expect(errors.join()).toMatch(/no preset or pedal setting is chosen/);
   });
 
-  it('refuses a blank block on a scene by exactly the same rule', () => {
-    const { ok, errors } = validateScenes([
+  it('refuses a blank block on a mode by exactly the same rule', () => {
+    const { ok, errors } = validateModes([
       { id: 'sunset', name: 'Sunset', color: '#7c5cff', providers: { govee: {} } },
     ]);
     expect(ok).toBe(false);

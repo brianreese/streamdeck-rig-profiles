@@ -178,23 +178,51 @@ export function renderProfileKey({
 }
 
 /**
- * Render a scene key.
+ * Render a mode key.
  *
- * A scene has no on state to show. It fires and is over, so it must not borrow
- * either profile look: the lit one would claim to be active, and the dark one
- * would read as switched off. It sits between them — bright enough to look
- * live, dim enough that the one genuinely active profile still owns the deck.
+ * A Mode may or may not be able to say whether it is currently on — that
+ * depends on whether any of its providers can answer, which is not something
+ * the key decides. So there are three looks, not two:
+ *
+ *   active === true   it reports itself on: lit, like an active profile
+ *   active === false  it reports itself off: dark, but still identifiable
+ *   active === null   nothing in it can tell, so it claims nothing and sits
+ *                     between the two — live enough not to read as disabled,
+ *                     dim enough that the one active profile still owns the deck
  *
  * @param {object} opts
- * @param {object} opts.scene       { name, color, avatarDataUri }
+ * @param {object} opts.mode        { name, color, avatarDataUri }
+ * @param {boolean|null} [opts.active]  reported state, or null when unknowable
  * @param {boolean} [opts.running]  mid-run
  * @param {number}  [opts.dotFrame] 0..2, which dot is lit while running
  */
-export function renderSceneKey({ scene, running = false, dotFrame = null }) {
-  if (!scene) return svg(unconfiguredKey());
+export function renderModeKey({ mode, active = null, running = false, dotFrame = null }) {
+  if (!mode) return svg(unconfiguredKey());
 
-  const name = escapeXml(scene.name ?? '');
-  const color = scene.color ?? '#2255CC';
+  const name = escapeXml(mode.name ?? '');
+  const color = mode.color ?? '#2255CC';
+
+  // A Mode that reports itself on is lit like an active profile: the deck
+  // should read the same way whatever kind of thing is switched on.
+  if (active === true && !running) {
+    const ink = readableTextColor(color);
+    return svg(
+      bodyKey({ name, bg: color, fg: ink, avatar: mode.avatarDataUri, fade: 1, dot: ink }),
+    );
+  }
+  if (active === false && !running) {
+    return svg(
+      bodyKey({
+        name,
+        bg: OFF_BG,
+        fg: color,
+        label: '#868C97',
+        avatar: mode.avatarDataUri,
+        fade: 0.42,
+      }),
+    );
+  }
+
   const bg = dim(color, running ? 0.5 : 0.68);
 
   return svg(
@@ -203,7 +231,7 @@ export function renderSceneKey({ scene, running = false, dotFrame = null }) {
       bg,
       fg: lift(color, running ? 0.45 : 0.3),
       label: running ? undefined : '#B9BFC9',
-      avatar: scene.avatarDataUri,
+      avatar: mode.avatarDataUri,
       fade: running ? 0.85 : 0.7,
       dotFrame: running ? (dotFrame ?? 0) : null,
       dotColor: lift(color, 0.55),

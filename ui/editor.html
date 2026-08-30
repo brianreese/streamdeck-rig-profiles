@@ -31,13 +31,13 @@
         --amber: #e3b341;
         --red: #f16a60;
 
-        /* Scenes get their own accent, and it is not decoration. A profile and
-           a scene are the same shape and behave completely differently — one
+        /* Modes get their own accent, and it is not decoration. A profile and
+           a Mode are the same shape and behave completely differently — one
            says who is at the rig, the other flashes some lights — so the
            editor never lets you be unsure which one is under the cursor. The
            segmented control says it in words; the violet says it at a glance. */
-        --scene: #a077ff;
-        --scene-deep: #7a4fe0;
+        --mode: #a077ff;
+        --mode-deep: #7a4fe0;
 
         --r: 10px;
         --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -100,7 +100,7 @@
       /* One list at a time, and a permanent label saying which. Two stacked
          lists were the alternative and were rejected: with both on screen the
          only thing distinguishing "delete this profile" from "delete this
-         scene" is which heading you scrolled past, and these two do not
+         Mode" is which heading you scrolled past, and these two do not
          deserve to be told apart by memory. */
       .seg {
         display: flex; gap: 2px; margin: 0 12px 8px; padding: 2px;
@@ -113,7 +113,7 @@
       }
       .seg button:hover { background: #292c32; color: var(--fg); }
       .seg button.on { background: var(--accent-deep); border-color: #3f7ae8; color: #fff; }
-      .seg button.on[data-kind="scenes"] { background: var(--scene-deep); border-color: #8d63ea; }
+      .seg button.on[data-kind="modes"] { background: var(--mode-deep); border-color: #8d63ea; }
       /* The one line that explains the difference, where the choice is made. */
       .segnote {
         padding: 0 13px 10px; color: var(--faint); font-size: 11.5px; line-height: 1.45;
@@ -145,7 +145,7 @@
       }
       #list li.newrow button:hover { background: #24262b; color: var(--fg); border-color: #4c515b; }
       #list li.newrow button b { color: var(--accent); font-weight: 700; }
-      body.scenemode #list li.newrow button b { color: var(--scene); }
+      body.editing-mode #list li.newrow button b { color: var(--mode); }
       #list .grip { color: #4a4d55; cursor: grab; flex: 0 0 auto; font-size: 12px; }
       #list li:hover .grip { color: #6d717a; }
       #list .who { flex: 1; min-width: 0; }
@@ -200,8 +200,8 @@
         outline: none; background: #1b1d21; border-color: var(--accent);
         box-shadow: 0 0 0 3px rgba(76, 141, 255, 0.16);
       }
-      body.scenemode h2.editable:focus {
-        border-color: var(--scene); box-shadow: 0 0 0 3px rgba(160, 119, 255, 0.16);
+      body.editing-mode h2.editable:focus {
+        border-color: var(--mode); box-shadow: 0 0 0 3px rgba(160, 119, 255, 0.16);
       }
       /* An empty heading is a name that has been cleared, which the server will
          refuse. Say so in the space where the name should be. */
@@ -211,7 +211,7 @@
       .pill {
         font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
         border-radius: 20px; padding: 2px 8px; white-space: nowrap;
-        color: var(--scene); border: 1px solid #55408a; background: rgba(160, 119, 255, 0.1);
+        color: var(--mode); border: 1px solid #55408a; background: rgba(160, 119, 255, 0.1);
       }
       .pill.hold {
         color: var(--amber); border-color: #5f4c1f; background: rgba(227, 179, 65, 0.1);
@@ -333,9 +333,9 @@
          user has plainly walked away from it. */
       .hw.blank::before { background: #3f434b; }
       .badge.todo { color: var(--accent); border-color: #2c4675; background: rgba(76, 141, 255, 0.1); }
-      body.scenemode .hw.blank::before { background: #3f434b; }
-      body.scenemode .badge.todo {
-        color: var(--scene); border-color: #55408a; background: rgba(160, 119, 255, 0.1);
+      body.editing-mode .hw.blank::before { background: #3f434b; }
+      body.editing-mode .badge.todo {
+        color: var(--mode); border-color: #55408a; background: rgba(160, 119, 255, 0.1);
       }
       .newbanner {
         border: 1px dashed #3c4048; border-radius: 8px; padding: 9px 12px; margin: 0 0 14px;
@@ -346,8 +346,8 @@
          consequence is the same shape: something on screen is not in the store.
          It is worded as what happened rather than as a refusal — the record
          saved perfectly well, without this. */
-      .hw.unset::before, body.scenemode .hw.unset::before { background: var(--red); }
-      .badge.unset, body.scenemode .badge.unset {
+      .hw.unset::before, body.editing-mode .hw.unset::before { background: var(--red); }
+      .badge.unset, body.editing-mode .badge.unset {
         color: var(--red); border-color: #6b3b37; background: rgba(241, 106, 96, 0.1);
       }
       .unsetbanner {
@@ -460,14 +460,14 @@
       .addbtn:disabled { opacity: 0.45; cursor: default; }
       .addbtn:disabled:hover { background: #212328; border-color: var(--hair); }
       .addbtn .tick { color: var(--green); }
-      .addbtn.scene .plus, .addbtn.scene .tick { color: var(--scene); }
+      .addbtn.mode .plus, .addbtn.mode .tick { color: var(--mode); }
       .addbtn .sw {
         width: 20px; height: 20px; border-radius: 6px; flex: 0 0 auto; align-self: center;
         display: flex; align-items: center; justify-content: center;
         font-size: 10px; font-weight: 700; line-height: 1;
       }
 
-      /* The third column searches its own contents. Providers and scenes are
+      /* The third column searches its own contents. Providers and modes are
          added the same way, so they are found the same way — one box over one
          list, rather than a box that only knows about half of what is below
          it. Outside the re-rendered body so typing never loses the caret. */
@@ -503,29 +503,54 @@
         border: 1px solid #3a3d44; background: #1b1d21; flex: 0 0 auto;
       }
 
-      /* ------------------------------------------------------------ scenes */
-      /* While a scene is what is being edited, everything that is "this thing"
-         carries the scene accent: the selected row, the card edges, the plus on
+      /* ------------------------------------- what this Mode's key will do
+         Sits under the key preview, because it says what the pictures above it
+         mean. Two states, and they are told apart by weight rather than by
+         alarm: neither is a warning, neither is a problem, and one is not
+         better than the other. A Mode with an on/off state gets the Mode accent
+         on its edge — the same violet that says "this is a Mode" everywhere
+         else — and a Mode without one is quiet and grey. Red and amber are
+         deliberately not used: they are spoken for by `unset` and
+         `unavailable`, and both mean something is wrong. Nothing is wrong here. */
+      .statenote {
+        margin: 16px 0 2px; padding: 10px 13px; border-radius: 8px;
+        border: 1px solid var(--hair); border-left-width: 3px;
+        background: #1e2025; color: var(--dim); font-size: 12.5px; line-height: 1.5;
+      }
+      .statenote b { display: block; color: var(--fg); font-weight: 600; margin-bottom: 3px; }
+      .statenote.on {
+        border-color: #55408a; border-left-color: var(--mode-deep);
+        background: rgba(160, 119, 255, 0.07);
+      }
+      .statenote.on b { color: var(--mode); }
+
+      /* ------------------------------------------------------------ modes */
+      /* While a Mode is what is being edited, everything that is "this thing"
+         carries the Mode accent: the selected row, the card edges, the plus on
          the add buttons. Nothing moves, nothing is renamed — only the colour
          changes, which is enough to make a mis-click on the wrong list obvious
          before it is made. */
-      body.scenemode #list li.sel { background: #302747; border-color: #55408a; }
-      body.scenemode .hw::before { background: var(--scene-deep); }
-      body.scenemode .addbtn .plus { color: var(--scene); }
-      body.scenemode .cfglink { color: var(--scene); }
-      body.scenemode .cfglink:hover { background: rgba(160, 119, 255, 0.14); }
+      body.editing-mode #list li.sel { background: #302747; border-color: #55408a; }
+      body.editing-mode .hw::before { background: var(--mode-deep); }
+      body.editing-mode .addbtn .plus { color: var(--mode); }
+      body.editing-mode .cfglink { color: var(--mode); }
+      body.editing-mode .cfglink:hover { background: rgba(160, 119, 255, 0.14); }
 
-      /* A scene a profile also runs, on the profile's own screen. Same block as
+      /* A Mode a profile activates, on the profile’s own screen. Same block as
          a provider because it was added the same way and is removed the same
          way; the violet edge is what says it is borrowed rather than owned. */
-      .hw.sceneref::before { background: var(--scene-deep); }
-      .hw.sceneref .swatch { width: 22px; height: 22px; border-radius: 6px; font-size: 11px; }
-      .hw.sceneref.dangling::before { background: var(--red); }
-      /* A scene that would set hardware the profile already sets itself. The
+      .hw.moderef::before { background: var(--mode-deep); }
+      .hw.moderef .swatch { width: 22px; height: 22px; border-radius: 6px; font-size: 11px; }
+      .hw.moderef.dangling::before { background: var(--red); }
+      /* A Mode that would set hardware the profile already sets itself. The
          runtime keeps the profile's, which is right and invisible — so say so. */
       .clash { color: var(--amber); font-size: 11.5px; display: block; margin-top: 2px; }
+      /* Not a warning: a fact about how the reference behaves, on the Modes
+         where it could be misread. Quiet, so it never competes with `.clash`
+         sitting under it, which really is something to look at. */
+      .aside { color: var(--faint); font-size: 11.5px; display: block; margin-top: 2px; }
 
-      /* Profiles that reference the scene on screen, so deleting it is never a
+      /* Profiles that reference the Mode on screen, so deleting it is never a
          guess about what else it would take with it. */
       .users { display: flex; flex-wrap: wrap; gap: 6px; }
       .userchip {
@@ -599,7 +624,7 @@
         </div>
         <div class="seg" id="seg">
           <button data-kind="profiles" class="on">Profiles</button>
-          <button data-kind="scenes">Scenes</button>
+          <button data-kind="modes">Modes</button>
         </div>
         <div class="segnote" id="segnote"></div>
         <div class="pad">
@@ -645,9 +670,10 @@
       // Dynamic rather than plain imports so the token travels with them: every
       // route on this server takes the same key, with no exception to remember.
       const {
-        addProfile, addScene, removeProfile, moveProfile, keepSelection,
+        addProfile, addMode, removeProfile, moveProfile, keepSelection,
         matchesSearch, slugify, withIds, fieldValue, optionLabel, holdForNaming,
-        referencesScene, setSceneRef, profilesUsingScene, detachScene, sceneOverlap,
+        referencesMode, setModeRef, profilesUsingMode, detachMode, modeOverlap,
+        modeStatefulness,
         offers, unknownSelectValue, unknownValues, blocksEditing,
         isBlank, blankBlocks, forStorage,
       } = await import(`./editorState.js${q}`);
@@ -657,45 +683,63 @@
 
       // Two lists, one editor.
       //
-      // Profiles and scenes are the same shape and mean opposite things: a
+      // Profiles and Modes are the same shape and answer different questions: a
       // profile is a claim about who is at the rig — exclusive, persistent,
-      // gated when it is dangerous — and a scene is a moment of ambience that
-      // must never be able to say a different human sat down. They are edited
-      // side by side because they are configured the same way, and they are
-      // never on screen at the same time because they must never be confused
-      // for one another.
+      // gated when it is dangerous — and a Mode is something the rig is doing,
+      // which must never be able to say a different human sat down. They are
+      // edited side by side because they are configured the same way, and they
+      // are never on screen at the same time because they must never be
+      // confused for one another.
+      //
+      // Some Modes carry an on/off state and some do not, and that is NOT a
+      // third list. It is derived from the providers a Mode holds — see
+      // `modeStatefulness` — so there is nothing here to keep in step with it.
       let profiles = [];      // the draft being edited
-      let scenes = [];        // the scene draft, saved in the same request
-      let providers = [];     // [{id,label,verifiable,fields}] from the plugin
+      let modes = [];         // the Mode draft, saved in the same request
+      // [{id,label,verifiable,contexts,reportsState,fields}] from the plugin
+      let providers = [];
       let hardware = {};      // global settings draft (never holds the Govee key)
       // What is being edited, held by reference rather than by id — see
       // editorState.js for why an id is the wrong handle here. One selection per
-      // list, so flipping to Scenes and back lands on the profile you left.
+      // list, so flipping to Modes and back lands on the profile you left.
       let selectedProfile = null;
-      let selectedScene = null;
-      let kind = 'profiles';  // which list the sidebar shows: 'profiles' | 'scenes'
+      let selectedMode = null;
+      let kind = 'profiles';  // which list the sidebar shows: 'profiles' | 'modes'
       let view = 'editor';    // 'editor' | 'settings'
       let previewTimer = null;
 
       /** The list the sidebar is showing. */
-      const listOf = () => (kind === 'scenes' ? scenes : profiles);
-      /** Is a scene the thing being edited right now? */
-      const editingScene = () => kind === 'scenes' && view === 'editor';
+      const listOf = () => (kind === 'modes' ? modes : profiles);
+      /** Is a Mode the thing being edited right now? */
+      const editingMode = () => kind === 'modes' && view === 'editor';
 
-      /** What the two lists are, in one line each, shown under the selector. */
+      /**
+       * What the two lists are, in one line each, shown under the selector.
+       *
+       * The Modes line has to cover two behaviours without promising either.
+       * "Fires and forgets" was true when this was one concept and is now true
+       * of only some Modes: one holding a provider that can report itself gets
+       * a key with an on/off state, one holding none behaves exactly as before.
+       * So the line says both are possible and does not pretend the user can
+       * choose — they cannot, it follows from what they put in it, and the pane
+       * says which they have got. What survives unqualified is the part that
+       * matters most and is true of every Mode: it never touches who is at the
+       * rig. That is the whole reason these are not profiles.
+       */
       const KIND_NOTE = {
         profiles:
           'Who is at the rig. One at a time — pressing one turns the others off — ' +
           'and it is remembered until something else is pressed.',
-        scenes:
-          'A moment: lights, a playlist, a script. Fires and forgets. A scene never ' +
-          'changes who the rig thinks is at it.',
+        modes:
+          'Something the rig is doing, not who is at it: lights, VR, a playlist, a ' +
+          'script. Some can report that they are on, and their key shows it; the rest ' +
+          'simply run. Neither kind changes who the rig thinks is at it.',
       };
 
       const $ = (id) => document.getElementById(id);
       const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-      /** `"scene:sun:set"` -> `["scene", "sun:set"]`. Ids own everything after
+      /** `"mode:sun:set"` -> `["mode", "sun:set"]`. Ids own everything after
        *  the first colon, so a colon in one cannot lose part of it. */
       const splitOnce = (s, sep = ':') => {
         const at = String(s).indexOf(sep);
@@ -738,15 +782,15 @@
         el.textContent = text;
       }
 
-      /** The record on screen — a profile or a scene, depending on the tab. */
+      /** The record on screen — a profile or a Mode, depending on the tab. */
       const current = () => {
-        const sel = kind === 'scenes' ? selectedScene : selectedProfile;
+        const sel = kind === 'modes' ? selectedMode : selectedProfile;
         return listOf().includes(sel) ? sel : null;
       };
 
       /** Set the selection for whichever list is showing. */
       function select(record) {
-        if (kind === 'scenes') selectedScene = record;
+        if (kind === 'modes') selectedMode = record;
         else selectedProfile = record;
       }
 
@@ -776,10 +820,10 @@
       //     field commits on blur rather than on every keystroke.
 
       const AUTOSAVE_MS = 700;
-      // Profiles and scenes are one draft with one dirty flag, because they are
-      // saved in one request: a profile references scenes by id, so storing the
+      // Profiles and modes are one draft with one dirty flag, because they are
+      // saved in one request: a profile references modes by id, so storing the
       // two halves separately would open a window where a saved profile names a
-      // scene that is not stored yet.
+      // Mode that is not stored yet.
       let dirtyDraft = false;
       let dirtySettings = false;
       let saveTimer = null;
@@ -866,7 +910,7 @@
         say(
           `${names.join(', ')} on “${p.name || '(unnamed)'}” ${fresh.length === 1 ? 'has' : 'have'} ` +
             `nothing chosen, so ${fresh.length === 1 ? 'it was' : 'they were'} not saved. ` +
-            `Open the ${editingScene() ? 'scene' : 'profile'} again to finish or remove ${
+            `Open the ${editingMode() ? 'Mode' : 'profile'} again to finish or remove ${
               fresh.length === 1 ? 'it' : 'them'}.`,
           'err',
         );
@@ -891,11 +935,11 @@
        * Is the caret currently in a not-yet-saved record's name field?
        *
        * Both lists, because both slug a permanent id out of the name on their
-       * first save — a scene called "Kai's lights" would freeze as `ka` just as
+       * first save — a Mode called “Kai’s lights” would freeze as `ka` just as
        * readily as a profile would.
        */
       function namingInProgress() {
-        return holdForNaming([...profiles, ...scenes], document.activeElement?.dataset?.f);
+        return holdForNaming([...profiles, ...modes], document.activeElement?.dataset?.f);
       }
 
       async function commit() {
@@ -957,9 +1001,9 @@
         const nextBroken = new Map();
 
         if (dirtyDraft) {
-          // Scenes first: a profile may reference one by id, and an id only
+          // Modes first: a profile may reference one by id, and an id only
           // exists once its record has been slugged.
-          withIds(scenes, 'scene');
+          withIds(modes, 'mode');
           withIds(profiles);
           // avatarDataUri is a render-time convenience; never persist the bytes.
           // Global settings are deliberately not sent here: saveProfiles merges
@@ -970,23 +1014,23 @@
           // is the draft that keeps them, not the store: a block with no
           // setting in it configures nothing, and every provider says so when
           // asked. Sending it would have the server refuse the whole list —
-          // both profiles AND scenes, since they save together — so a provider
+          // both profiles AND modes, since they save together — so a provider
           // half-added to one profile would block an unrelated rename on
           // another. The server's rules are untouched; it is simply not handed
           // a block that says nothing. See editorState.js for the full case.
           const payload = forStorage(profiles).map(({ avatarDataUri, ...rest }) => rest);
-          const reply = await ask('saveProfiles', { profiles: payload, scenes: forStorage(scenes) });
+          const reply = await ask('saveProfiles', { profiles: payload, modes: forStorage(modes) });
           if (!reply.ok) {
             // Every problem, not just the first: they are named per record, and
-            // showing one at a time means a fix per round-trip. Scene problems
+            // showing one at a time means a fix per round-trip. Mode problems
             // are labelled, because "Sunset: needs a name" is otherwise a
             // profile as far as the reader is concerned.
             const mine = reply.errors ?? [];
-            const theirs = reply.sceneErrors ?? [];
+            const theirs = reply.modeErrors ?? [];
             if (!mine.length && !theirs.length) problems.push(reply.error ?? 'save failed');
-            problems.push(...mine, ...theirs.map((m) => `Scene ${m}`));
+            problems.push(...mine, ...theirs.map((m) => `Mode ${m}`));
             attribute(mine, profiles, nextBroken);
-            attribute(theirs, scenes, nextBroken);
+            attribute(theirs, modes, nextBroken);
           } else {
             dirtyDraft = false;
             savedOnce = true;
@@ -1024,7 +1068,7 @@
             cls: 'pending',
             text: 'Unsaved changes',
             note: namingInProgress()
-              ? `Saving as soon as you finish naming this ${editingScene() ? 'scene' : 'profile'}.`
+              ? `Saving as soon as you finish naming this ${editingMode() ? 'Mode' : 'profile'}.`
               : 'Saving automatically…',
           };
         }
@@ -1032,7 +1076,7 @@
         // was left out of it, so "all changes saved" would be a small lie told
         // in green. This is the calm state made visible: neutral wording, no
         // failure, and an accurate count of what is not in the store yet.
-        const waiting = [...profiles, ...scenes].reduce((n, r) => n + blankBlocks(r).length, 0);
+        const waiting = [...profiles, ...modes].reduce((n, r) => n + blankBlocks(r).length, 0);
         if (waiting) {
           return {
             cls: 'holding',
@@ -1064,7 +1108,7 @@
        * Split save errors back out to the records they name.
        *
        * The server prefixes each message with the record's name or id, so this
-       * is the inverse. Done against one list at a time: a profile and a scene
+       * is the inverse. Done against one list at a time: a profile and a Mode
        * are allowed to share a name, and attributing "Sunset: needs a name" to
        * whichever list happened to be searched first would put the error on the
        * wrong screen.
@@ -1085,7 +1129,7 @@
         const host = $('issues');
         if (!host) return;
         const p = current();
-        const noun = editingScene() ? 'scene' : 'profile';
+        const noun = editingMode() ? 'Mode' : 'profile';
         const mine = broken.get(p) ?? [];
 
         // Blocks left blank are a different kind of news and must not borrow
@@ -1118,17 +1162,17 @@
         const host = $('list');
         const all = listOf();
         const matches = all.filter((p) => matchesSearch(p, $('search').value));
-        const scenery = kind === 'scenes';
+        const isMode = kind === 'modes';
 
         host.innerHTML = matches.map((p) => {
           const names = Object.keys(p.providers ?? {})
             .map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
-          // A profile's subtitle lists its hardware; a scene's says how many
+          // A profile's subtitle lists its hardware; a Mode’s says how many
           // profiles lean on it, because that is the number that decides
           // whether deleting it is safe.
-          const used = scenery ? profilesUsingScene(profiles, p.id).length : 0;
-          if (scenery && used) names.push(`used by ${used} profile${used === 1 ? '' : 's'}`);
-          else if (!scenery && p.scenes?.length) names.push(`+${p.scenes.length} scene${p.scenes.length === 1 ? '' : 's'}`);
+          const used = isMode ? profilesUsingMode(profiles, p.id).length : 0;
+          if (isMode && used) names.push(`used by ${used} profile${used === 1 ? '' : 's'}`);
+          else if (!isMode && p.modes?.length) names.push(`+${p.modes.length} mode${p.modes.length === 1 ? '' : 's'}`);
           // The initial is drawn in whichever ink actually reads on the chosen
           // colour — see contrast.js. A pale profile colour used to get white
           // text on white.
@@ -1161,16 +1205,16 @@
           host.innerHTML = `<li class="empty">${
             all.length
               ? 'Nothing matches that search.'
-              : scenery
-                ? 'No scenes yet. A scene is a lighting preset, a playlist, a script.'
+              : isMode
+                ? 'No Modes yet. A Mode is lights, VR, a playlist, a script — something the rig does.'
                 : 'No profiles yet.'}</li>`;
         }
 
         // The next row, not a fixture at the bottom of the rail: a filtered
         // list brings it up under the last match, where the eye already is.
         host.innerHTML += `<li class="newrow"><button data-new
-          title="Create a new ${scenery ? 'scene' : 'profile'}"><b>+</b> New ${
-          scenery ? 'scene' : 'profile'}</button></li>`;
+          title="Create a new ${isMode ? 'Mode' : 'profile'}"><b>+</b> New ${
+          isMode ? 'Mode' : 'profile'}</button></li>`;
       }
 
       /** Point the sidebar at one list or the other. */
@@ -1178,10 +1222,10 @@
         leaveRecord();
         kind = next;
         view = 'editor';
-        $('railTitle').textContent = next === 'scenes' ? 'Scenes' : 'Profiles';
+        $('railTitle').textContent = next === 'modes' ? 'Modes' : 'Profiles';
         $('segnote').textContent = KIND_NOTE[next];
-        $('search').placeholder = next === 'scenes' ? 'Search scenes' : 'Search profiles';
-        $('railSearch').placeholder = next === 'scenes' ? 'Search hardware & apps' : 'Search hardware, apps, scenes';
+        $('search').placeholder = next === 'modes' ? 'Search modes' : 'Search profiles';
+        $('railSearch').placeholder = next === 'modes' ? 'Search hardware & apps' : 'Search hardware, apps, modes';
         for (const b of $('seg').children) b.classList.toggle('on', b.dataset.kind === next);
         render();
       }
@@ -1276,7 +1320,7 @@
       /** The line inside a blank block: an invitation, or an answer. */
       const blankNoteHtml = (prov, blank, raised) => {
         if (!blank) return '';
-        const noun = editingScene() ? 'scene' : 'profile';
+        const noun = editingMode() ? 'Mode' : 'profile';
         return raised
           ? `<div class="unsetbanner"><b>Not saved</b> Nothing is chosen here, so this
                ${noun} was stored without ${esc(prov.label)} and its key will not touch it.
@@ -1324,6 +1368,22 @@
       }
 
       /**
+       * Repaint the "what this key will do" line in place.
+       *
+       * For the same reason `paintBlock` exists: a field edit that re-rendered
+       * the pane would take the caret out of the control that caused it. The
+       * line has to move all the same — filling in the first value of a
+       * state-reporting block is the exact moment the key gains its on/off, and
+       * a note that only caught up on the next full render would be wrong at
+       * the one moment the user is looking for it.
+       */
+      function paintStatefulness(record) {
+        const old = document.querySelector('.statenote');
+        if (!old || !editingMode()) return;
+        old.outerHTML = statefulnessHtml(record);
+      }
+
+      /**
        * One card per thing this profile changes, built entirely from declared
        * schemas. The editor knows nothing about wheelbases, lights or scripts:
        * a profile shows only what it has actually been given.
@@ -1339,10 +1399,10 @@
           // stopped declaring this context — or one added before the editor
           // filtered on context at all — still has to be visible, or the config
           // would be stuck on the record with no way to take it off.
-          const stale = !(prov.contexts ?? ['profile']).includes(editingScene() ? 'scene' : 'profile')
+          const stale = !(prov.contexts ?? ['profile']).includes(editingMode() ? 'Mode' : 'profile')
             ? `<span class="badge" title="This provider is not offered on ${
-                editingScene() ? 'scenes' : 'profiles'} — remove it unless you know why it is here"
-               >not for ${editingScene() ? 'scenes' : 'profiles'}</span>`
+                editingMode() ? 'modes' : 'profiles'} — remove it unless you know why it is here"
+               >not for ${editingMode() ? 'modes' : 'profiles'}</span>`
             : '';
           const settingsLink = PROVIDER_SETTINGS[prov.id]
             ? `<button class="cfglink" data-goto="${esc(prov.id)}"
@@ -1402,13 +1462,13 @@
       // =====================================================================
 
       function render() {
-        // The scene accent applies to the thing being edited, so it comes off
-        // on the settings screen — otherwise Settings would wear a "Scene" pill.
-        document.body.classList.toggle('scenemode', editingScene());
+        // The Mode accent applies to the thing being edited, so it comes off
+        // on the settings screen — otherwise Settings would wear a "Mode" pill.
+        document.body.classList.toggle('editing-mode', editingMode());
         renderList();
         $('navSettings').classList.toggle('sel', view === 'settings');
         if (view === 'settings') renderSettings();
-        else if (kind === 'scenes') renderScene();
+        else if (kind === 'modes') renderMode();
         else renderProfile();
         // After the pane: the save status lives inside it now, so its element
         // only exists once the pane has been drawn.
@@ -1423,59 +1483,75 @@
           .map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
 
       /**
-       * The scenes a profile also runs, one block each.
+       * The Modes a profile also activates, one block each.
        *
-       * These used to be a card of checkboxes listing every scene that existed,
+       * These used to be a card of checkboxes listing every Mode that existed,
        * which meant two different ways to say "this profile also does that" —
-       * hardware from the third column, scenes from a form in the middle. They
+       * hardware from the third column, Modes from a form in the middle. They
        * are the same act, so they are now added the same way and shown the same
-       * way: a scene a profile runs is a block on the profile, removed with the
-       * same ✕ as a provider.
+       * way: a Mode a profile activates is a block on the profile, removed with
+       * the same ✕ as a provider.
        *
-       * The profile's own hardware applies first and each referenced scene fills
+       * The profile's own hardware applies first and each referenced Mode fills
        * in what the profile did not set. Where the two overlap the profile wins
-       * — see `withScenes` in profileSwitch.js — which is the right rule and
-       * completely invisible from outside, so the clash is called out here.
+       * — see profileSwitch.js — which is the right rule and completely
+       * invisible from outside, so the clash is called out here.
+       *
+       * The reference is one-way: the profile ACTIVATES the Mode and takes no
+       * further interest in it. A Mode that can report itself active goes on
+       * doing so, on its own key, and the profile neither reads that nor turns
+       * it off later — which is worth saying on the block itself, because a
+       * Mode with an on/off state invites the assumption that the profile is
+       * now tracking it.
        */
-      function sceneCardsHtml(p) {
-        return (p.scenes ?? []).map((id) => {
-          const s = scenes.find((x) => x.id === id);
-          // A reference to a scene that is not in the list. The editor detaches
-          // references when a scene is deleted, so this is a hand-edited config
+      function modeCardsHtml(p) {
+        return (p.modes ?? []).map((id) => {
+          const s = modes.find((x) => x.id === id);
+          // A reference to a Mode that is not in the list. The editor detaches
+          // references when a Mode is deleted, so this is a hand-edited config
           // — and the save is refused until it is dealt with, which it cannot be
           // if the reference is invisible.
           if (!s) {
-            return `<div class="hw sceneref dangling" data-hw="scene:${esc(id)}">
+            return `<div class="hw moderef dangling" data-hw="mode:${esc(id)}">
               <div class="hw-head">
                 <span class="pname">${esc(id)}</span>
-                <span class="badge">missing scene</span>
+                <span class="badge">missing Mode</span>
                 <span style="flex:1"></span>
-                <button class="icon rm" data-rmscene="${esc(id)}"
+                <button class="icon rm" data-rmmode="${esc(id)}"
                         title="Remove this reference">✕</button>
               </div>
-              <div class="hw-body"><p class="muted">No scene has this id. The profile
+              <div class="hw-body"><p class="muted">No Mode has this id. The profile
                 cannot be saved until the reference is removed.</p></div>
             </div>`;
           }
-          const clash = sceneOverlap(p, s);
+          const clash = modeOverlap(p, s);
           const what = providerLabels(s);
-          return `<div class="hw sceneref" data-hw="scene:${esc(s.id)}">
+          // Said only where it could mislead. On a Mode that cannot report
+          // itself there is no "afterwards" to wonder about, and the sentence
+          // would be noise on every profile in the list.
+          const { stateful } = modeStatefulness(s, providers);
+          return `<div class="hw moderef" data-hw="mode:${esc(s.id)}">
             <div class="hw-head">
               <span class="swatch" style="background:${esc(s.color)};color:${
                 readableTextColor(s.color)}">${esc((s.name || '?').trim().charAt(0).toUpperCase())}</span>
               <span class="pname">${esc(s.name || '(unnamed)')}</span>
-              <span class="badge">scene</span>
+              <span class="badge">Mode</span>
               <span style="flex:1"></span>
-              <button class="cfglink" data-editscene="${esc(s.id)}"
-                      title="Open this scene">Edit scene</button>
-              <button class="icon rm" data-rmscene="${esc(s.id)}"
-                      title="Stop running this scene with this profile">✕</button>
+              <button class="cfglink" data-editmode="${esc(s.id)}"
+                      title="Open this Mode">Edit Mode</button>
+              <button class="icon rm" data-rmmode="${esc(s.id)}"
+                      title="Stop activating this Mode with this profile">✕</button>
             </div>
             <div class="hw-body">
               <p class="muted" style="margin:0 0 10px">
-                Runs in addition to everything above. ${what.length
+                Activated in addition to everything above. ${what.length
                   ? `Sets ${esc(what.join(', '))}.`
                   : 'Sets nothing yet.'}
+                ${stateful
+                  ? `<span class="aside">This Mode's own key shows whether it is on. The
+                     profile switches it on and does not follow it afterwards — nothing here
+                     turns it off again.</span>`
+                  : ''}
                 ${clash.length
                   ? `<span class="clash">Also sets ${esc(clash.map((cid) =>
                       providers.find((prov) => prov.id === cid)?.label ?? cid).join(', '))}, which
@@ -1489,23 +1565,23 @@
 
       /**
        * Everything this record does, in the order it does it: its own hardware,
-       * then the scenes it borrows. One empty state for both, because "does
+       * then the Modes it activates. One empty state for both, because "does
        * nothing" is one fact about the record rather than two.
        */
       function bodyCardsHtml(p) {
         if (!providers.length) return '<div class="muted">Loading options…</div>';
-        const cards = providerCardsHtml(p) + (editingScene() ? '' : sceneCardsHtml(p));
+        const cards = providerCardsHtml(p) + (editingMode() ? '' : modeCardsHtml(p));
         if (cards) return cards;
         return `<div class="card plain"><div class="muted">
-          Nothing here yet — this ${editingScene() ? 'scene' : 'profile'} will not change
+          Nothing here yet — this ${editingMode() ? 'Mode' : 'profile'} will not change
           anything when its key is pressed. Add hardware, lights, apps${
-            editingScene() ? '' : ', scripts or a scene'} from the right.
+            editingMode() ? '' : ', scripts or a Mode'} from the right.
         </div></div>`;
       }
 
-      /** Who leans on the scene on screen, so deleting it is never a surprise. */
-      function sceneUsersHtml(s) {
-        const users = s.id ? profilesUsingScene(profiles, s.id) : [];
+      /** Who leans on the Mode on screen, so deleting it is never a surprise. */
+      function modeUsersHtml(s) {
+        const users = s.id ? profilesUsingMode(profiles, s.id) : [];
         return `<div class="card plain">
           <h3>Used by</h3>
           ${users.length
@@ -1513,10 +1589,10 @@
                 esc(p.id)}"><span class="swatch" style="background:${esc(p.color)};color:${
                 readableTextColor(p.color)}">${esc((p.name || '?').trim().charAt(0).toUpperCase())
                 }</span>${esc(p.name || '(unnamed)')}</button>`).join('')}</div>
-               <div class="savenote">These profiles run this scene as well as their own hardware.
-                 Deleting it removes it from them.</div>`
-            : `<div class="muted">No profile runs this scene. It still works on its own
-                 key — that is what a scene is for.</div>`}
+               <div class="savenote">These profiles activate this Mode as well as setting
+                 their own hardware. Deleting it removes it from them.</div>`
+            : `<div class="muted">No profile activates this Mode. It still works on its own
+                 key — that is what a Mode is for.</div>`}
         </div>`;
       }
 
@@ -1542,8 +1618,8 @@
         return `<div class="pane-top">
           <div class="titlewrap">
             ${title}
-            ${editingScene() && editable ? '<span class="pill">Scene</span>' : ''}
-            ${editable && !editingScene()
+            ${editingMode() && editable ? '<span class="pill">Mode</span>' : ''}
+            ${editable && !editingMode()
               ? `<span class="pill hold" id="holdPill"${record.restricted ? '' : ' hidden'}
                  >Hold to switch</span>`
               : ''}
@@ -1564,13 +1640,13 @@
        * of them is destructive, so they are behind a deliberate click.
        */
       function cogHtml(record) {
-        const scene = editingScene();
-        const noun = scene ? 'scene' : 'profile';
+        const mode = editingMode();
+        const noun = mode ? 'Mode' : 'profile';
         return `<span class="cogwrap" id="cogwrap">
           <button id="cog" title="${esc(noun)} settings" aria-haspopup="true"
                   aria-expanded="false">⚙</button>
           <div class="cogmenu" role="menu">
-            ${scene ? '' : `<h4>Switching</h4>
+            ${mode ? '' : `<h4>Switching</h4>
               <div class="grp">
                 <input type="checkbox" id="holdToggle" data-f="restricted"
                        ${record.restricted ? 'checked' : ''} />
@@ -1595,8 +1671,8 @@
 
       /** What deleting this record costs, said before it is clicked. */
       function deleteCost(record) {
-        if (!editingScene()) return 'Keys bound to it stop working.';
-        const users = record.id ? profilesUsingScene(profiles, record.id) : [];
+        if (!editingMode()) return 'Keys bound to it stop working.';
+        const users = record.id ? profilesUsingMode(profiles, record.id) : [];
         return users.length
           ? `Used by ${users.length} profile${users.length === 1 ? '' : 's'}: ${
               esc(users.map((u) => u.name || u.id).join(', '))}. Deleting it removes it from
@@ -1605,18 +1681,88 @@
       }
 
       /**
+       * What this Mode's key will DO, said in words beside the picture of it.
+       *
+       * The one fact about a Mode that cannot be read off the screen. Two Modes
+       * can hold the same three blocks and behave differently: if any provider
+       * inside can answer "am I in effect?", the key carries an on/off state,
+       * and if none can, the key runs the Mode and is done. The capability is
+       * invisible — there is no column for it, and no sensible place to put one,
+       * because it is not a setting anybody chooses.
+       *
+       * So it is stated, next to the tiles it changes the meaning of, and it
+       * moves as the Mode is built. This is the answer to "one action, two
+       * behaviours": the user is never left to infer which one they have got.
+       *
+       * Three things it is careful about:
+       *
+       *   * it names the providers responsible. "This key shows state" invites
+       *     "because of what?", and the answer is the useful part — it is also
+       *     what tells the user which block to remove to change it;
+       *   * it says what the non-reporting providers do NOT contribute, but only
+       *     when there are some. A Mode of nothing but state-reporters needs no
+       *     such caveat;
+       *   * a block holding nothing is not stored and therefore reports nothing,
+       *     so it does not count — but a state-reporting block that is merely
+       *     unfinished is called out rather than ignored. Adding the one
+       *     provider that would make the key stateful and seeing this text not
+       *     move would read as the editor missing it.
+       */
+      function statefulnessHtml(record) {
+        const { stateful, reporters, quiet, pending } = modeStatefulness(record, providers);
+        const list = (xs) => esc(xs.join(', '));
+
+        if (stateful) {
+          return `<div class="statenote on">
+            <b>This key will show whether the Mode is on.</b>
+            ${list(reporters)} can report whether ${reporters.length === 1 ? 'it is' : 'they are'}
+            currently in effect, so the key is drawn active while this Mode is on and inactive
+            while it is not.${quiet.length
+              ? ` ${list(quiet)} cannot answer that question, so ${quiet.length === 1 ? 'it runs' : 'they run'}
+                 without counting towards the verdict.`
+              : ''}
+          </div>`;
+        }
+
+        // Nothing added at all is its own case: "nothing in it can report" is a
+        // strange thing to say about an empty Mode, and the answer is different
+        // — add anything, rather than remove or finish something.
+        if (!Object.keys(record?.providers ?? {}).length) {
+          return `<div class="statenote off">
+            <b>This key will just run the Mode.</b>
+            Nothing has been added to it yet. If you add something that can report whether it
+            is in effect, the key gains an on/off state; otherwise it fires and is over.
+          </div>`;
+        }
+
+        return `<div class="statenote off">
+          <b>This key will just run the Mode.</b>
+          Nothing in it can report whether it is currently in effect, so the key has no on/off
+          state — it fires and is over, which is what the two tiles show.
+          ${pending.length
+            ? `${list(pending)} could report ${pending.length === 1 ? 'its' : 'their'} state,
+               but ${pending.length === 1 ? 'has' : 'have'} nothing chosen yet — finish
+               ${pending.length === 1 ? 'it' : 'them'} and this key gains one.`
+            : 'Add something that can report its own state and this key gains one.'}
+        </div>`;
+      }
+
+      /**
        * The key preview and the two things that change it.
        *
        * Colour and avatar are not facts about the profile, they are the picture
        * on the key — so they sit with the picture, where a change and its effect
-       * are the same glance apart. A scene gets the colour and not the avatar:
+       * are the same glance apart. A Mode gets the colour and not the avatar:
        * avatars are stored per id in one shared directory, and a profile and a
-       * scene are allowed to share an id, so a scene avatar would silently
+       * Mode are allowed to share an id, so a Mode avatar would silently
        * overwrite the profile's.
+       *
+       * A Mode also gets a line saying what its key will do, because the tiles
+       * alone cannot say it — see `statefulnessHtml`.
        */
       function deckHtml(record) {
-        const scene = editingScene();
-        const tiles = scene
+        const mode = editingMode();
+        const tiles = mode
           ? `<figure><img id="prevIdle" alt="" /><figcaption>idle</figcaption></figure>
              <figure><img id="prevRunning" alt="" /><figcaption>running</figcaption></figure>`
           : `<figure><img id="prevOff" alt="" /><figcaption>inactive</figcaption></figure>
@@ -1636,7 +1782,7 @@
                   <span class="muted">The key's ground, and the swatch in the list.</span>
                 </div>
               </div>
-              ${scene ? '' : `<div class="row">
+              ${mode ? '' : `<div class="row">
                 <label>Avatar</label>
                 <div class="grp">
                   <img class="avatar-preview" id="avatarPreview" src="${record.avatarDataUri || ''}"
@@ -1651,26 +1797,28 @@
                 the key will show.</div>
             </div>
           </div>
+          ${mode ? statefulnessHtml(record) : ''}
         </div>`;
       }
 
-      function renderScene() {
+      function renderMode() {
         const s = current();
         if (!s) {
           $('pane').innerHTML = `<div class="pane-inner">
-            ${paneTopHtml(null, 'No scene selected')}
-            <p class="sub">Pick one on the left, or make a new one with “+ New scene”.
-              A scene is a lighting preset, a playlist, a script — anything you want to
-              fire without changing who is at the rig.</p></div>`;
+            ${paneTopHtml(null, 'No Mode selected')}
+            <p class="sub">Pick one on the left, or make a new one with “+ New Mode”.
+              A Mode is something the rig does — lights, VR, a playlist, a script —
+              without changing who is at it. Some report whether they are on; the rest
+              simply run.</p></div>`;
           return;
         }
 
         $('pane').innerHTML = `<div class="pane-inner">
-          ${paneTopHtml(s, 'scene')}
+          ${paneTopHtml(s, 'Mode')}
           <div id="issues"></div>
           ${deckHtml(s)}
           ${bodyCardsHtml(s)}
-          ${sceneUsersHtml(s)}
+          ${modeUsersHtml(s)}
         </div>`;
 
         refreshPreview();
@@ -1703,7 +1851,7 @@
        * swallows the label is visible here rather than after saving. Debounced:
        * this re-renders on every keystroke otherwise.
        *
-       * A scene gets its own two states from `previewSceneKey`, not the
+       * A Mode gets its own two states from `previewModeKey`, not the
        * profile's three. It has no "active and confirmed" — it fires and it is
        * over — so borrowing that tile would claim something untrue about the key.
        */
@@ -1713,11 +1861,11 @@
           const p = current();
           if (!p) return;
 
-          if (editingScene()) {
+          if (editingMode()) {
             const idle = $('prevIdle');
             if (!idle) return;
-            const reply = await ask('previewSceneKey', {
-              scene: { name: p.name, color: p.color, avatar: p.avatar },
+            const reply = await ask('previewModeKey', {
+              mode: { name: p.name, color: p.color, avatar: p.avatar },
             });
             if (!reply.idle) return;
             idle.src = reply.idle;
@@ -1815,7 +1963,7 @@
               <label for="goveeDevices">Only these devices</label>
               <input type="text" id="goveeDevices" placeholder="all devices" value="${esc(devices)}" />
               <div class="help">
-                Optional. Comma-separated device names, so scenes do not fire at lamps
+                Optional. Comma-separated device names, so Govee scenes do not fire at lamps
                 elsewhere in the house.
               </div>
             </div>
@@ -1841,27 +1989,27 @@
       // Right rail — everything you can DO, in one column
       // =====================================================================
 
-      /** One row in the third column, whether it is a provider or a scene. */
+      /** One row in the third column, whether it is a provider or a Mode. */
       function offerHtml(offer) {
-        const scene = offer.type === 'scene';
+        const mode = offer.type === 'mode';
         const mark = offer.added
           ? '<span class="tick">✓</span>'
           : '<span class="plus">+</span>';
-        // A scene is identified by its colour everywhere else in the editor, so
+        // A mode is identified by its colour everywhere else in the editor, so
         // it is identified by its colour here too.
-        const face = scene
-          ? `<span class="sw" style="background:${esc(offer.scene.color)};color:${
-              readableTextColor(offer.scene.color)}">${
+        const face = mode
+          ? `<span class="sw" style="background:${esc(offer.mode.color)};color:${
+              readableTextColor(offer.mode.color)}">${
               esc((offer.label || '?').trim().charAt(0).toUpperCase())}</span>`
           : '';
         const sub = offer.added
           ? 'already added'
-          : scene
-            ? (providerLabels(offer.scene).join(', ') || 'nothing configured')
+          : mode
+            ? (providerLabels(offer.mode).join(', ') || 'nothing configured')
             : (offer.provider.verifiable ? '' : 'cannot be confirmed');
 
-        return `<button class="addbtn${scene ? ' scene' : ''}"
-          data-add="${scene ? 'scene' : 'provider'}:${esc(offer.id)}"
+        return `<button class="addbtn${mode ? ' mode' : ''}"
+          data-add="${mode ? 'mode' : 'provider'}:${esc(offer.id)}"
           ${offer.added ? 'disabled title="Already on this profile"' : ''}>
           ${mark}${face}
           <span class="nm">${esc(offer.label)}${sub ? `<i>${esc(sub)}</i>` : ''}</span>
@@ -1870,9 +2018,9 @@
 
       /**
        * The third column: everything that can be added to the thing on screen,
-       * providers and scenes in one searchable list.
+       * providers and modes in one searchable list.
        *
-       * They were in two places — hardware here, scenes in a card in the middle
+       * They were in two places — hardware here, modes in a card in the middle
        * of the profile — for no reason the user could see: both answer "what
        * else should this do?". One list, one search box over it, and an entry
        * that has been used stays where it was and greys out rather than
@@ -1895,21 +2043,21 @@
               its presets.</div></div>`);
         } else {
           const p = current();
-          const noun = kind === 'scenes' ? 'scene' : 'profile';
+          const noun = kind === 'modes' ? 'Mode' : 'profile';
 
           if (!p) {
-            parts.push(`<div class="rail-group"><h4>${kind === 'scenes' ? 'Scenes' : 'Profiles'}</h4>
+            parts.push(`<div class="rail-group"><h4>${kind === 'modes' ? 'Modes' : 'Profiles'}</h4>
               <div class="savenote">Pick a ${noun} on the left, or make one with
                 “+ New ${noun}”, and what you can add to it appears here.</div></div>`);
           } else if (!providers.length) {
             parts.push('<div class="rail-group"><div class="savenote">Loading options…</div></div>');
           } else {
             const query = $('railSearch').value;
-            const all = offers({ providers, scenes, record: p, kind, query });
+            const all = offers({ providers, modes, record: p, kind, query });
             // Not `hardware`: that is the global settings draft, and shadowing
             // it here would be one rename away from writing to the wrong thing.
             const kit = all.filter((o) => o.type === 'provider');
-            const scenery = all.filter((o) => o.type === 'scene');
+            const modeOffers = all.filter((o) => o.type === 'mode');
 
             parts.push(`<div class="rail-group"><h4>Add to this ${noun}</h4>${
               kit.length
@@ -1919,18 +2067,20 @@
                     : `Nothing can be added to a ${noun}.`}</div>`
             }</div>`);
 
-            // Scenes are offered on profiles and nowhere else: a scene running a
-            // scene would be a graph to resolve, for a feature nobody has asked
-            // for. So the group is simply absent while editing a scene.
-            if (kind !== 'scenes') {
-              parts.push(`<div class="rail-group"><h4>Scenes</h4>${
-                scenery.length
-                  ? scenery.map(offerHtml).join('') +
-                    `<div class="savenote">A scene runs in addition to this profile's own
-                      hardware. It never changes who the rig thinks is at it.</div>`
+            // Modes are offered on profiles and nowhere else: a mode running a
+            // Mode would be a graph to resolve, for a feature nobody has asked
+            // for. So the group is simply absent while editing a Mode.
+            if (kind !== 'modes') {
+              parts.push(`<div class="rail-group"><h4>Modes</h4>${
+                modeOffers.length
+                  ? modeOffers.map(offerHtml).join('') +
+                    `<div class="savenote">The profile activates the Mode as well as setting
+                      its own hardware, and takes no further interest in it — a Mode that
+                      reports itself on stays the business of its own key. A Mode never
+                      changes who the rig thinks is at it.</div>`
                   : `<div class="savenote">${query.trim()
-                      ? 'No scene matches that search.'
-                      : `No saved scenes yet. Make one under <b>Scenes</b> on the left and it
+                      ? 'No Mode matches that search.'
+                      : `No saved Modes yet. Make one under <b>Modes</b> on the left and it
                          will be offered here.`}</div>`
               }</div>`);
             }
@@ -1944,8 +2094,8 @@
       // Edits
       // =====================================================================
 
-      // Profiles and scenes are edited by the same handler because they are
-      // edited through the same fields: a scene simply never renders the ones
+      // Profiles and modes are edited by the same handler because they are
+      // edited through the same fields: a mode simply never renders the ones
       // that are profile-only, so those branches never fire for it.
       function onRecordInput(e) {
         const el = e.target;
@@ -1979,6 +2129,10 @@
           if (unchanged) return;
 
           paintBlock(p, providerId);
+          // A block crossing between blank and configured is exactly what can
+          // add or remove this Mode's on/off state, so the line that says so
+          // moves with it.
+          paintStatefulness(p);
           renderList();     // the marker on the row follows the block
         }
 
@@ -2121,33 +2275,33 @@
       }
 
       /**
-       * Delete a scene, saying first what else it takes with it.
+       * Delete a Mode, saying first what else it takes with it.
        *
-       * A profile references a scene by id, so deleting one out from under a
+       * A profile references a Mode by id, so deleting one out from under a
        * profile would leave a reference to nothing: the profile would still
-       * claim to run the scene, the runtime would skip it with a log line
+       * claim to activate the Mode, the runtime would skip it with a log line
        * nobody reads, and the lights would simply not come on. Two things stop
        * that. The confirm names every profile that references it — so the
        * decision is made with the cost visible — and the references are then
-       * removed, so no profile is left pointing at a scene that is gone.
+       * removed, so no profile is left pointing at a Mode that is gone.
        */
-      function deleteScene(s) {
-        const users = s.id ? profilesUsingScene(profiles, s.id) : [];
+      function deleteMode(s) {
+        const users = s.id ? profilesUsingMode(profiles, s.id) : [];
         const warning = users.length
           ? `\n\nIt is used by ${users.length} profile${users.length === 1 ? '' : 's'}: ` +
             `${users.map((p) => p.name || p.id).join(', ')}.\n` +
-            `They will stop running it. Everything else about them is unchanged.`
+            `They will stop activating it. Everything else about them is unchanged.`
           : '';
-        if (!confirm(`Delete the scene "${s.name}"?${warning}`)) return;
+        if (!confirm(`Delete the Mode "${s.name}"?${warning}`)) return;
 
-        const detached = detachScene(profiles, s.id);
-        ({ profiles: scenes, selected: selectedScene } = removeProfile(scenes, s));
+        const detached = detachMode(profiles, s.id);
+        ({ profiles: modes, selected: selectedMode } = removeProfile(modes, s));
         render();
         touch('draft', { now: true });
         say(
           detached.length
-            ? `Scene deleted, and removed from ${detached.map((p) => p.name || p.id).join(', ')}.`
-            : 'Scene deleted.',
+            ? `Mode deleted, and removed from ${detached.map((p) => p.name || p.id).join(', ')}.`
+            : 'Mode deleted.',
           'ok',
         );
       }
@@ -2207,17 +2361,25 @@
         const reply = await ask('getProfiles');
         if (reply.ok === false) return say(reply.error, 'err');
         profiles = reply.profiles ?? [];
-        scenes = reply.scenes ?? [];
+        modes = reply.modes ?? [];
         hardware = reply.settings ?? {};
         for (const p of profiles) {
           if (!p.providers) p.providers = {};
+          // The key a profile's Mode references used to live under. Read here
+          // and dropped from the draft, so the next save writes only `modes`
+          // and the config heals itself. This is not a migration layer and must
+          // not grow into one — it exists because piBridge reads the Mode LIST
+          // tolerantly, and reading the list while discarding every reference
+          // to it would leave a config half-alive, which is worse than either
+          // being tolerant or not.
+          if (p.scenes && !p.modes) { p.modes = p.scenes; delete p.scenes; }
           if (p.avatar) {
             p.avatarDataUri = (await ask('getAvatar', { profileId: p.id, filename: p.avatar })).dataUri;
           }
         }
-        // No avatars on scenes: a scene is not a person. Only the providers map
+        // No avatars on Modes: a Mode is not a person. Only the providers map
         // needs defaulting, so an older record without one still edits.
-        for (const s of scenes) if (!s.providers) s.providers = {};
+        for (const s of modes) if (!s.providers) s.providers = {};
 
         // Every record is a fresh object, so the old notes key nothing.
         //
@@ -2227,12 +2389,12 @@
         // config put it there, and it is exactly the config that used to be
         // unsaveable. It starts flagged, and it is left out of the next save.
         raisedBlanks = new WeakMap();
-        for (const r of [...profiles, ...scenes]) {
+        for (const r of [...profiles, ...modes]) {
           for (const id of blankBlocks(r)) setRaised(r, id, true);
         }
 
         selectedProfile = keepSelection(profiles, selectedProfile);
-        selectedScene = keepSelection(scenes, selectedScene);
+        selectedMode = keepSelection(modes, selectedMode);
       }
 
       async function loadProviders() {
@@ -2296,7 +2458,7 @@
         if (!onto || !dragging) return;
         e.preventDefault();
         const moved = moveProfile(listOf(), dragging, onto, e.offsetY > li.offsetHeight / 2);
-        if (kind === 'scenes') scenes = moved;
+        if (kind === 'modes') modes = moved;
         else profiles = moved;
         dragging = null;
         render();
@@ -2313,7 +2475,7 @@
       /** Add to whichever list is showing, and land the caret in its name. */
       function newRecord() {
         leaveRecord();
-        if (kind === 'scenes') ({ scenes, selected: selectedScene } = addScene(scenes));
+        if (kind === 'modes') ({ modes, selected: selectedMode } = addMode(modes));
         else ({ profiles, selected: selectedProfile } = addProfile(profiles));
         view = 'editor';
         render();
@@ -2425,9 +2587,9 @@
         if (goto) return gotoSettings(goto.dataset.goto);
 
         // Delete, from the cog. The confirm names what it costs, which for a
-        // scene is the profiles that reference it.
+        // mode is the profiles that reference it.
         if (e.target.closest('[data-act="remove"]') && p) {
-          if (editingScene()) return deleteScene(p);
+          if (editingMode()) return deleteMode(p);
           if (!confirm(`Delete "${p.name}"? Keys bound to it will stop working.`)) return;
           ({ profiles, selected: selectedProfile } = removeProfile(profiles, p));
           render();
@@ -2435,27 +2597,27 @@
           return;
         }
 
-        // Stop running a scene with this profile. The scene itself is untouched
+        // Stop running a mode with this profile. The mode itself is untouched
         // — this is the reference being cut, not the thing referenced.
-        const rmScene = e.target.closest('[data-rmscene]');
-        if (rmScene && p) {
-          setSceneRef(p, rmScene.dataset.rmscene, false);
+        const rmMode = e.target.closest('[data-rmmode]');
+        if (rmMode && p) {
+          setModeRef(p, rmMode.dataset.rmmode, false);
           render();
           touch('draft');
           return;
         }
 
-        const editScene = e.target.closest('[data-editscene]');
-        if (editScene) {
-          const target = scenes.find((s) => s.id === editScene.dataset.editscene);
+        const editMode = e.target.closest('[data-editmode]');
+        if (editMode) {
+          const target = modes.find((s) => s.id === editMode.dataset.editmode);
           if (target) {
-            selectedScene = target;
-            setKind('scenes');
+            selectedMode = target;
+            setKind('modes');
           }
           return;
         }
 
-        // A chip on the scene's "Used by" list: go and look at that profile.
+        // A chip on the mode's "Used by" list: go and look at that profile.
         const useby = e.target.closest('[data-useby]');
         if (useby) {
           const owner = profiles.find((x) => x.id === useby.dataset.useby);
@@ -2488,9 +2650,9 @@
           say('Discovering… (a few seconds per device)');
           const reply = await ask('goveeDiscover');
           if (!reply.ok) return say(reply.error ?? 'discovery failed', 'err');
-          say(`${reply.devices.length} device(s), ${reply.scenes.length} scene(s): ` +
+          say(`${reply.devices.length} device(s), ${reply.scenes.length} Govee scene(s): ` +
               reply.devices.map((d) => d.name).join(', '), 'ok');
-          // Scene dropdowns come from provider schemas, so refresh them.
+          // Govee scene dropdowns come from provider schemas, so refresh them.
           await loadProviders();
           return;
         }
@@ -2503,16 +2665,16 @@
       $('rail').addEventListener('click', async (e) => {
         const p = current();
 
-        // One handler for both kinds of offer, because adding a scene to a
+        // One handler for both kinds of offer, because adding a mode to a
         // profile and adding hardware to it are the same act from here: the
         // record gains something, a block for it appears in the middle column,
         // and the row that was clicked greys out.
         const add = e.target.closest('[data-add]');
         if (add && p) {
           const [type, id] = splitOnce(add.dataset.add);
-          if (type === 'scene') {
-            if (referencesScene(p, id)) return;      // never twice
-            setSceneRef(p, id, true);
+          if (type === 'mode') {
+            if (referencesMode(p, id)) return;      // never twice
+            setModeRef(p, id, true);
           } else {
             p.providers = p.providers ?? {};
             if (p.providers[id]) return;             // never twice
@@ -2527,7 +2689,7 @@
           // Land the user on what they just added rather than leaving it to be
           // hunted for at the bottom of a long profile.
           const card = document.querySelector(
-            `[data-hw="${CSS.escape(type === 'scene' ? `scene:${id}` : id)}"]`);
+            `[data-hw="${CSS.escape(type === 'mode' ? `mode:${id}` : id)}"]`);
           card?.scrollIntoView({ block: 'center', behavior: 'smooth' });
           card?.classList.add('flash');
           return;

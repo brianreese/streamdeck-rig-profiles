@@ -15,10 +15,24 @@
 // both and neither can drift into its own validation rules.
 
 import yaml from 'js-yaml';
-import { getProvider, allProviders, STATUS } from './providers/index.js';
+import { getProvider, allProviders, reportsState, STATUS } from './providers/index.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar } from './avatars.js';
-import { renderProfileKey, renderSceneKey } from './buttonRenderer.js';
+// buttonRenderer's half of the rename has landed.
+// when that file lands its half of this rename. buttonRenderer.js is not mine to
+// line that changes when the new name appears.
+import { renderProfileKey, renderModeKey } from './buttonRenderer.js';
 import { _resetForTesting as resetGoveeCatalog } from './providers/govee.js';
+
+/**
+ * Every stored Mode, whatever key it was written under.
+ *
+ * `settings.scenes` is what this was called before Scenes and Modes merged.
+ * Nothing is shipped beyond this machine, so there is no migration to run and
+ * none is written here — this is a tolerant read and nothing more. Anything
+ * that writes goes back under `modes`, so a config heals itself the first time
+ * it is saved.
+ */
+const storedModes = (globals) => globals?.modes ?? globals?.scenes ?? [];
 
 /** Turn a stored profile list into the legacy-shaped YAML we can re-import. */
 export function profilesToYaml(globals) {
@@ -29,17 +43,17 @@ export function profilesToYaml(globals) {
     // Dump the providers map verbatim rather than translating known keys:
     // a provider added later must round-trip without touching this function.
     if (Object.keys(p.providers ?? {}).length) out.providers = p.providers;
-    // The scenes this profile also runs, by id. Emitted after providers because
-    // that is the order they apply in: the profile's own hardware first, the
-    // referenced scenes filling in what it did not set.
-    if (p.scenes?.length) out.scenes = p.scenes;
+    // The Modes this profile also activates, by id. Emitted after providers
+    // because that is the order they apply in: the profile's own hardware
+    // first, the referenced Modes filling in what it did not set.
+    if (p.modes?.length) out.modes = p.modes;
     return out;
   });
 
-  // Scenes are exported so a committed YAML is a complete picture. A profile
-  // referencing a scene the file does not contain is a profile that does less
+  // Modes are exported so a committed YAML is a complete picture. A profile
+  // referencing a Mode the file does not contain is a profile that does less
   // than it says, and leaving them out would make that the normal case.
-  const scenes = (globals?.scenes ?? []).map((s) => {
+  const modes = storedModes(globals).map((s) => {
     const out = { id: s.id, name: s.name, color: s.color };
     if (Object.keys(s.providers ?? {}).length) out.providers = s.providers;
     return out;
@@ -47,7 +61,7 @@ export function profilesToYaml(globals) {
 
   return yaml.dump({
     profiles,
-    ...(scenes.length ? { scenes } : {}),
+    ...(modes.length ? { modes } : {}),
     settings: {
       default_profile: globals?.settings?.defaultProfile ?? profiles[0]?.id ?? null,
       // The Govee API key is deliberately NOT exported. Export exists so this
@@ -59,7 +73,7 @@ export function profilesToYaml(globals) {
 }
 
 /**
- * The rules a profile and a scene share, which is everything structural.
+ * The rules a profile and a Mode share, which is everything structural.
  *
  * Both are `{ id, name, color, providers }`, so both need an id that can be a
  * config key, a name a human can find it by, a colour the renderer will not
@@ -90,8 +104,8 @@ function validateRecords(records, noun) {
       const provider = getProvider(providerId);
       if (!provider) continue; // unknown ids are tolerated: config outlives code
       // Each provider owns its own rules; the core knows none of them, and a
-      // scene's provider config is judged by exactly the same rules as a
-      // profile's — a Govee scene with no scene selected is broken either way.
+      // Mode's provider config is judged by exactly the same rules as a
+      // profile's — a Govee block with no scene selected is broken either way.
       for (const problem of provider.validate?.(cfg) ?? []) {
         errors.push(`${where}: ${problem}`);
       }
@@ -107,28 +121,28 @@ function validateRecords(records, noun) {
  *
  * @param {object[]} profiles
  * @param {object} [opts]
- * @param {string[]} [opts.sceneIds]  ids that exist in the scene list. When
- *   given, a profile naming a scene outside it is an error. Omitted means "do
+ * @param {string[]} [opts.modeIds]  ids that exist in the Mode list. When
+ *   given, a profile naming a Mode outside it is an error. Omitted means "do
  *   not check", which keeps a caller that only has profiles to hand honest
- *   rather than making it invent an empty scene list and reject every
+ *   rather than making it invent an empty Mode list and reject every
  *   reference.
  */
-export function validateProfiles(profiles, { sceneIds } = {}) {
+export function validateProfiles(profiles, { modeIds } = {}) {
   if (!Array.isArray(profiles)) return { ok: false, errors: ['profiles must be a list'] };
 
   const errors = validateRecords(profiles, 'profile');
 
-  // A dangling reference is not cosmetic: the profile claims to run a scene and
-  // the runtime skips it with a log line nobody reads, so the lights quietly do
-  // not come on. Refusing the save is what stops that shipping. The editor
-  // detaches references when a scene is deleted, so reaching this normally
-  // means a hand-edited config.
-  if (Array.isArray(sceneIds)) {
-    const known = new Set(sceneIds);
+  // A dangling reference is not cosmetic: the profile claims to activate a Mode
+  // and the runtime skips it with a log line nobody reads, so the lights
+  // quietly do not come on. Refusing the save is what stops that shipping. The
+  // editor detaches references when a Mode is deleted, so reaching this
+  // normally means a hand-edited config.
+  if (Array.isArray(modeIds)) {
+    const known = new Set(modeIds);
     for (const [i, p] of profiles.entries()) {
       const where = p?.name || p?.id || `#${i + 1}`;
-      for (const ref of p?.scenes ?? []) {
-        if (!known.has(ref)) errors.push(`${where}: references a scene that does not exist ("${ref}")`);
+      for (const ref of p?.modes ?? []) {
+        if (!known.has(ref)) errors.push(`${where}: references a mode that does not exist ("${ref}")`);
       }
     }
   }
@@ -137,26 +151,27 @@ export function validateProfiles(profiles, { sceneIds } = {}) {
 }
 
 /**
- * Validate a scene list coming from the editor.
+ * Validate a Mode list coming from the editor.
  *
- * Structurally identical to a profile, with one rule of its own: a scene must
+ * Structurally identical to a profile, with one rule of its own: a Mode must
  * not carry `restricted`. The hold gate exists so a child cannot press a key
- * and be handed full force feedback; a scene cannot hand them anything, because
+ * and be handed full force feedback; a Mode cannot hand them anything, because
  * it never writes the shared active-profile state that decides what they are
- * allowed to launch. A `restricted` scene would therefore be a gate in front of
- * nothing, and — worse — would read to the next person as though scenes carried
- * the same authority profiles do. Rejecting it keeps the two concepts apart in
- * the stored data, not just in the editor.
+ * allowed to launch. That is true of every Mode, including one that reports
+ * itself active: a Mode's on/off is a fact about the Mode, not a claim about
+ * who is sitting at the rig. A `restricted` Mode would therefore be a gate in
+ * front of nothing, and — worse — would read to the next person as though a
+ * Mode carried the authority a profile does.
  */
-export function validateScenes(scenes) {
-  if (!Array.isArray(scenes)) return { ok: false, errors: ['scenes must be a list'] };
+export function validateModes(modes) {
+  if (!Array.isArray(modes)) return { ok: false, errors: ['modes must be a list'] };
 
-  const errors = validateRecords(scenes, 'scene');
+  const errors = validateRecords(modes, 'mode');
 
-  for (const [i, s] of scenes.entries()) {
+  for (const [i, s] of modes.entries()) {
     const where = s?.name || s?.id || `#${i + 1}`;
     if (s?.restricted) {
-      errors.push(`${where}: a scene has nothing to gate, so it cannot be "hold to switch"`);
+      errors.push(`${where}: a mode has nothing to gate, so it cannot be "hold to switch"`);
     }
   }
 
@@ -183,10 +198,10 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         request,
         profiles: current?.profiles ?? [],
         // Sent alongside rather than behind a request of its own: the editor
-        // cannot draw a profile's scene references without the scene list, so
+        // cannot draw a profile's Mode references without the Mode list, so
         // fetching them separately would only add a state where the page has
         // half its draft.
-        scenes: current?.scenes ?? [],
+        modes: storedModes(current),
         settings: {
           ...current?.settings,
           // Same rule as getSettings: the key is never echoed to a page.
@@ -230,13 +245,31 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
             label: p.label,
             verifiable: p.verifiable,
             // Which lists this provider may be offered on. A wheelbase belongs
-            // to a profile — a scene is a moment of ambience and must not be
-            // able to hand anyone force feedback — while lights and scripts
-            // make sense on both. The editor filters its add list on this, so a
-            // provider that never declared it is offered on profiles only:
-            // profiles are the default surface, and a scene reaching hardware
-            // it was never meant to is the failure worth defaulting away from.
+            // to a profile — a Mode must not be able to hand anyone force
+            // feedback — while lights and scripts make sense on both. The
+            // editor filters its add list on this, so a provider that never
+            // declared it is offered on profiles only: profiles are the default
+            // surface, and a Mode reaching hardware it was never meant to is
+            // the failure worth defaulting away from.
             contexts: Array.isArray(p.contexts) && p.contexts.length ? [...p.contexts] : ['profile'],
+            // Whether this provider can answer "am I currently in effect?".
+            //
+            // Asked of the registry rather than derived here, so the editor and
+            // the runtime agree by construction about which providers count.
+            // It is derived from the method either way — a boolean a provider
+            // could set without implementing isActive() would be a promise
+            // nothing keeps.
+            //
+            // This is the whole basis of a Mode's active/inactive state: the
+            // Mode does not decide whether it is stateful, the providers inside
+            // it do, and a Mode holding none of these behaves exactly as a
+            // fire-and-forget one always has.
+            //
+            // Independent of `contexts`. A provider may be perfectly usable in
+            // a Mode and still have no honest answer — Govee's API
+            // acknowledges a request, it does not read the lamp — so declaring
+            // 'mode' is not a promise to answer this question.
+            reportsState: reportsState(p),
             fields,
           };
         }),
@@ -258,33 +291,37 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       }
     }
 
-    // Profiles and scenes save together, in one request, deliberately.
+    // Profiles and Modes save together, in one request, deliberately.
     //
-    // They are not independent: a profile references scenes by id, so writing
+    // They are not independent: a profile references Modes by id, so writing
     // the two halves separately opens a window where a saved profile names a
-    // scene that has not been stored yet. One request means one validation of
+    // Mode that has not been stored yet. One request means one validation of
     // the pair and one write, and a rejected save leaves BOTH lists exactly as
     // they were — which is what lets the editor autosave at all.
     //
-    // `scenes` is optional. A caller that only knows about profiles (the
+    // `modes` is optional. A caller that only knows about profiles (the
     // property inspector, an older page held in a stale tab) omits it and the
-    // stored scenes are carried through untouched rather than erased.
+    // stored Modes are carried through untouched rather than erased.
     case 'saveProfiles': {
       const current = await settings.getGlobalSettings();
-      const scenes = msg.scenes ?? current?.scenes ?? [];
+      const modes = msg.modes ?? storedModes(current);
 
-      if (msg.scenes) {
-        const sceneCheck = validateScenes(msg.scenes);
-        if (!sceneCheck.ok) return { request, ok: false, errors: [], sceneErrors: sceneCheck.errors };
+      if (msg.modes) {
+        const modeCheck = validateModes(msg.modes);
+        if (!modeCheck.ok) return { request, ok: false, errors: [], modeErrors: modeCheck.errors };
       }
 
-      const { ok, errors } = validateProfiles(msg.profiles, { sceneIds: scenes.map((s) => s.id) });
-      if (!ok) return { request, ok: false, errors, sceneErrors: [] };
+      const { ok, errors } = validateProfiles(msg.profiles, { modeIds: modes.map((s) => s.id) });
+      if (!ok) return { request, ok: false, errors, modeErrors: [] };
 
       await settings.setGlobalSettings({
         ...current,
         profiles: msg.profiles,
-        scenes,
+        modes,
+        // The key these used to live under. Cleared rather than left beside the
+        // new one, so a stored blob never carries two answers to the same
+        // question — `storedModes` reads either, and everything writes `modes`.
+        scenes: undefined,
         settings: { ...current?.settings, ...msg.settings },
         // Keep the import marker exactly as it was. It records which YAML we
         // last imported, so an untouched profiles.yaml still matches and these
@@ -293,7 +330,7 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         // restart look like a new file and silently re-imported over the top.
         importedFrom: current?.importedFrom ?? null,
       });
-      return { request, ok: true, count: msg.profiles.length, sceneCount: scenes.length };
+      return { request, ok: true, count: msg.profiles.length, modeCount: modes.length };
     }
 
     case 'uploadAvatar': {
@@ -336,11 +373,14 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       };
     }
 
-    // A scene has neither of the profile's states, so it gets its own preview
-    // rather than borrowing a look that would claim something untrue.
-    case 'previewSceneKey': {
-      const draft = msg.scene ?? {};
-      const scene = {
+    // A Mode has neither of the profile's states — it never claims anyone is at
+    // the rig — so it gets its own preview rather than borrowing a look that
+    // would say something untrue.
+    //
+    // Editor-only, and only ever called from the browser editor.
+    case 'previewModeKey': {
+      const draft = msg.mode ?? {};
+      const mode = {
         name: String(draft.name ?? '').slice(0, 40),
         // The page is untrusted input and the renderer drops an unrecognised
         // colour straight into the SVG, so it is filtered here at the boundary.
@@ -349,8 +389,8 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       };
       return {
         request,
-        idle: renderSceneKey({ scene }),
-        running: renderSceneKey({ scene, running: true, dotFrame: 1 }),
+        idle: renderModeKey({ mode }),
+        running: renderModeKey({ mode, running: true, dotFrame: 1 }),
       };
     }
 

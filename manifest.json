@@ -23,9 +23,9 @@
     },
     {
       "Icon": "assets/action-icon",
-      "Name": "Rig Scene",
-      "Tooltip": "Run a scene: lighting, scripts, anything momentary.",
-      "PropertyInspectorPath": "ui/scene-key.html",
+      "Name": "Rig Mode",
+      "Tooltip": "Turn a mode on or off: lighting, scripts, shared state.",
+      "PropertyInspectorPath": "ui/mode-key.html",
       "Controllers": [
         "Keypad"
       ],
@@ -35,7 +35,7 @@
         }
       ],
       "SupportedInMultiActions": true,
-      "UUID": "com.rig.profiles.scene"
+      "UUID": "com.rig.profiles.mode"
     }
   ],
   "OS": [
