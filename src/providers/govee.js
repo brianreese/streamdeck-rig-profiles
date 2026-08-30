@@ -39,7 +39,7 @@ export default {
   verifiable: true,
   // Lighting belongs in both. It is the obvious thing to want as a scene, and
   // just as reasonable as part of a profile.
-  contexts: ['profile', 'scene'],
+  contexts: ['profile', 'mode'],
 
   schema() {
     return [

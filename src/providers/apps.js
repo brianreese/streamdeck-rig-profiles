@@ -69,7 +69,7 @@ export default {
   verifiable: true,
   // Both: a profile may need to prepare sim software, and a scene may want to
   // start a playlist. Neither claim is about the other.
-  contexts: ['profile', 'scene'],
+  contexts: ['profile', 'mode'],
 
   schema() {
     return [
