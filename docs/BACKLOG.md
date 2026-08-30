@@ -542,3 +542,56 @@ writes grouped by command and ranked by distinct-value count, so the control
 being moved is normally the top row.
 
 Needs Brian present at the rig; not startable unattended.
+
+### UPDATE 2026-08-30 — probed further, still blocked, and here is why
+
+Two new tools, both read-only: `scripts/moza-find-device.mjs` (which device ids
+answer on a port) and `scripts/moza-sweep-device.mjs` (read every command from a
+chosen device id, with a `--diff` mode for before/after comparison).
+`moza-scan.mjs` also gained `--device=ab9`.
+
+What they established:
+
+- **Two device ids answer a keepalive on COM12: `0x10` and `0x12`.** `0x10` had
+  never been addressed before — everything in this codebase talks to `0x12`,
+  the mBooster. That is why an earlier sweep of the AB9 returned a flat nothing
+  and looked like a dead device: it was ignoring frames addressed to somebody
+  else.
+- **Neither id returns data for any command from 0x00 to 0xFF** read at width 4.
+  So knowing the device id was necessary and is not sufficient.
+
+### The oracle trick does not transfer
+
+The pedal's remaining settings were solved without a capture because the preset
+file said what the values should be, giving something to match reads against.
+**The AB9 has no preset.** Every device with a preset was enumerated — CRP, CS,
+ES, R3 through R25, SRP, mBooster and others — and the AB9 is not among them.
+Nothing says what any AB9 value ought to be, so a sweep produces numbers with
+no meaning attached even when it produces numbers.
+
+### So a capture really is the next step
+
+An earlier note here suggested a before/after read diff might replace the
+capture and only cost one toggle of a slider. That was optimistic: a read diff
+needs reads to work, and they do not. Capturing what Pit House **sends** does
+not depend on being able to read anything back, which is exactly why it is the
+right tool here and was the one that cracked `0xAB`.
+
+Procedure unchanged: capture the AB9 with USBPcap, change ONLY the shifter or
+flight-stick mode in Pit House, stop the capture, then run
+`node scripts/moza-decode-capture.mjs <file>`. The decoder groups writes by
+command and ranks them by distinct-value count.
+
+One thing to watch that cost time on the pedal: the decoder must be pointed at
+the AB9's USB device, and the frames will be addressed to `0x10` or `0x12`
+rather than the pedal's `0x12` only. `src/moza/frame.js` decodes them either
+way — it does not filter by device.
+
+### What Pit House's binary contributed
+
+Names, not numbers. `MOZA Pit House.exe` holds a UI-path to preset-key table and
+a Qt type registration table, so command *names* like `ShifterCalibState` and
+`/steeringProgramParameterCommand/stickMode` are visible. Command bytes live in
+compiled C++ and did not come out. Useful for naming a provider's fields once
+the ids are known; no help in finding them.
+

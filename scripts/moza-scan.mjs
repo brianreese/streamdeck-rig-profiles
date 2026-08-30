@@ -16,7 +16,7 @@
 // Pit House holds the port, and its X button only hides it to the tray — it has
 // to be properly quit.
 //
-//   node scripts/moza-scan.mjs <label>
+//   node scripts/moza-scan.mjs <label> [--device=mbooster|ab9|third]
 //   node scripts/moza-scan.mjs --diff <a> <b>
 
 import { SerialPort } from 'serialport';
@@ -85,6 +85,19 @@ if (args[0] === '--diff') {
 
 // -------------------------------------------------------------------- scan
 const label = args[0];
+
+// Which MOZA device to sweep. The mBooster is the default because it is what
+// this script was written for, but the AB9 speaks the same protocol and has no
+// preset file to check answers against — so for it, a baseline sweep, one
+// setting changed by hand, and a second sweep is the only way to attach meaning
+// to a value.
+const PIDS = { mbooster: '0008', ab9: '1100', third: '1000' };
+const deviceArg = (args.find((a) => a.startsWith('--device=')) ?? '').split('=')[1];
+const wantPid = PIDS[deviceArg ?? 'mbooster'];
+if (!wantPid) {
+  console.error(`Unknown --device. Try one of: ${Object.keys(PIDS).join(', ')}`);
+  process.exit(1);
+}
 if (!label) {
   console.error('Usage: moza-scan.mjs <label>   |   moza-scan.mjs --diff <a> <b>');
   process.exit(1);
@@ -92,7 +105,7 @@ if (!label) {
 
 const ports = await SerialPort.list();
 const hit = ports.find(
-  (p) => (p.vendorId ?? '').toUpperCase() === '346E' && (p.productId ?? '').toUpperCase() === '0008',
+  (p) => (p.vendorId ?? '').toUpperCase() === '346E' && (p.productId ?? '').toUpperCase() === wantPid,
 );
 if (!hit) {
   console.error('mBooster not found.');
