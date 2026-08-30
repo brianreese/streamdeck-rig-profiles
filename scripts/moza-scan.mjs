@@ -24,6 +24,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFrame, keepAliveFrame, decodeAll, GROUP } from '../src/moza/frame.js';
+import { DEVICES, deviceByKey } from '../src/moza/devices.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCANS = join(HERE, 'scans');
@@ -91,13 +92,16 @@ const label = args[0];
 // preset file to check answers against — so for it, a baseline sweep, one
 // setting changed by hand, and a second sweep is the only way to attach meaning
 // to a value.
-const PIDS = { mbooster: '0008', ab9: '1100', third: '1000' };
-const deviceArg = (args.find((a) => a.startsWith('--device=')) ?? '').split('=')[1];
-const wantPid = PIDS[deviceArg ?? 'mbooster'];
-if (!wantPid) {
-  console.error(`Unknown --device. Try one of: ${Object.keys(PIDS).join(', ')}`);
+const deviceArg = (args.find((a) => a.startsWith('--device=')) ?? '').split('=')[1] ?? 'mbooster';
+const wanted = deviceByKey(deviceArg);
+if (!wanted) {
+  console.error(
+    `Unknown --device "${deviceArg}". Known: ` +
+      Object.values(DEVICES).map((d) => d.key).join(', '),
+  );
   process.exit(1);
 }
+const wantPid = wanted.productId;
 if (!label) {
   console.error('Usage: moza-scan.mjs <label>   |   moza-scan.mjs --diff <a> <b>');
   process.exit(1);

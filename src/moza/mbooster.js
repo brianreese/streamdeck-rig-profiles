@@ -14,6 +14,7 @@ import {
   readFrame, writeFrame, keepAliveFrame, decodeAll, toBytes,
   travel, force, GROUP, DEVICE, swapNibbles,
 } from './frame.js';
+import { findDevicePort } from './devices.js';
 
 const run = promisify(execFile);
 
@@ -140,20 +141,8 @@ export function reopenPitHouse({ env = process.env, spawnFn = spawn } = {}) {
  * first would mean writing a brake curve to whichever one happened to enumerate
  * first.
  */
-export async function findPort({ list = () => SerialPort.list() } = {}) {
-  const ports = await list();
-  const matches = ports.filter(
-    (p) =>
-      (p.vendorId ?? '').toUpperCase() === VENDOR_ID &&
-      (p.productId ?? '').toUpperCase() === PRODUCT_ID,
-  );
-  if (matches.length > 1) {
-    throw new Error(
-      `${matches.length} mBooster-class devices found (${matches.map((m) => m.path).join(', ')}). ` +
-        'Refusing to guess which one to write to — pass an explicit port.',
-    );
-  }
-  return matches[0]?.path ?? null;
+export async function findPort(opts) {
+  return findDevicePort('mbooster', opts);
 }
 
 /**

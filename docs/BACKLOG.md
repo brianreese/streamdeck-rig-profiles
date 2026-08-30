@@ -526,11 +526,16 @@ so the MOZA preset store is no help here.
 
 What is known, from a read-only probe:
 
-- The AB9 is `346E:1100`, on COM12 on this machine. `346E:1000` (COM5) is a
-  third MOZA device and was held by another process at probe time.
-- It answers the same wire protocol: a keepalive addressed to device `0x12`
-  came back as group `0x80` from device `0x21`, exactly like the mBooster.
-  So `src/moza/frame.js` should work against it unchanged.
+- The AB9 is `346E:1000`. **An earlier version of this note said `1100`, and
+  that was wrong** — 1100 is the MTP Throttle Panel, and a whole probing
+  session was spent on it. Windows' bus-reported device name settled it, and
+  `src/moza/devices.js` now holds the table with a test pinning it.
+- It answers the same wire protocol. Device ids `0x10` AND `0x12` both
+  acknowledge a keepalive on it. Everything in this codebase addresses `0x12`,
+  the mBooster, which is why a first sweep looked like a dead device — it was
+  ignoring frames meant for somebody else.
+- Neither id returns data for any command 0x00-0xFF read at width 4. The
+  throttle panel behaves identically, so this is not specific to the AB9.
 - It has no force curve table, which is why the mBooster identity guard
   correctly refuses COM12. A new provider needs its own fingerprint, and must
   not reuse `identify()` — that one is deliberately mBooster-specific.
