@@ -33,6 +33,7 @@ import { renderModeKey } from '../buttonRenderer.js';
 import { notify } from '../notify.js';
 import { isProblem, getProvider, isReversible } from '../providers/index.js';
 import { loadAvatarDataUri } from '../avatars.js';
+import { handlePiRequest } from '../piBridge.js';
 
 export const MANIFEST_ID = 'com.rig.profiles.mode';
 
@@ -63,6 +64,25 @@ function findMode(settings, id) {
   return { ...mode, avatarDataUri: loadAvatarDataUri(mode.avatar) ?? undefined };
 }
 
+/**
+ * Repaint every visible Mode key.
+ *
+ * Switching one Mode routinely changes what another reports: VR and Flatscreen
+ * write the same flag, so turning one on turns the other off. Repainting only
+ * the key that was pressed left the others stale until the next poll, which
+ * read as the deck being slow rather than as two Modes sharing one flag.
+ */
+export async function paintEveryModeKey() {
+  const settings = await streamDeck.settings.getGlobalSettings();
+  await Promise.all(
+    [...visible.values()].map(async ({ action, modeId }) => {
+      const mode = findMode(settings, modeId);
+      const active = mode ? await readModeState(mode, { settings: settings?.settings ?? {} }) : null;
+      return action.setImage(renderModeKey({ mode, active })).catch(() => {});
+    }),
+  );
+}
+
 /** Can a long press do anything to this Mode? */
 function canSwitchOff(mode) {
   return Object.keys(mode?.providers ?? {}).some((id) => isReversible(getProvider(id)));
@@ -84,6 +104,37 @@ export class ModeKey extends SingletonAction {
     if (!visible.size && poll) {
       clearInterval(poll);
       poll = null;
+    }
+  }
+
+  /**
+   * Property inspector requests.
+   *
+   * This was missing entirely, so "Edit modes…" sent a request nobody answered
+   * and the panel sat waiting until it timed out. The profile inspector worked
+   * only because ProfileKey happens to have this handler — sendToPlugin is
+   * delivered to the action it came from, not to the plugin at large.
+   */
+  async onSendToPlugin(ev) {
+    const request = ev.payload?.request;
+    streamDeck.logger.info(`[pi] <- ${request} (mode key)`);
+    try {
+      const reply = await handlePiRequest(ev.payload, {
+        settings: streamDeck.settings,
+        logger: streamDeck.logger,
+        onChanged: () => paintEveryModeKey(),
+      });
+      await streamDeck.ui.sendToPropertyInspector(reply);
+      streamDeck.logger.info(`[pi] ${request} -> ${JSON.stringify(reply).slice(0, 200)}`);
+      if (['saveProfiles', 'uploadAvatar', 'deleteAvatar'].includes(request)) {
+        await paintEveryModeKey();
+      }
+    } catch (err) {
+      // Never leave the inspector hanging: it awaits a reply per request.
+      streamDeck.logger.error(`[pi] ${request} failed: ${err.stack ?? err.message}`);
+      await streamDeck.ui
+        .sendToPropertyInspector({ request, ok: false, error: err.message })
+        .catch(() => {});
     }
   }
 
@@ -138,10 +189,12 @@ export class ModeKey extends SingletonAction {
 
   async onKeyUp(ev) {
     const held = this.#holds.get(ev.action.id);
-    // The long press already handled it; releasing must not then switch it on
-    // again, which would leave the Mode exactly as it started.
-    if (held?.fired) return;
     this.#clearHold(ev.action.id);
+    // The long press already switched it off; releasing must not switch it
+    // straight back on. The record is deliberately NOT cleared by #switchOff —
+    // doing that made this lookup miss, so every completed hold was undone by
+    // letting go, which looked exactly like the hold not working at all.
+    if (held?.fired) return;
     await this.#switchOn(ev);
   }
 
@@ -156,9 +209,9 @@ export class ModeKey extends SingletonAction {
     if (!mode) return;
 
     if (!canSwitchOff(mode)) {
-      // Nothing in it can be reversed, so a hold has no meaning. Fall through
-      // to activating rather than doing nothing, which would read as broken.
-      this.#clearHold(ev.action.id);
+      // Nothing in it can be reversed, so a hold has no meaning. Activate
+      // rather than do nothing, which would read as a dead key. The hold
+      // record stays marked fired so releasing does not activate it twice.
       await this.#switchOn(ev);
       return;
     }
@@ -177,8 +230,7 @@ export class ModeKey extends SingletonAction {
     } else {
       await ev.action.showOk();
     }
-    this.#clearHold(ev.action.id);
-    await this.#paint(ev.action, mode.id);
+    await paintEveryModeKey();
   }
 
   async #switchOn(ev) {
@@ -233,10 +285,13 @@ export class ModeKey extends SingletonAction {
       streamDeck.logger.info(`[modeKey] ${mode.name}: ${why}`);
     }
 
-    // Deliberately no profile state written and no profile key repainted: a
+    // Every Mode key, not just this one — two Modes on one flag are mutually
+    // exclusive, so switching this on has just switched that off.
+    //
+    // Deliberately no PROFILE state written and no profile key repainted: a
     // Mode has no bearing on who is at the rig, and saying otherwise would
     // corrupt the one thing the shared profile file means.
-    await this.#paint(ev.action, mode.id);
+    await paintEveryModeKey();
   }
 }
 
