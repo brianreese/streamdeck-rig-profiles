@@ -461,18 +461,19 @@ so the MOZA preset store is no help here.
 
 What is known, from a read-only probe:
 
-- The AB9 is , on COM12 on this machine.  (COM5) is a
+- The AB9 is `346E:1100`, on COM12 on this machine. `346E:1000` (COM5) is a
   third MOZA device and was held by another process at probe time.
-- It answers the same wire protocol: a keepalive addressed to device 
-  came back as group  from device , exactly like the mBooster.
-  So  should work against it unchanged.
+- It answers the same wire protocol: a keepalive addressed to device `0x12`
+  came back as group `0x80` from device `0x21`, exactly like the mBooster.
+  So `src/moza/frame.js` should work against it unchanged.
 - It has no force curve table, which is why the mBooster identity guard
-  correctly refuses COM12. A new provider needs its own fingerprint.
+  correctly refuses COM12. A new provider needs its own fingerprint, and must
+  not reuse `identify()` — that one is deliberately mBooster-specific.
 
-The commands are unknown. Finding them is the same job that found :
-capture the AB9 with USBPcap, change ONLY the mode setting in Pit House,
-stop the capture, then . It
-lists writes grouped by command and ranked by distinct-value count, so the
-control being moved is normally the top row.
+The commands are unknown. Finding them is the same job that found `0xAB`:
+capture the AB9 with USBPcap, change ONLY the mode setting in Pit House, stop
+the capture, then run `node scripts/moza-decode-capture.mjs <file>`. It lists
+writes grouped by command and ranked by distinct-value count, so the control
+being moved is normally the top row.
 
 Needs Brian present at the rig; not startable unattended.
