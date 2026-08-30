@@ -290,13 +290,22 @@ class Session {
 }
 
 /**
- * The layout of command 0xAB's table.
+ * The layout of command 0xAB's table, now fully decoded.
  *
- * Indices 0-6 are the curve's travel axis, 7 is `brake_forcelimit_min` — the
- * force needed before the pedal moves at all — and 8-14 are the seven force
- * points. Index 7 was mistaken for an unused zero until a preset carrying a
- * non-zero value for it was loaded, when it read back exactly the 7kg the
- * preset stores.
+ *   0       always zero — the curve's origin
+ *   1-6     `brake_stroke_curve`, as a FRACTION of the travel range: the
+ *           millimetre value is `machinelimit_min + f * (max - min)`
+ *   7       `brake_forcelimit_min`, kg — the force before the pedal moves
+ *   8-14    `brake_forces_curve`, kg — the seven force points
+ *   15+     zero
+ *
+ * So one command carries the whole Pedal Feel curve: both axes plus both
+ * sliders. Indices 1-6 were long mistaken for a fixed evenly-spaced axis. They
+ * were observed to CHANGE when a preset loaded — 9362 became 9409 — and that
+ * was written off as float noise from the firmware's storage. It was not noise;
+ * it was the stroke curve, and the evidence had already been collected and
+ * misread. Matching the six values against the preset that was loaded confirms
+ * them to within 0.0005mm.
  */
 export const CURVE_COMMAND = 0xab;
 export const CURVE_POINTS = [8, 9, 10, 11, 12, 13, 14];
@@ -345,14 +354,13 @@ export function scaleCurve(forcesKg, peakKg) {
  * device itself, because being wrong here means writing brake calibration into
  * something that is not a brake.
  *
- * The check is structural rather than a table of expected values. An earlier
- * version pinned indices 0-6 to `i × 65536/7` on the strength of a single
- * reading, and it was wrong: those values shift when Pit House loads a preset
- * — 9362 became 9409 — so the guard rejected the real pedal and would have
- * blocked every legitimate write. What actually holds is the shape: an axis of
- * seven points rising from zero to near full scale. A device that answers
- * nothing, zeros, or a flat table fails; the mBooster passes whatever preset it
- * happens to be carrying.
+ * The check is structural rather than a table of expected values, and it has
+ * to be: indices 1-6 are the loaded preset's stroke curve, so they legitimately
+ * differ from one preset to the next. An earlier version pinned them to
+ * `i × 65536/7` on the strength of a single reading and rejected the real
+ * pedal outright. What holds across every preset is the shape — a curve rising
+ * from zero to near full scale. A device answering nothing, zeros, or a flat
+ * table fails; the mBooster passes whatever preset it is carrying.
  */
 export async function identify(session) {
   const axis = [];

@@ -431,6 +431,71 @@ angle-based output. Only the first and the travel range are writable today.
 
 Code carrying this gap is commented and points back here.
 
+### UPDATE 2026-08-30 — two of the four solved, without a capture
+
+`scripts/moza-find-arrays.mjs` reads every command at index 0 and index 1, keeps
+the ones that answer differently (an array must; a scalar does not), then deep
+probes the survivors and matches them against the preset file, which says what
+those arrays should hold for whatever preset is loaded. That removes the human
+from the loop: no changing a slider in Pit House and diffing.
+
+It rediscovered `0xAB` indices 8-14 as the force curve on its own, matching the
+oracle to two decimals, which is the check that the method works.
+
+**Only two indexed commands exist on the pedal: `0xAB` and `0xAD`.**
+
+`0xAB` is now completely decoded:
+
+```
+idx 0     always zero, the curve's origin
+idx 1-6   brake_stroke_curve, as a FRACTION of the travel range
+          mm = machinelimit_min + f * (machinelimit_max - machinelimit_min)
+idx 7     brake_forcelimit_min, kg
+idx 8-14  brake_forces_curve, kg
+idx 15+   zero
+```
+
+Verified against Brian Brake Hybrid to within **0.0005mm** on all six stroke
+points. So one command carries the entire Pedal Feel curve — both axes and both
+sliders.
+
+Indices 1-6 were previously called a fixed evenly-spaced axis. They were even
+observed changing when a preset loaded, 9362 to 9409, and that was dismissed as
+float noise from the firmware's storage. It was the stroke curve. The evidence
+had been collected and misread.
+
+`0xAD` reads `[26214, 16384, 0, 0, ...]` — as percentages, 40 and 25, which line
+up with `brake_damping_press_segment*` and `brake_damping_release_segment*`.
+Not confirmed; nothing depends on it.
+
+### Still unmapped, and probably not on the pedal at all
+
+`brake_nonlinear1..5` and `brake_press_combine` matched no command. Given only
+two indexed commands exist, and a previous full scalar sweep of 458 values found
+neither, the likeliest explanation is that they are **not device settings**.
+
+Both shape what the GAME sees rather than how the pedal feels:
+`brake_nonlinear1..5` is the Simulator input mapping curve, and
+`brake_press_combine` blends pedal angle against load cell in the reported axis.
+Pit House ships a driver that presents a virtual device
+(`bin/MOZADriverInterface.h`, `setVMOZAsOnOff`), which is where output shaping
+would naturally live.
+
+If that is right, neither is reachable over the serial protocol and no capture
+will find them. Confirming it means capturing while changing one of those
+sliders and observing that **nothing** is written to the pedal — a negative
+result, but a cheap and conclusive one.
+
+### What the Pit House binary did and did not give up
+
+`MOZA Pit House.exe` is Qt/C++, 42MB. It contains a UI-path to preset-key table
+(`/pedalPressureBondingPointCommand/point` maps to `brake_press_combine`) and a
+Qt type registration table (`MBoostForceCurve`, `MBoostDampingSegment`). Both
+are names; neither carries command bytes, which live in compiled code. Useful
+for naming things, not for finding ids. The shipped `MOZADriverInterface.h` is
+about key mapping and the virtual device, not the serial protocol.
+
+
 ### Also outstanding
 
 - **The identity check's passing path is untested.** `identify()` in
