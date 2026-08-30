@@ -83,6 +83,23 @@
         ws.send(JSON.stringify({ event: 'setSettings', context: uuid, payload: settings }));
       }
 
+      /**
+       * What a Mode runs, in one line.
+       *
+       * The `providers` map is keyed by config key, and a provider that may be
+       * configured more than once — a Mode asserting two flags — carries a
+       * suffix on its extra instances. The suffix is storage bookkeeping and
+       * means nothing to a reader, so it comes off and the repeat is counted.
+       */
+      function providerNames(record) {
+        const counts = new Map();
+        for (const key of Object.keys(record?.providers ?? {})) {
+          const id = String(key).split('#')[0];
+          counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+        return [...counts].map(([id, n]) => (n > 1 ? `${id} ×${n}` : id));
+      }
+
       function renderKeyPicker() {
         const select = document.getElementById('mode');
         const summary = document.getElementById('summary');
@@ -109,7 +126,7 @@
           return;
         }
         const active = modes.find((s) => s.id === chosen);
-        const names = Object.keys(active?.providers ?? {});
+        const names = providerNames(active);
         summary.textContent = names.length
           ? `Runs: ${names.join(', ')}`
           : 'This mode does not do anything yet.';

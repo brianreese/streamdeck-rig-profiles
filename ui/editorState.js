@@ -109,6 +109,129 @@ export function matchesSearch(profile, query) {
 }
 
 // ---------------------------------------------------------------------------
+// Provider instances
+//
+// A record's `providers` map is keyed by provider id — except that a provider
+// declaring `repeatable: true` may appear on one record more than once, and
+// then the extra keys carry a suffix to keep them distinct:
+//
+//   providers: {
+//     "state-flag":         { flag: "vr" },
+//     "state-flag#2":       { flag: "assists", whenOff: true },
+//     "govee":              { scene: "Racing" },
+//   }
+//
+// The reason instances exist rather than a list inside one block: a Mode
+// routinely asserts several facts and they may point in different directions —
+// turn `vr` on AND `assists` off. A list of names inside one block cannot say
+// that, because the invert belongs to the block rather than to each name.
+//
+// A KEY is what the config is stored under and what every DOM hook here is
+// built from. A provider ID is what resolves to a schema, a label and a set of
+// capabilities. They are equal for every provider that is not repeatable and
+// for the first instance of one that is, which is exactly why confusing the two
+// is so easy and why nothing below does it: every lookup into the provider list
+// goes through `providerIdOf`.
+//
+// This mirrors `providerIdOf` in src/providers/index.js deliberately rather
+// than importing it: that module pulls in the whole registry — hardware
+// drivers, MQTT, the filesystem — and this one is loaded straight into a
+// browser page. The parse is one line and the shape is fixed by the stored
+// config, which both sides read.
+// ---------------------------------------------------------------------------
+
+/** The provider a config key names: `"state-flag#2"` -> `"state-flag"`. */
+export function providerIdOf(key) {
+  const s = String(key ?? '');
+  const at = s.indexOf('#');
+  return at === -1 ? s : s.slice(0, at);
+}
+
+/** The instance suffix on a config key, or `''` for the first/only one. */
+export function instanceOf(key) {
+  const s = String(key ?? '');
+  const at = s.indexOf('#');
+  return at === -1 ? '' : s.slice(at + 1);
+}
+
+/** Every key on this record belonging to one provider, in stored order. */
+export function instanceKeys(record, providerId) {
+  return Object.keys(record?.providers ?? {}).filter((k) => providerIdOf(k) === providerId);
+}
+
+/**
+ * The key a new instance of `providerId` should be stored under.
+ *
+ * The first one is the bare id, so a record holding one of something looks in
+ * storage exactly as it did before instances existed and nothing has to be
+ * migrated. After that: `#2`, `#3` — the lowest number not already in use on
+ * this record.
+ *
+ * Why a counter and not something meaningful. The key has to be minted at the
+ * moment ADD is clicked, when the block is still empty and there is nothing to
+ * name it after; and it has to hold still afterwards, because it is what the
+ * stored config is keyed by. Deriving it from a value — `state-flag#vr` — would
+ * mean re-keying the block on every keystroke in the flag field, which is a
+ * delete and an insert of the user's config per character, and two blank blocks
+ * would collide at `#`. A number owes nothing to the contents and so never has
+ * to change.
+ *
+ * Existing keys are never renumbered, including when one is removed: removing
+ * `#2` from three instances leaves `state-flag` and `#3` exactly as they are,
+ * and only the NEXT add takes the freed `#2`. Reusing a gap is safe precisely
+ * because nothing outside the record's own map ever names these keys, and it
+ * keeps them short; renumbering would not be, because it would silently
+ * repoint stored config.
+ */
+export function nextInstanceKey(record, providerId) {
+  const taken = new Set(Object.keys(record?.providers ?? {}));
+  if (!taken.has(providerId)) return providerId;
+  let n = 2;
+  while (taken.has(`${providerId}#${n}`)) n++;
+  return `${providerId}#${n}`;
+}
+
+/** Whether a provider, as sent by getProviders, may be added more than once. */
+export const isRepeatable = (provider) => provider?.repeatable === true;
+
+/**
+ * A one-line summary of what one block is set to, for telling two of them apart.
+ *
+ * Two blocks both headed "Rig State Flag" and nothing else is the failure this
+ * exists to prevent: with instances, the label is no longer an identity.
+ *
+ * Derived here from the declared schema rather than taken from the provider's
+ * own `describe()`. `describe()` is better prose — "sets vr", "clears assists"
+ * — but it is a function of the config, so it lives plugin-side and could only
+ * reach the page as a round-trip per keystroke; and this line has to be right
+ * *while the user is typing the value that distinguishes the two blocks*, which
+ * is the one moment a debounced round-trip would be wrong. So the page reads
+ * the same schema it is already rendering: the first field holding a value,
+ * plus any boolean that is on. Provider-agnostic, like everything else here —
+ * nothing in the editor knows what a flag or a scene is.
+ */
+export function blockSummary(provider, cfg) {
+  if (isBlank(cfg)) return '';
+  const values = [];
+  const flags = [];
+
+  for (const f of provider?.fields ?? []) {
+    const v = cfg?.[f.key];
+    if (v === undefined || v === null || v === '') continue;
+    // A boolean reads as its own label — "active when off" says more than
+    // "whenOff: true" — while everything else is worth showing as its value,
+    // because the value is what differs between two instances.
+    if (f.type === 'boolean') { if (v) flags.push(String(f.label ?? f.key).toLowerCase()); }
+    else if (values.length < 2) values.push(String(v));
+  }
+  const parts = [...values, ...flags];
+  // A block holding only values for fields the schema no longer declares still
+  // holds something, and saying nothing about it would look like a bug.
+  if (!parts.length) return Object.keys(cfg).join(', ');
+  return parts.join(' · ');
+}
+
+// ---------------------------------------------------------------------------
 // What can be added to the thing on screen
 // ---------------------------------------------------------------------------
 
@@ -138,9 +261,14 @@ export const providerContexts = (provider) =>
  *
  * `added: true` is returned rather than filtered out. An entry that vanishes
  * when used leaves the user wondering whether they imagined it; one that stays
- * and greys out says "yes, that one, it is already on". Nothing is offered
- * twice — a provider appears once in a record's providers map, and a Mode
- * reference is an id in a set.
+ * and greys out says "yes, that one, it is already on".
+ *
+ * A REPEATABLE provider is never `added`, however many instances the record
+ * already holds, because there is always another one to add — a Mode asserting
+ * two flags needs the row to stay live after the first. It carries `count`
+ * instead, so the row can say how many are on rather than pretending to be
+ * untouched. Everything else keeps the old rule: one block, then greyed out.
+ * A Mode reference is an id in a set and can never be added twice.
  *
  * @param {object} opts
  * @param {object[]} [opts.providers]  as sent by getProviders, with `contexts`
@@ -149,7 +277,7 @@ export const providerContexts = (provider) =>
  * @param {'profiles'|'modes'} [opts.kind]  which list `record` came from
  * @param {string} [opts.query]        the third column's search box
  * @param {Function} [opts.match]      how to test one entry, for tests
- * @returns {Array<{ type: 'provider'|'mode', id, label, added, provider?, mode? }>}
+ * @returns {Array<{ type, id, label, added, count, repeatable, provider?, mode? }>}
  */
 export function offers({ providers = [], modes = [], record = null, kind = 'profiles', query = '', match = matchesSearch } = {}) {
   const context = kind === 'modes' ? 'mode' : 'profile';
@@ -158,11 +286,17 @@ export function offers({ providers = [], modes = [], record = null, kind = 'prof
   for (const provider of providers) {
     if (!providerContexts(provider).includes(context)) continue;
     if (!match({ name: provider.label, id: provider.id }, query)) continue;
+    // Counted across instances rather than looked up by id: after the first,
+    // this provider's blocks are stored under suffixed keys, and a bare-id
+    // lookup would report a record holding three of them as holding none.
+    const count = instanceKeys(record, provider.id).length;
     out.push({
       type: 'provider',
       id: provider.id,
       label: provider.label,
-      added: Boolean(record?.providers?.[provider.id]),
+      count,
+      repeatable: isRepeatable(provider),
+      added: count > 0 && !isRepeatable(provider),
       provider,
     });
   }
@@ -176,11 +310,16 @@ export function offers({ providers = [], modes = [], record = null, kind = 'prof
       // profile to reference yet — it gets an id within the second.
       if (!mode.id) continue;
       if (!match(mode, query)) continue;
+      const added = referencesMode(record, mode.id);
+      // A Mode is never repeatable: the reference is an id in a set, and a
+      // profile activating the same Mode twice would be one activation.
       out.push({
         type: 'mode',
         id: mode.id,
         label: mode.name || '(unnamed)',
-        added: referencesMode(record, mode.id),
+        count: added ? 1 : 0,
+        repeatable: false,
+        added,
         mode,
       });
     }
@@ -316,6 +455,13 @@ export const reportsState = (provider) => provider?.reportsState === true;
 /**
  * What a Mode's key will show, derived from what is actually inside it.
  *
+ * Blocks are counted by KEY and named by PROVIDER, which is why the two are
+ * kept apart here. Two instances of the same flag provider are two blocks and
+ * one name — "Rig State Flag, Rig State Flag can report whether they are
+ * currently in effect" is not a sentence anyone should read — so the labels are
+ * deduplicated. The verdict itself is unaffected: one reporter or three, the
+ * key gains an on/off state either way.
+ *
  * @param {object} record            the Mode being edited
  * @param {object[]} providers       as sent by getProviders, with `reportsState`
  * @returns {{ stateful: boolean, reporters: string[], quiet: string[], pending: string[] }}
@@ -325,13 +471,18 @@ export const reportsState = (provider) => provider?.reportsState === true;
  *   about to show them to a human.
  */
 export function modeStatefulness(record, providers = []) {
-  const label = (id) => providers.find((p) => p.id === id)?.label ?? id;
-  const knows = (id) => reportsState(providers.find((p) => p.id === id));
+  const of = (key) => providers.find((p) => p.id === providerIdOf(key));
+  const label = (key) => of(key)?.label ?? providerIdOf(key);
+  const knows = (key) => reportsState(of(key));
+  const names = (keys) => [...new Set(keys.map(label))];
 
   const configured = configuredBlocks(record);
-  const reporters = configured.filter(knows).map(label);
-  const quiet = configured.filter((id) => !knows(id)).map(label);
-  const pending = blankBlocks(record).filter(knows).map(label);
+  const reporters = names(configured.filter(knows));
+  const quiet = names(configured.filter((key) => !knows(key)));
+  // A provider with one finished instance and one empty one is not pending:
+  // the key already has its state, and being told to "finish it" would be
+  // wrong. Only a provider with nothing configured at all is waiting.
+  const pending = names(blankBlocks(record).filter(knows)).filter((n) => !reporters.includes(n));
 
   return { stateful: reporters.length > 0, reporters, quiet, pending };
 }
@@ -345,6 +496,13 @@ export function modeStatefulness(record, providers = []) {
  * editor says so. A user who sets Govee on a profile and then adds a lighting
  * Mode to it should be told the Mode's lighting will not be used, rather than
  * discovering it when the room stays the wrong colour.
+ *
+ * Compared by KEY rather than by provider id, which is the right unit now that
+ * a provider can appear more than once. Two instances under different keys are
+ * additive and do not collide — a profile that sets `vr` and a Mode that clears
+ * `assists` are both doing their own thing, and warning about them would be
+ * warning about nothing. The same key on both sides is the same block twice,
+ * which is the collision this is for.
  */
 export function modeOverlap(profile, mode) {
   // Blank blocks on either side are excluded because they are not stored — see

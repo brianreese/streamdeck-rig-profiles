@@ -6,6 +6,7 @@ import {
   reportsState, modeStatefulness,
   offers, providerContexts, unknownSelectValue, unknownValues, blocksEditing,
   isBlank, blankBlocks, configuredBlocks, withoutBlankBlocks, forStorage,
+  providerIdOf, instanceOf, instanceKeys, nextInstanceKey, isRepeatable, blockSummary,
 } from './editorState.js';
 
 const saved = (over = {}) => ({
@@ -326,8 +327,16 @@ const apps = { id: 'apps', label: 'Apps & Scripts', contexts: ['profile', 'mode'
 // The one that can answer "am I in effect?". Note it declares the same contexts
 // Govee does — being usable in a Mode and being able to report yourself are
 // different capabilities, and the pair below is what keeps that honest.
+// It is also the only repeatable one: a Mode routinely asserts more than one
+// fact and they may point in different directions — `vr` on AND `assists` off —
+// which one block cannot say, because the invert belongs to the block.
 const flag = {
   id: 'state-flag', label: 'Rig State Flag', contexts: ['profile', 'mode'], reportsState: true,
+  repeatable: true,
+  fields: [
+    { key: 'flag', label: 'Flag', type: 'text' },
+    { key: 'whenOff', label: 'Active when off', type: 'boolean' },
+  ],
 };
 const kit = [wheelbase, lights, apps];
 
@@ -439,6 +448,187 @@ describe('modeStatefulness', () => {
     });
     expect(modeStatefulness(undefined).stateful).toBe(false);
   });
+
+  // The instance case. A suffixed key names the same provider, so it reports
+  // state for the same reason the first one does — resolving the key as though
+  // it were the id would find no provider and quietly drop the Mode's state.
+  it('resolves a suffixed key back to its provider', () => {
+    const m = mode({ providers: { 'state-flag#2': { flag: 'assists', whenOff: true } } });
+    expect(modeStatefulness(m, all)).toMatchObject({
+      stateful: true, reporters: ['Rig State Flag'],
+    });
+  });
+
+  // Two blocks, one name. "Rig State Flag, Rig State Flag can report whether
+  // they are currently in effect" is not a sentence anyone should read.
+  it('names a provider once however many instances of it there are', () => {
+    const m = mode({
+      providers: {
+        'state-flag': { flag: 'vr' },
+        'state-flag#2': { flag: 'assists', whenOff: true },
+        govee: { scene: 'Sunset' },
+      },
+    });
+    expect(modeStatefulness(m, all)).toMatchObject({
+      stateful: true, reporters: ['Rig State Flag'], quiet: ['Govee Lighting'], pending: [],
+    });
+  });
+
+  // One finished flag and one still empty. The key already HAS its on/off, so
+  // being told to finish something before it gains one would be wrong — the
+  // empty block is still not saved, which `renderIssues` says separately.
+  it('does not call a provider pending when another instance of it is finished', () => {
+    const m = mode({ providers: { 'state-flag': { flag: 'vr' }, 'state-flag#2': {} } });
+    expect(modeStatefulness(m, all)).toMatchObject({
+      stateful: true, reporters: ['Rig State Flag'], pending: [],
+    });
+  });
+
+  it('still calls it pending when every instance of it is empty', () => {
+    const m = mode({ providers: { 'state-flag': {}, 'state-flag#2': {} } });
+    expect(modeStatefulness(m, all)).toMatchObject({
+      stateful: false, reporters: [], pending: ['Rig State Flag'],
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Provider instances
+//
+// The same provider, twice, on one record. Everything here turns on the
+// distinction between a config KEY and a provider ID, which are equal for every
+// provider that is not repeatable and for the first instance of one that is —
+// which is exactly why confusing them is easy and why it has to be tested.
+// ---------------------------------------------------------------------------
+
+describe('providerIdOf / instanceOf', () => {
+  it('splits a key into the provider it names and the suffix that keeps it distinct', () => {
+    expect(providerIdOf('state-flag#2')).toBe('state-flag');
+    expect(instanceOf('state-flag#2')).toBe('2');
+  });
+
+  it('leaves an unsuffixed key exactly as it is', () => {
+    expect(providerIdOf('govee')).toBe('govee');
+    expect(instanceOf('govee')).toBe('');
+  });
+
+  // Must agree with src/providers/index.js, which reads the same stored keys
+  // from the other side of the wire. First `#` wins there too.
+  it('splits on the first hash, so a suffix containing one still resolves', () => {
+    expect(providerIdOf('state-flag#a#b')).toBe('state-flag');
+    expect(instanceOf('state-flag#a#b')).toBe('a#b');
+  });
+
+  it('survives a missing key rather than throwing inside a render', () => {
+    expect(providerIdOf(undefined)).toBe('');
+    expect(instanceOf(null)).toBe('');
+  });
+});
+
+describe('instanceKeys', () => {
+  it('finds every block belonging to one provider, in stored order', () => {
+    const m = mode({
+      providers: { 'state-flag': { flag: 'vr' }, govee: {}, 'state-flag#2': { flag: 'a' } },
+    });
+    expect(instanceKeys(m, 'state-flag')).toEqual(['state-flag', 'state-flag#2']);
+    expect(instanceKeys(m, 'govee')).toEqual(['govee']);
+  });
+
+  // The bug this guards: a bare-id lookup on a record whose only instance was
+  // stored under a suffix reports it as holding none, and the editor offers to
+  // add a first one that is already there.
+  it('finds an instance that is not the first, on its own', () => {
+    expect(instanceKeys(mode({ providers: { 'state-flag#3': {} } }), 'state-flag'))
+      .toEqual(['state-flag#3']);
+  });
+
+  it('does not confuse one provider for another that starts the same way', () => {
+    expect(instanceKeys(mode({ providers: { 'state-flagged': {} } }), 'state-flag')).toEqual([]);
+  });
+
+  it('survives a record with no providers map', () => {
+    expect(instanceKeys(undefined, 'govee')).toEqual([]);
+  });
+});
+
+describe('nextInstanceKey', () => {
+  // The first one is the bare id, so a record holding one of something looks in
+  // storage exactly as it did before instances existed. Nothing to migrate.
+  it('gives the first instance the bare provider id', () => {
+    expect(nextInstanceKey(mode(), 'state-flag')).toBe('state-flag');
+  });
+
+  it('numbers the ones after it', () => {
+    const m = mode({ providers: { 'state-flag': { flag: 'vr' } } });
+    expect(nextInstanceKey(m, 'state-flag')).toBe('state-flag#2');
+    m.providers['state-flag#2'] = { flag: 'assists' };
+    expect(nextInstanceKey(m, 'state-flag')).toBe('state-flag#3');
+  });
+
+  // The stability rule. A key is what the stored config hangs on, so removing
+  // one instance must not move another: `#3` stays `#3` for as long as it
+  // exists, and only a NEW block takes the gap that opened at `#2`.
+  it('never renumbers what is already there when one is removed', () => {
+    const m = mode({
+      providers: {
+        'state-flag': { flag: 'vr' },
+        'state-flag#2': { flag: 'assists' },
+        'state-flag#3': { flag: 'motion' },
+      },
+    });
+    delete m.providers['state-flag#2'];
+    expect(Object.keys(m.providers)).toEqual(['state-flag', 'state-flag#3']);
+    expect(nextInstanceKey(m, 'state-flag')).toBe('state-flag#2');
+    expect(m.providers['state-flag#3']).toEqual({ flag: 'motion' });
+  });
+
+  it('never collides with a key already on the record, whoever wrote it', () => {
+    const m = mode({ providers: { 'state-flag#2': {}, 'state-flag#3': {} } });
+    // The bare id is free, so it is what a fresh block gets — the gap at the
+    // front is a gap like any other.
+    expect(nextInstanceKey(m, 'state-flag')).toBe('state-flag');
+    m.providers['state-flag'] = {};
+    expect(nextInstanceKey(m, 'state-flag')).toBe('state-flag#4');
+  });
+
+  it('is unaffected by other providers on the record', () => {
+    const m = mode({ providers: { govee: {}, 'govee#2': {} } });
+    expect(nextInstanceKey(m, 'state-flag')).toBe('state-flag');
+  });
+});
+
+describe('isRepeatable', () => {
+  it('believes only an explicit true, like every other capability here', () => {
+    expect(isRepeatable(flag)).toBe(true);
+    expect(isRepeatable(lights)).toBe(false);
+    expect(isRepeatable(undefined)).toBe(false);
+  });
+});
+
+describe('blockSummary', () => {
+  // The failure this exists to prevent: two blocks headed "Rig State Flag" and
+  // nothing else to tell them apart.
+  it('says what the block is set to, so two of them read differently', () => {
+    expect(blockSummary(flag, { flag: 'vr' })).toBe('vr');
+    expect(blockSummary(flag, { flag: 'assists', whenOff: true }))
+      .toBe('assists · active when off');
+  });
+
+  it('names a boolean by its label and only when it is on', () => {
+    expect(blockSummary(flag, { flag: 'vr', whenOff: false })).toBe('vr');
+  });
+
+  it('says nothing about a block that holds nothing — it has its own wording', () => {
+    expect(blockSummary(flag, {})).toBe('');
+    expect(blockSummary(flag, undefined)).toBe('');
+  });
+
+  // Config outlives code: a value whose field the schema no longer declares
+  // still means the block holds something, and an empty subtitle there would
+  // look like the summary had failed rather than like the schema had moved.
+  it('falls back to the stored keys when the schema explains none of them', () => {
+    expect(blockSummary({ id: 'x', fields: [] }, { legacy: 1, other: 2 })).toBe('legacy, other');
+  });
 });
 
 describe('offers', () => {
@@ -523,6 +713,33 @@ describe('offers', () => {
   it('survives a record with no providers map and no selection at all', () => {
     expect(offers({ providers: kit, record: null }).every((o) => o.added === false)).toBe(true);
     expect(offers()).toEqual([]);
+  });
+
+  // A Mode asserting `vr` on and `assists` off needs the row to still work
+  // after the first one. Greying it out would make the second flag unreachable.
+  it('keeps a repeatable provider addable however many are already on the record', () => {
+    const m = mode({
+      providers: { 'state-flag': { flag: 'vr' }, 'state-flag#2': { flag: 'assists' } },
+    });
+    const row = offers({ providers: [...kit, flag], record: m, kind: 'modes' })
+      .find((o) => o.id === 'state-flag');
+    expect(row).toMatchObject({ added: false, repeatable: true, count: 2 });
+  });
+
+  it('still counts a repeatable provider that has never been added', () => {
+    const row = offers({ providers: [flag], record: newMode(), kind: 'modes' })[0];
+    expect(row).toMatchObject({ added: false, count: 0 });
+  });
+
+  // The rule that has not changed, and the one that stops a wheelbase being
+  // configured twice with two different setup slots.
+  it('still greys out a provider that did not ask to be repeatable', () => {
+    const list = offers({
+      providers: [...kit, flag],
+      record: saved({ providers: { govee: { scene: 'Sunset' }, 'state-flag': { flag: 'vr' } } }),
+    });
+    expect(list.find((o) => o.id === 'govee')).toMatchObject({ added: true, count: 1 });
+    expect(list.find((o) => o.id === 'state-flag').added).toBe(false);
   });
 });
 

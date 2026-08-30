@@ -91,6 +91,24 @@
         ws.send(JSON.stringify({ event: 'setSettings', context: uuid, payload: settings }));
       }
 
+      /**
+       * What a record configures, in one line.
+       *
+       * The `providers` map is keyed by config key, and a provider that may be
+       * configured more than once carries a suffix on its extra instances —
+       * `state-flag#2`. Listing the raw keys would print the same provider
+       * twice with a number nobody outside the stored JSON has ever seen, so
+       * the suffix comes off and the repeat is counted instead.
+       */
+      function providerNames(record) {
+        const counts = new Map();
+        for (const key of Object.keys(record?.providers ?? {})) {
+          const id = String(key).split('#')[0];
+          counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+        return [...counts].map(([id, n]) => (n > 1 ? `${id} ×${n}` : id));
+      }
+
       function renderKeyPicker() {
         const select = document.getElementById('profile');
         const summary = document.getElementById('summary');
@@ -119,7 +137,7 @@
           return;
         }
         const active = profiles.find((p) => p.id === chosen);
-        const names = Object.keys(active?.providers ?? {});
+        const names = providerNames(active);
         summary.textContent = names.length
           ? `Applies: ${names.join(', ')}${active.restricted ? ' — hold to activate' : ''}`
           : 'This profile does not configure any hardware yet.';

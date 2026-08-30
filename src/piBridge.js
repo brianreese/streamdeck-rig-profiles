@@ -15,7 +15,9 @@
 // both and neither can drift into its own validation rules.
 
 import yaml from 'js-yaml';
-import { getProvider, allProviders, reportsState, STATUS } from './providers/index.js';
+import {
+  getProvider, allProviders, reportsState, providerIdOf, isRepeatable, STATUS,
+} from './providers/index.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar } from './avatars.js';
 // buttonRenderer's half of the rename has landed.
 // when that file lands its half of this rename. buttonRenderer.js is not mine to
@@ -100,12 +102,31 @@ function validateRecords(records, noun) {
     if (!p?.name?.trim()) errors.push(`${where}: needs a name`);
     if (!/^#[0-9a-f]{6}$/i.test(p?.color ?? '')) errors.push(`${where}: colour must be #rrggbb`);
 
-    for (const [providerId, cfg] of Object.entries(p?.providers ?? {})) {
-      const provider = getProvider(providerId);
+    // Keyed by CONFIG KEY, which is the provider id for all but a repeatable
+    // provider's second and later instances — `state-flag#2`. `getProvider`
+    // resolves through the suffix, so nothing here has to know about it beyond
+    // naming the block correctly in an error; assuming the key IS the id would
+    // silently skip validation on every extra instance, which is the one place
+    // an unfinished block could reach storage.
+    for (const [key, cfg] of Object.entries(p?.providers ?? {})) {
+      const provider = getProvider(key);
       if (!provider) continue; // unknown ids are tolerated: config outlives code
+
+      // A suffix on a provider that never asked to be repeatable. The editor
+      // cannot produce this, so it means a hand-edited config — and it is not
+      // cosmetic: the runtime would apply the same hardware twice with two
+      // different configs and the last one home would win, which is a wheelbase
+      // set to something nobody chose. Refused rather than merged, because
+      // there is no way to know which of the two was meant.
+      if (key !== providerIdOf(key) && !isRepeatable(provider)) {
+        errors.push(`${where}: ${provider.label ?? provider.id} cannot be configured twice ("${key}")`);
+        continue;
+      }
+
       // Each provider owns its own rules; the core knows none of them, and a
       // Mode's provider config is judged by exactly the same rules as a
       // profile's — a Govee block with no scene selected is broken either way.
+      // Every instance is judged separately: two flags, two verdicts.
       for (const problem of provider.validate?.(cfg) ?? []) {
         errors.push(`${where}: ${problem}`);
       }
@@ -252,6 +273,15 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
             // surface, and a Mode reaching hardware it was never meant to is
             // the failure worth defaulting away from.
             contexts: Array.isArray(p.contexts) && p.contexts.length ? [...p.contexts] : ['profile'],
+            // Whether one record may hold more than one of these.
+            //
+            // Declared, not derived, because it is a statement about the
+            // hardware rather than about the code: a wheelbase has one setup
+            // slot and configuring it twice is a contradiction, while a rig can
+            // perfectly well assert two flags pointing different ways. The
+            // editor keeps the row addable while this is true, and stores the
+            // extra instances under suffixed keys.
+            repeatable: Boolean(p.repeatable),
             // Whether this provider can answer "am I currently in effect?".
             //
             // Asked of the registry rather than derived here, so the editor and

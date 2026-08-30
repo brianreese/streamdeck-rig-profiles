@@ -310,6 +310,22 @@ describe('getProviders', () => {
     expect((await contextsOf()).mystery).toEqual(['profile']);
   });
 
+  // Declared rather than derived, because it is a statement about the hardware:
+  // a wheelbase has one setup slot and configuring it twice is a contradiction,
+  // while a rig can perfectly well assert two flags pointing different ways.
+  // The editor keeps the row addable on the strength of this one field.
+  it('passes on whether a provider may be configured more than once', async () => {
+    register(stub('state-flag', { contexts: ['profile', 'mode'], repeatable: true }));
+    const reply = await handlePiRequest(
+      { request: 'getProviders' }, { settings: fakeSettings(), logger: silent });
+    const byId = Object.fromEntries(reply.providers.map((p) => [p.id, p.repeatable]));
+    expect(byId['state-flag']).toBe(true);
+    // Never undefined: the editor treats a missing answer as "no", and a
+    // provider that says nothing has said no.
+    expect(byId.govee).toBe(false);
+    expect(byId['fanatec-base']).toBe(false);
+  });
+
   it("copies the array rather than handing out the provider's own", async () => {
     const declared = ['profile', 'mode'];
     register(stub('shared', { contexts: declared }));
@@ -494,6 +510,88 @@ describe('provider-driven validation', () => {
     ]);
     expect(ok).toBe(false);
     expect(errors.join()).toMatch(/no scene is selected/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Provider instances
+//
+// A provider declaring `repeatable: true` may be configured more than once on
+// one record, and its extra blocks are stored under suffixed keys. The whole
+// risk lives here: every one of these functions is handed a CONFIG KEY and
+// needs a PROVIDER, and treating the key as the id would resolve nothing for a
+// suffixed block — which fails silently, because an unknown id is deliberately
+// tolerated and skipped. An unfinished flag would sail past validation and
+// straight into storage.
+// ---------------------------------------------------------------------------
+
+describe('instance keys through validation', () => {
+  const withFlags = (providers) => [{ id: 'vr', name: 'VR', color: '#7c5cff', providers }];
+
+  it('validates every instance, not just the first', () => {
+    const { ok, errors } = validateModes(withFlags({
+      'state-flag': { flag: 'vr' },
+      'state-flag#2': { flag: '' },     // the one that would slip through
+    }));
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/state flag needs a name/);
+  });
+
+  it('accepts two well-formed instances pointing different ways', () => {
+    expect(validateModes(withFlags({
+      'state-flag': { flag: 'vr' },
+      'state-flag#2': { flag: 'assists', whenOff: true },
+    })).ok).toBe(true);
+  });
+
+  it('applies a provider’s own rules to a suffixed block', () => {
+    const { ok, errors } = validateModes(withFlags({ 'state-flag#2': { flag: 'not a flag!' } }));
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/letters, numbers, dashes or underscores/);
+  });
+
+  // The editor cannot produce this — it only suffixes a provider that asked to
+  // be repeatable — so it means a hand-edited config. It is not cosmetic: the
+  // runtime would apply the same hardware twice with two different configs and
+  // the last one home would win, which is a wheelbase set to something nobody
+  // chose. There is no way to know which was meant, so neither is guessed at.
+  it('refuses a second instance of a provider that never asked to be repeatable', () => {
+    const { ok, errors } = validateProfiles([validProfile({
+      providers: { 'fanatec-base': { setup: 2 }, 'fanatec-base#2': { setup: 4 } },
+    })]);
+    expect(ok).toBe(false);
+    expect(errors.join()).toMatch(/cannot be configured twice/);
+  });
+
+  // Config outlives code, which is why an unknown id is skipped rather than
+  // refused. A suffix must not turn that tolerance into a rejection.
+  it('still tolerates a suffixed key naming a provider this build has never heard of', () => {
+    expect(validateModes(withFlags({ 'warp-drive#2': { coils: 3 } })).ok).toBe(true);
+  });
+
+  it('round-trips instance keys through a save exactly as they were sent', async () => {
+    const settings = fakeSettings({ profiles: [], modes: [] });
+    const modes = withFlags({
+      'state-flag': { flag: 'vr' },
+      'state-flag#2': { flag: 'assists', whenOff: true },
+    });
+    const reply = await handlePiRequest(
+      { request: 'saveProfiles', profiles: [], modes }, { settings, logger: silent });
+
+    expect(reply.ok).toBe(true);
+    // Keys and values both, and in the order they arrived: the key is what the
+    // stored config hangs on, so anything that rewrote one would repoint it.
+    expect(settings.written().modes[0].providers).toEqual({
+      'state-flag': { flag: 'vr' },
+      'state-flag#2': { flag: 'assists', whenOff: true },
+    });
+  });
+
+  it('exports instance keys to YAML verbatim, so a committed file re-imports', () => {
+    const out = yaml.load(profilesToYaml({
+      modes: withFlags({ 'state-flag': { flag: 'vr' }, 'state-flag#2': { flag: 'assists' } }),
+    }));
+    expect(Object.keys(out.modes[0].providers)).toEqual(['state-flag', 'state-flag#2']);
   });
 });
 

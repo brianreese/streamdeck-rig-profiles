@@ -285,6 +285,14 @@
         border-bottom: 1px solid var(--line);
       }
       .hw-head .pname { font-weight: 650; font-size: 13.5px; }
+      /* What this block is set to, shown only where the label is not enough on
+         its own: a record holding two "Rig State Flag" blocks. Beside the name
+         rather than under it, so the head stays one line tall and the two
+         blocks differ where the eye is already looking. */
+      .hw-head .pname i {
+        font-style: normal; font-weight: 400; color: var(--faint); font-size: 12px;
+        margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--line);
+      }
       .hw-body { padding: 13px 16px 4px 15px; }
       .hw-body:empty { display: none; }
       .hw.flash { animation: flash 1.1s ease-out; }
@@ -461,6 +469,18 @@
       .addbtn:disabled:hover { background: #212328; border-color: var(--hair); }
       .addbtn .tick { color: var(--green); }
       .addbtn.mode .plus, .addbtn.mode .tick { color: var(--mode); }
+
+      /* A repeatable provider that is already on the record. It keeps its `+`,
+         because there is always another one to add, so the greyed-out treatment
+         above would be a lie; the count beside the plus is what says it has
+         been used, in place of the tick it cannot honestly wear. */
+      .addbtn .count {
+        font-size: 10.5px; font-weight: 700; color: var(--faint);
+        border: 1px solid var(--line); border-radius: 20px; padding: 0 5px;
+        margin-left: -4px; flex: 0 0 auto; align-self: center;
+      }
+      .addbtn.again .count { color: var(--accent); border-color: var(--accent-deep); }
+      body.editing-mode .addbtn.again .count { color: var(--mode); border-color: var(--mode); }
       .addbtn .sw {
         width: 20px; height: 20px; border-radius: 6px; flex: 0 0 auto; align-self: center;
         display: flex; align-items: center; justify-content: center;
@@ -676,6 +696,7 @@
         modeStatefulness,
         offers, unknownSelectValue, unknownValues, blocksEditing,
         isBlank, blankBlocks, forStorage,
+        providerIdOf, instanceKeys, nextInstanceKey, isRepeatable, blockSummary,
       } = await import(`./editorState.js${q}`);
       // Same module the key renderer uses, so "readable" means one thing here
       // and on the deck.
@@ -712,6 +733,19 @@
       const listOf = () => (kind === 'modes' ? modes : profiles);
       /** Is a Mode the thing being edited right now? */
       const editingMode = () => kind === 'modes' && view === 'editor';
+
+      // A record's providers map is keyed by CONFIG KEY, and a repeatable
+      // provider's second and later blocks carry a suffix — `state-flag#2`. The
+      // two lookups below are the only way this page turns one of those keys
+      // into a provider, so a suffix costs the rest of the file nothing. Every
+      // `data-hw`, `data-fld` and `data-rmprov` in here is a KEY; `prov.id` is
+      // an id, and the two are equal for everything that is not repeatable,
+      // which is precisely why they must not be used interchangeably.
+
+      /** The provider descriptor a config key names, or undefined. */
+      const provOf = (key) => providers.find((prov) => prov.id === providerIdOf(key));
+      /** What to call the block stored under this key, for a human. */
+      const keyLabel = (key) => provOf(key)?.label ?? providerIdOf(key);
 
       /**
        * What the two lists are, in one line each, shown under the selector.
@@ -903,15 +937,19 @@
         if (view !== 'editor') return;
         const p = current();
         if (!p) return;
-        const fresh = blankBlocks(p).filter((id) => !isRaised(p, id));
+        const fresh = blankBlocks(p).filter((key) => !isRaised(p, key));
         if (!fresh.length) return;
-        for (const id of fresh) setRaised(p, id, true);
-        const names = fresh.map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
+        for (const key of fresh) setRaised(p, key, true);
+        // Named by provider and deduplicated — two empty flag blocks are two
+        // blocks with one name — so the grammar follows the names rather than
+        // the blocks.
+        const names = [...new Set(fresh.map(keyLabel))];
+        const one = names.length === 1;
         say(
-          `${names.join(', ')} on “${p.name || '(unnamed)'}” ${fresh.length === 1 ? 'has' : 'have'} ` +
-            `nothing chosen, so ${fresh.length === 1 ? 'it was' : 'they were'} not saved. ` +
+          `${names.join(', ')} on “${p.name || '(unnamed)'}” ${one ? 'has' : 'have'} ` +
+            `nothing chosen, so ${one ? 'it was' : 'they were'} not saved. ` +
             `Open the ${editingMode() ? 'Mode' : 'profile'} again to finish or remove ${
-              fresh.length === 1 ? 'it' : 'them'}.`,
+              one ? 'it' : 'them'}.`,
           'err',
         );
       }
@@ -1136,8 +1174,9 @@
         // the wording above: this record HAS been saved, and saved correctly —
         // what it was saved without is the point. Said separately, and only
         // once the grace has been used up.
-        const unset = raisedOn(p).map((id) =>
-          providers.find((prov) => prov.id === id)?.label ?? id);
+        // Deduplicated: two unfinished flag blocks are two blocks and one name,
+        // and "Saved without Rig State Flag, Rig State Flag" is not a sentence.
+        const unset = [...new Set(raisedOn(p).map(keyLabel))];
 
         host.innerHTML =
           (mine.length
@@ -1165,8 +1204,7 @@
         const isMode = kind === 'modes';
 
         host.innerHTML = matches.map((p) => {
-          const names = Object.keys(p.providers ?? {})
-            .map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
+          const names = providerLabels(p);
           // A profile's subtitle lists its hardware; a Mode’s says how many
           // profiles lean on it, because that is the number that decides
           // whether deleting it is safe.
@@ -1234,10 +1272,18 @@
       // Fields
       // =====================================================================
 
-      /** Render one schema-declared field. Identical vocabulary to the inspector. */
-      function fieldHtml(prov, field, cfg, { locked = false } = {}) {
+      /**
+       * Render one schema-declared field. Identical vocabulary to the inspector.
+       *
+       * `key` is the CONFIG KEY of the block this field belongs to, which is
+       * the provider id for all but a repeatable provider's extra instances.
+       * Every control carries it so an edit lands in the block it was made in:
+       * with two flag blocks on screen, `state-flag|flag` would name both, and
+       * whichever the query picked first would take every keystroke from both.
+       */
+      function fieldHtml(prov, field, cfg, { locked = false, key = prov.id } = {}) {
         const v = cfg?.[field.key];
-        const id = `${prov.id}|${field.key}`;
+        const id = `${key}|${field.key}`;
         const help = field.help ? `<div class="help">${esc(field.help)}</div>` : '';
         // Locked fields keep their values on screen and refuse to take new
         // ones. `disabled` rather than a class that only looks the part.
@@ -1338,13 +1384,30 @@
        * badge and the note move; the fields themselves are already correct,
        * because the user is the one who just changed them.
        */
-      function paintBlock(record, providerId) {
-        const card = document.querySelector(`[data-hw="${CSS.escape(providerId)}"]`);
-        const prov = providers.find((x) => x.id === providerId);
+      /**
+       * Repaint one block's subtitle in place, on every keystroke.
+       *
+       * Separate from `paintBlock` because it runs on a different trigger.
+       * `paintBlock` fires only when a block crosses between blank and
+       * configured, which is the right economy for chrome that only changes
+       * then; the subtitle is what tells two blocks of the same provider apart,
+       * so it changes with the value and has to keep up with it letter by
+       * letter. Nothing happens on a block that has no subtitle — the single
+       * instance case, where the label is already the identity.
+       */
+      function paintSummary(record, key) {
+        const sub = document.querySelector(`[data-hw="${CSS.escape(key)}"] .pname i`);
+        if (!sub) return;
+        sub.textContent = blockSummary(provOf(key), record.providers?.[key]) || 'not set up yet';
+      }
+
+      function paintBlock(record, key) {
+        const card = document.querySelector(`[data-hw="${CSS.escape(key)}"]`);
+        const prov = provOf(key);
         if (!card || !prov) return;
 
-        const blank = isBlank(record.providers?.[providerId]);
-        const raised = blank && isRaised(record, providerId);
+        const blank = isBlank(record.providers?.[key]);
+        const raised = blank && isRaised(record, key);
         card.classList.toggle('blank', blank);
         card.classList.toggle('unset', raised);
 
@@ -1389,17 +1452,27 @@
        * a profile shows only what it has actually been given.
        */
       function providerCardsHtml(p) {
-        const enabled = providers.filter((prov) => p.providers?.[prov.id]);
+        // Driven by the record's own keys rather than by the provider list,
+        // which is what lets one provider appear more than once. Ordered by the
+        // provider list all the same, so the blocks keep the stable running
+        // order they have always had and two instances of the same provider sit
+        // together instead of at opposite ends of the pane.
+        const keys = providers.flatMap((prov) => instanceKeys(p, prov.id));
 
-        return enabled.map((prov) => {
-          const cfg = p.providers[prov.id] ?? {};
+        return keys.map((key) => {
+          const prov = provOf(key);
+          const cfg = p.providers[key] ?? {};
           const badge = prov.verifiable
             ? '' : '<span class="badge" title="This one cannot be read back">cannot confirm</span>';
           // Configured here, but no longer offered here. A provider that has
           // stopped declaring this context — or one added before the editor
           // filtered on context at all — still has to be visible, or the config
           // would be stuck on the record with no way to take it off.
-          const stale = !(prov.contexts ?? ['profile']).includes(editingMode() ? 'Mode' : 'profile')
+          // `mode`, lower case, because that is the string a provider declares.
+          // This asked for `'Mode'` — the word used in the sentence below it —
+          // and so matched nothing, which put a "not for modes" badge on every
+          // block of every Mode including the ones the editor had just offered.
+          const stale = !(prov.contexts ?? ['profile']).includes(editingMode() ? 'mode' : 'profile')
             ? `<span class="badge" title="This provider is not offered on ${
                 editingMode() ? 'modes' : 'profiles'} — remove it unless you know why it is here"
                >not for ${editingMode() ? 'modes' : 'profiles'}</span>`
@@ -1439,20 +1512,31 @@
           // or leaving the record with it still empty. See the block of notes
           // above `raisedBlanks`.
           const blank = isBlank(cfg);
-          const raised = blank && isRaised(p, prov.id);
+          const raised = blank && isRaised(p, key);
           const blankBadge = blankBadgeHtml(blank, raised);
           const blankNote = blankNoteHtml(prov, blank, raised);
 
+          // Telling two blocks of the same provider apart. A bare repeated
+          // label is the failure this exists to prevent, so a record holding
+          // more than one of something gets a subtitle on every one of them —
+          // what it is set to, or a plain "not set up yet" while it is empty,
+          // which is the state two blank blocks would otherwise share. Silent
+          // for the single-block case, where the label already is the identity.
+          const siblings = instanceKeys(p, prov.id).length;
+          const sub = siblings > 1
+            ? `<i>${esc(blockSummary(prov, cfg) || 'not set up yet')}</i>`
+            : '';
+
           return `<div class="hw${locked ? ' locked' : ''}${blank ? ' blank' : ''}${
-              raised ? ' unset' : ''}" data-hw="${esc(prov.id)}">
+              raised ? ' unset' : ''}" data-hw="${esc(key)}">
             <div class="hw-head">
-              <span class="pname">${esc(prov.label)}</span>${badge}${stale}${lostBadge}${blankBadge}
+              <span class="pname">${esc(prov.label)}${sub}</span>${badge}${stale}${lostBadge}${blankBadge}
               <span style="flex:1"></span>${settingsLink}
-              <button class="icon rm" data-rmprov="${esc(prov.id)}"
-                      title="Remove ${esc(prov.label)} from this profile">✕</button>
+              <button class="icon rm" data-rmprov="${esc(key)}"
+                      title="Remove this ${esc(prov.label)} block from this profile">✕</button>
             </div>
             <div class="hw-body">${banner}${blankNote}${
-              (prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg, { locked })).join('')}</div>
+              (prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg, { locked, key })).join('')}</div>
           </div>`;
         }).join('');
       }
@@ -1477,10 +1561,22 @@
         renderIssues();
       }
 
-      /** The provider labels a record sets, for a one-line summary. */
-      const providerLabels = (record) =>
-        Object.keys(record?.providers ?? {})
-          .map((id) => providers.find((prov) => prov.id === id)?.label ?? id);
+      /**
+       * The provider labels a record sets, for a one-line summary.
+       *
+       * One entry per PROVIDER, not per block: a Mode holding two flags is
+       * doing one kind of thing twice, and "Rig State Flag, Rig State Flag" in
+       * a sidebar subtitle reads as a rendering fault. The repeat is worth
+       * knowing all the same, so it is counted rather than listed.
+       */
+      const providerLabels = (record) => {
+        const counts = new Map();
+        for (const key of Object.keys(record?.providers ?? {})) {
+          const label = keyLabel(key);
+          counts.set(label, (counts.get(label) ?? 0) + 1);
+        }
+        return [...counts].map(([label, n]) => (n > 1 ? `${label} ×${n}` : label));
+      };
 
       /**
        * The Modes a profile also activates, one block each.
@@ -1553,8 +1649,8 @@
                      turns it off again.</span>`
                   : ''}
                 ${clash.length
-                  ? `<span class="clash">Also sets ${esc(clash.map((cid) =>
-                      providers.find((prov) => prov.id === cid)?.label ?? cid).join(', '))}, which
+                  ? `<span class="clash">Also sets ${
+                      esc([...new Set(clash.map(keyLabel))].join(', '))}, which
                      this profile sets itself — the profile's setting wins.</span>`
                   : ''}
               </p>
@@ -1989,12 +2085,23 @@
       // Right rail — everything you can DO, in one column
       // =====================================================================
 
-      /** One row in the third column, whether it is a provider or a Mode. */
+      /**
+       * One row in the third column, whether it is a provider or a Mode.
+       *
+       * A repeatable provider never goes grey. However many instances are
+       * already on the record there is another one to add — a Mode asserting
+       * `vr` on and `assists` off needs the row to still work after the first —
+       * so it keeps its `+` and says how many it has put there instead. The
+       * old rule stands for everything else: one is the limit, and the row
+       * greys out to say so rather than vanishing.
+       */
       function offerHtml(offer) {
         const mode = offer.type === 'mode';
         const mark = offer.added
           ? '<span class="tick">✓</span>'
-          : '<span class="plus">+</span>';
+          : `<span class="plus">+</span>${
+              offer.count ? `<span class="count" title="${offer.count} on this ${
+                kind === 'modes' ? 'Mode' : 'profile'} already">${offer.count}</span>` : ''}`;
         // A mode is identified by its colour everywhere else in the editor, so
         // it is identified by its colour here too.
         const face = mode
@@ -2006,9 +2113,11 @@
           ? 'already added'
           : mode
             ? (providerLabels(offer.mode).join(', ') || 'nothing configured')
-            : (offer.provider.verifiable ? '' : 'cannot be confirmed');
+            : offer.count
+              ? `add another — ${offer.count} on this ${kind === 'modes' ? 'Mode' : 'profile'}`
+              : (offer.provider.verifiable ? '' : 'cannot be confirmed');
 
-        return `<button class="addbtn${mode ? ' mode' : ''}"
+        return `<button class="addbtn${mode ? ' mode' : ''}${offer.count && !offer.added ? ' again' : ''}"
           data-add="${mode ? 'mode' : 'provider'}:${esc(offer.id)}"
           ${offer.added ? 'disabled title="Already on this profile"' : ''}>
           ${mark}${face}
@@ -2112,23 +2221,28 @@
          * is mid-thought, and going red under the caret would be exactly the
          * rudeness this whole change is about.
          */
-        function settled(providerId) {
-          const empty = isBlank(p.providers?.[providerId]);
-          if (!empty) setRaised(p, providerId, false);
-          else if (e.type === 'change') setRaised(p, providerId, true);
+        function settled(key) {
+          const empty = isBlank(p.providers?.[key]);
+          if (!empty) setRaised(p, key, false);
+          else if (e.type === 'change') setRaised(p, key, true);
+
+          // The one thing that follows every keystroke, because it is what
+          // distinguishes this block from the other one headed with the same
+          // provider name.
+          paintSummary(p, key);
 
           // Most edits do not move the block between states — typing into a
           // textarea that already has text in it is every keystroke of a long
           // command list — and repainting the sidebar for each of those is work
           // nobody asked for. Compare against what is already on screen.
-          const card = document.querySelector(`[data-hw="${CSS.escape(providerId)}"]`);
+          const card = document.querySelector(`[data-hw="${CSS.escape(key)}"]`);
           const unchanged =
             card &&
             card.classList.contains('blank') === empty &&
-            card.classList.contains('unset') === (empty && isRaised(p, providerId));
+            card.classList.contains('unset') === (empty && isRaised(p, key));
           if (unchanged) return;
 
-          paintBlock(p, providerId);
+          paintBlock(p, key);
           // A block crossing between blank and configured is exactly what can
           // add or remove this Mode's on/off state, so the line that says so
           // moves with it.
@@ -2138,8 +2252,11 @@
 
         // Enabling or disabling one slider.
         if (el.dataset.fldon) {
-          const [providerId, key] = el.dataset.fldon.split('|');
-          const cfg = (p.providers[providerId] = p.providers[providerId] ?? {});
+          // Block key first, field key second. The block key may carry an
+          // instance suffix and the separator is `|`, which neither half can
+          // contain, so the split is safe for `state-flag#2|whenOff`.
+          const [blockKey, key] = el.dataset.fldon.split('|');
+          const cfg = (p.providers[blockKey] = p.providers[blockKey] ?? {});
           const slider = document.querySelector(`input[type="range"][data-fld="${el.dataset.fldon}"]`);
           const readout = document.querySelector(`[data-rv="${el.dataset.fldon}"]`);
           const unit = readout?.dataset.unit ?? '';
@@ -2154,21 +2271,21 @@
             readout.textContent = 'not set';
             readout.classList.add('off');
           }
-          settled(providerId);
+          settled(blockKey);
           touch('draft');
           return;
         }
 
         if (el.dataset.fld) {
-          const [providerId, key] = el.dataset.fld.split('|');
-          const cfg = (p.providers[providerId] = p.providers[providerId] ?? {});
+          const [blockKey, key] = el.dataset.fld.split('|');
+          const cfg = (p.providers[blockKey] = p.providers[blockKey] ?? {});
           const value = fieldValue(el.type === 'checkbox' ? el.checked : el.value);
           if (value === undefined) delete cfg[key];
           else cfg[key] = value;
           const readout = document.querySelector(`[data-rv="${el.dataset.fld}"]`);
           if (readout && el.type === 'range') readout.textContent = el.value + (readout.dataset.unit ?? '');
           delete p.needsWheelbaseSetup;
-          settled(providerId);
+          settled(blockKey);
           touch('draft');
           return;
         }
@@ -2630,6 +2747,11 @@
 
         const rm = e.target.closest('[data-rmprov]');
         if (rm && p) {
+          // One BLOCK, by its config key. Removing one instance of a repeatable
+          // provider leaves its siblings exactly as they are, under exactly the
+          // keys they were stored under — nothing is renumbered, because a key
+          // is what the stored config hangs on and moving one would silently
+          // repoint it.
           delete p.providers[rm.dataset.rmprov];
           // Removing the block settles the question, so the note about it goes
           // too: adding the same provider again later is a fresh start, and
@@ -2672,24 +2794,34 @@
         const add = e.target.closest('[data-add]');
         if (add && p) {
           const [type, id] = splitOnce(add.dataset.add);
+          let addedKey = id;
           if (type === 'mode') {
             if (referencesMode(p, id)) return;      // never twice
             setModeRef(p, id, true);
           } else {
             p.providers = p.providers ?? {};
-            if (p.providers[id]) return;             // never twice
+            // Twice is allowed only where the provider says so. Everything else
+            // keeps the old rule, and its row is greyed out anyway — this is
+            // the guard behind it, for a stale render or a keyboard activation
+            // that beat one.
+            if (p.providers[id] && !isRepeatable(provOf(id))) return;
+            // The key the new block is stored under: the bare id for the first,
+            // `#2`, `#3` after that. Minted here, at the one moment the block
+            // comes into existence, and never touched again — it is what the
+            // stored config is keyed by. See `nextInstanceKey`.
+            addedKey = nextInstanceKey(p, id);
             // Empty, and deliberately not an error: it is not stored until it
             // holds something, and it is not painted red until the user is
             // plainly finished with it. See `raisedBlanks`.
-            p.providers[id] = {};
-            setRaised(p, id, false);
+            p.providers[addedKey] = {};
+            setRaised(p, addedKey, false);
           }
           render();
           touch('draft');
           // Land the user on what they just added rather than leaving it to be
           // hunted for at the bottom of a long profile.
           const card = document.querySelector(
-            `[data-hw="${CSS.escape(type === 'mode' ? `mode:${id}` : id)}"]`);
+            `[data-hw="${CSS.escape(type === 'mode' ? `mode:${id}` : addedKey)}"]`);
           card?.scrollIntoView({ block: 'center', behavior: 'smooth' });
           card?.classList.add('flash');
           return;
