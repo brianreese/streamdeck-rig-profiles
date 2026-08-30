@@ -11,6 +11,8 @@
 //   label       human name for the editor
 //   verifiable  boolean — whether this provider checks its own work at all;
 //               a hint for the editor, never a substitute for asking verify()
+//   repeatable  boolean — may be configured more than once on one record, in
+//               which case its config keys carry an instance suffix
 //   options(ctx)         -> [{ value, label }]  live enumeration for dropdowns
 //   apply(cfg, ctx)      -> void                perform the change
 //   verify(cfg, ctx)     -> { status, detail }  the provider's own verdict
@@ -68,8 +70,33 @@ export function register(provider) {
   return provider;
 }
 
+/**
+ * The provider a config key names.
+ *
+ * A profile or Mode may configure the same provider more than once — two flags,
+ * one asserted on and one off — so a key may carry an instance suffix:
+ *
+ *   "state-flag"       the common case, one instance
+ *   "state-flag#vr"    one of several
+ *
+ * The suffix is opaque and exists only to keep the keys distinct. Anything that
+ * resolves a key to a provider goes through here, so instances cost the rest of
+ * the codebase nothing.
+ */
+export function providerIdOf(key) {
+  const s = String(key ?? '');
+  const at = s.indexOf('#');
+  return at === -1 ? s : s.slice(0, at);
+}
+
+/** Whether a provider may be configured more than once on one record. */
+export function isRepeatable(id) {
+  const provider = typeof id === 'string' ? getProvider(id) : id;
+  return Boolean(provider?.repeatable);
+}
+
 export function getProvider(id) {
-  return registry.get(id) ?? null;
+  return registry.get(providerIdOf(id)) ?? null;
 }
 
 /**

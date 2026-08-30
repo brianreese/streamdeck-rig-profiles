@@ -345,3 +345,58 @@ describe('switching a Mode off', () => {
     expect(out.results[0].detail).toMatch(/read-only/);
   });
 });
+
+describe('one provider configured more than once', () => {
+  const reporting = (id, state) => ({
+    id, label: id, contexts: ['profile', 'mode'], repeatable: true, describe: () => id,
+    apply: async (cfg) => { state[cfg.flag] = !cfg.whenOff; },
+    unapply: async (cfg) => { state[cfg.flag] = Boolean(cfg.whenOff); },
+    isActive: async (cfg) => (state[cfg.flag] === true) === !cfg.whenOff,
+    verify: async () => ({ status: STATUS.VERIFIED, detail: 'ok' }),
+  });
+
+  it('runs every instance, resolving each through its provider id', async () => {
+    // The whole point of instance keys: one Mode turning one flag on and
+    // another off, which a list on a single instance could not express since
+    // the invert applies to the instance rather than to each name.
+    const state = {};
+    register(reporting('flag', state));
+    await applyProfile(
+      { id: 'vr', providers: { 'flag#on': { flag: 'vr' }, 'flag#off': { flag: 'assists', whenOff: true } } },
+      { context: 'mode' },
+    );
+    expect(state).toEqual({ vr: true, assists: false });
+  });
+
+  it('aggregates state across instances', async () => {
+    const state = { vr: true, assists: false };
+    register(reporting('flag', state));
+    const mode = { id: 'vr', providers: { 'flag#on': { flag: 'vr' }, 'flag#off': { flag: 'assists', whenOff: true } } };
+    expect(await readModeState(mode)).toBe(true);
+
+    state.assists = true; // the inverted instance is no longer satisfied
+    expect(await readModeState(mode)).toBe(false);
+  });
+
+  it('reverses every instance in its own direction', async () => {
+    const state = {};
+    register(reporting('flag', state));
+    await unapplyMode({
+      id: 'vr',
+      providers: { 'flag#on': { flag: 'vr' }, 'flag#off': { flag: 'assists', whenOff: true } },
+    });
+    expect(state).toEqual({ vr: false, assists: true });
+  });
+
+  it('still honours the context rule per instance', async () => {
+    const logs = [];
+    register({ id: 'wheel', label: 'wheel', contexts: ['profile'], describe: () => 'w',
+               apply: async () => {}, verify: async () => ({ status: STATUS.VERIFIED, detail: 'ok' }) });
+    const out = await applyProfile(
+      { id: 'm', providers: { 'wheel#a': {}, 'wheel#b': {} } },
+      { context: 'mode', log: (m) => logs.push(m) },
+    );
+    expect(out.results).toHaveLength(0);
+    expect(logs.filter((l) => /not available to a mode/.test(l))).toHaveLength(2);
+  });
+});

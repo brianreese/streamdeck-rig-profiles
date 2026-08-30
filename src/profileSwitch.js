@@ -8,7 +8,7 @@
 //   3. The Stream Deck profile switch runs last — it changes which keys are
 //      on screen, so it must not race the other providers' renders.
 
-import { getProvider, supportsContext, reportsState, isReversible } from './providers/index.js';
+import { getProvider, supportsContext, reportsState, isReversible, providerIdOf } from './providers/index.js';
 import { worstOf, STATUS } from './providers/status.js';
 
 /** Providers deferred to the end because they change what is on screen. */
@@ -154,8 +154,8 @@ export async function applyProfile(profile, ctx = {}) {
   // Two waves, so a Mode genuinely runs after the profile rather than racing it.
   for (const wave of [own, fromModes]) {
     if (!wave.length) continue;
-    const concurrent = wave.filter((e) => !DEFERRED.has(e.id));
-    const deferred = wave.filter((e) => DEFERRED.has(e.id));
+    const concurrent = wave.filter((e) => !DEFERRED.has(providerIdOf(e.id)));
+    const deferred = wave.filter((e) => DEFERRED.has(providerIdOf(e.id)));
 
     results.push(
       ...(await Promise.all(concurrent.map((e) => runOne(e.id, e.cfg, ctx, e.mode).then(report)))),

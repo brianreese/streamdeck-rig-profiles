@@ -11,9 +11,11 @@
 // Restoring the previous value would mean remembering it, and it may have
 // changed meanwhile. A boolean has an unambiguous off.
 //
-// More than one flag per Mode is allowed, because one switch legitimately
-// changes several facts at once, and the editor deliberately does not let a
-// provider be added to a Mode twice.
+// One flag per instance, and a Mode may hold several instances. A list on a
+// single instance was tried first and could not express the obvious case: one
+// switch that turns one flag on and another off, since the invert applies to
+// the instance rather than to each name. Instances also mix and match later
+// without the config shape changing again.
 //
 // It does not start a runtime, change lighting, or run anything. A Mode that
 // should also do those things adds the providers that do them; they ride along
@@ -26,15 +28,7 @@ import { STATUS } from './status.js';
 /** Flag names are shared with other software, so keep them plain. */
 const NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
 
-/** One per line, blanks and duplicates dropped. */
-export function parseFlags(raw) {
-  const seen = new Set();
-  for (const line of String(raw ?? '').split(/[\n,]/)) {
-    const name = line.trim();
-    if (name) seen.add(name);
-  }
-  return [...seen];
-}
+const clean = (raw) => String(raw ?? '').trim();
 
 export default {
   id: 'state-flag',
@@ -42,15 +36,18 @@ export default {
   // Answers about itself by reading the flags back.
   verifiable: true,
   contexts: ['profile', 'mode'],
+  // A Mode routinely asserts more than one fact, and they may point in
+  // different directions.
+  repeatable: true,
 
   schema() {
     return [
       {
-        key: 'flags',
-        label: 'Flags',
-        type: 'textarea',
+        key: 'flag',
+        label: 'Flag',
+        type: 'text',
         placeholder: 'vr',
-        help: 'One flag name per line. Switching this Mode on sets them all; switching it off clears them. Other software reads these — a Playnite plugin might check "vr" to launch the VR version of a game.',
+        help: 'The name other software looks for. Add this provider again for a second flag — a Mode can assert several, pointing different ways.',
       },
       {
         key: 'whenOff',
@@ -62,25 +59,21 @@ export default {
   },
 
   validate(cfg) {
-    const flags = parseFlags(cfg?.flags);
-    if (!flags.length) return ['state flag needs at least one flag name'];
-    const bad = flags.filter((f) => !NAME.test(f));
-    return bad.length
-      ? [`flag name must be letters, numbers, dashes or underscores: ${bad.join(', ')}`]
-      : [];
+    const flag = clean(cfg?.flag);
+    if (!flag) return ['state flag needs a name'];
+    return NAME.test(flag) ? [] : ['flag name must be letters, numbers, dashes or underscores'];
   },
 
   describe(cfg) {
-    const flags = parseFlags(cfg?.flags);
-    if (!flags.length) return 'flags (not configured)';
-    return `${cfg?.whenOff ? 'clears' : 'sets'} ${flags.join(', ')}`;
+    const flag = clean(cfg?.flag);
+    if (!flag) return 'flag (not configured)';
+    return `${cfg?.whenOff ? 'clears' : 'sets'} ${flag}`;
   },
 
   async apply(cfg) {
     const problems = this.validate(cfg);
     if (problems.length) throw new Error(problems[0]);
-    const value = !cfg?.whenOff;
-    for (const flag of parseFlags(cfg.flags)) writeFlag(flag, value);
+    writeFlag(clean(cfg.flag), !cfg?.whenOff);
   },
 
   /**
@@ -90,8 +83,8 @@ export default {
    * configurable-value version could not answer.
    */
   async unapply(cfg) {
-    const value = Boolean(cfg?.whenOff);
-    for (const flag of parseFlags(cfg?.flags)) writeFlag(flag, value);
+    const flag = clean(cfg?.flag);
+    if (flag) writeFlag(flag, Boolean(cfg?.whenOff));
   },
 
   /**
@@ -103,19 +96,17 @@ export default {
    * recovers.
    */
   async isActive(cfg) {
-    const flags = parseFlags(cfg?.flags);
-    if (!flags.length) return false;
-    const want = !cfg?.whenOff;
-    return flags.every((flag) => (readFlag(flag) === true) === want);
+    const flag = clean(cfg?.flag);
+    if (!flag) return false;
+    return (readFlag(flag) === true) === !cfg?.whenOff;
   },
 
   async verify(cfg) {
-    const flags = parseFlags(cfg?.flags);
+    const flag = clean(cfg?.flag);
     const want = !cfg?.whenOff;
-    const wrong = flags.filter((flag) => (readFlag(flag) === true) !== want);
-    if (!wrong.length) {
-      return { status: STATUS.VERIFIED, detail: `${flags.join(', ')} ${want ? 'on' : 'off'}` };
-    }
-    return { status: STATUS.MISMATCH, detail: `${wrong.join(', ')} did not go ${want ? 'on' : 'off'}` };
+    const landed = (readFlag(flag) === true) === want;
+    return landed
+      ? { status: STATUS.VERIFIED, detail: `${flag} ${want ? 'on' : 'off'}` }
+      : { status: STATUS.MISMATCH, detail: `${flag} did not go ${want ? 'on' : 'off'}` };
   },
 };
