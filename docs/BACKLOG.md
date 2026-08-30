@@ -451,3 +451,28 @@ Code carrying this gap is commented and points back here.
   instead, which is stronger anyway: preset files are not live state
   ("Test Preset Unlinked" read `brake_forcelimit_max = 79` while the pedal sat
   at 50).
+
+## 10. AB9 shifter / flight stick mode — not started (2026-08-30)
+
+Brian wants a provider that switches the AB9 between flight stick and
+shifter mode, and picks the shifter pattern (5+R, 6+R, sequential) when in
+shifter mode. Pit House exposes these as discrete settings with no preset,
+so the MOZA preset store is no help here.
+
+What is known, from a read-only probe:
+
+- The AB9 is , on COM12 on this machine.  (COM5) is a
+  third MOZA device and was held by another process at probe time.
+- It answers the same wire protocol: a keepalive addressed to device 
+  came back as group  from device , exactly like the mBooster.
+  So  should work against it unchanged.
+- It has no force curve table, which is why the mBooster identity guard
+  correctly refuses COM12. A new provider needs its own fingerprint.
+
+The commands are unknown. Finding them is the same job that found :
+capture the AB9 with USBPcap, change ONLY the mode setting in Pit House,
+stop the capture, then . It
+lists writes grouped by command and ranked by distinct-value count, so the
+control being moved is normally the top row.
+
+Needs Brian present at the rig; not startable unattended.
