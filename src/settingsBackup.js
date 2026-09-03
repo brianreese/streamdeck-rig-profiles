@@ -24,10 +24,26 @@
 
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, readdirSync, unlinkSync } from 'fs';
 import { resolve } from 'path';
+import { tmpdir } from 'os';
 import { PLUGIN_DATA_DIR } from './setup.js';
 
-export const BACKUP_PATH = resolve(PLUGIN_DATA_DIR, 'settings.backup.json');
-export const HISTORY_DIR = resolve(PLUGIN_DATA_DIR, 'settings-history');
+/**
+ * Where the mirror lives — except under test, where it emphatically does not.
+ *
+ * The suite drives saves end to end, and the blobs it uses are named 'primary'
+ * and 'stale'. A restore offering those would be this file's own bug, so the
+ * whole tree moves to a per-process temp directory when VITEST is set. Same
+ * reasoning, and the same shape, as SECRETS_PATH in secrets.js.
+ *
+ * Redirecting rather than refusing: the round trip is worth exercising, and the
+ * handlers that read these paths can then be tested for real.
+ */
+const ROOT = process.env.VITEST
+  ? resolve(tmpdir(), `rig-backup-test-${process.pid}`)
+  : PLUGIN_DATA_DIR;
+
+export const BACKUP_PATH = resolve(ROOT, 'settings.backup.json');
+export const HISTORY_DIR = resolve(ROOT, 'settings-history');
 
 /**
  * How far back the generations reach, in tiers.
@@ -181,13 +197,6 @@ export function writeBackup(
   blob,
   { path = BACKUP_PATH, dir = HISTORY_DIR, now = () => new Date(), checkpoint = false, reason = null } = {},
 ) {
-  // Never touch the real backup from a test run. Tests inject a temp path and
-  // exercise every line below; what they must never do is write example data
-  // into the one file a real restore reads back. The suite is full of blobs
-  // named 'primary' and 'stale', and a restore offering those would be its own
-  // small version of this bug.
-  if (process.env.VITEST && path === BACKUP_PATH) return { written: false, reason: 'test run' };
-
   if (!isWorthKeeping(blob)) return { written: false, reason: 'nothing worth keeping' };
 
   const at = now();
@@ -241,4 +250,15 @@ export function thinGenerations({ dir = HISTORY_DIR, now = () => new Date() } = 
     }
   }
   return removed;
+}
+
+/** Drop the mirror and every generation. Test-only; the redirect makes it safe. */
+export function _resetForTesting({ path = BACKUP_PATH, dir = HISTORY_DIR } = {}) {
+  for (const file of [path, ...historyFiles({ dir })]) {
+    try {
+      if (existsSync(file)) unlinkSync(file);
+    } catch {
+      /* best effort */
+    }
+  }
 }

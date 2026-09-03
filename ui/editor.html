@@ -257,6 +257,36 @@
       .savestrip .savenote { margin-top: 0; }
       .savestrip button { margin-top: 4px; padding: 4px 10px; font-size: 12px; }
 
+      /* Backup, restore and the offer. */
+      .offerbar {
+        grid-column: 1 / -1;
+        display: flex; align-items: center; justify-content: space-between; gap: 16px;
+        flex-wrap: wrap;
+        margin: 0 0 12px; padding: 12px 16px;
+        border: 1px solid #8a6d1f; border-radius: 8px;
+        background: #2b2410; color: #f0e6c8;
+      }
+      .offerbar .actions { margin: 0; }
+      .dropzone {
+        margin-top: 12px; padding: 18px; text-align: center;
+        border: 2px dashed #3a3a3a; border-radius: 8px; color: #aaa;
+      }
+      .dropzone.over { border-color: #5b8dd6; background: #1b2331; color: #dbe7f7; }
+      .dropzone .help { margin: 6px 0; }
+      .preview {
+        margin-top: 12px; padding: 12px 14px;
+        border: 1px solid #3a3a3a; border-left: 3px solid #5b8dd6; border-radius: 6px;
+        background: #191919;
+      }
+      .warn {
+        margin-top: 12px; padding: 10px 14px;
+        border: 1px solid #7a3b3b; border-radius: 6px; background: #2a1a1a; color: #f0c8c8;
+      }
+      .histrow {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 8px 0; border-bottom: 1px solid #2a2a2a;
+      }
+      .histrow:last-child { border-bottom: 0; }
       .card {
         background: var(--card); border: 1px solid var(--line);
         border-radius: var(--r); padding: 14px 16px 4px; margin-bottom: 14px;
@@ -638,6 +668,9 @@
     </header>
 
     <main>
+      <!-- Nothing restores on its own any more, so this is the prompt. Hidden
+           until getBackupOffer says the store holds less than a backup does. -->
+      <div id="offerBar" class="offerbar" hidden></div>
       <aside id="railLeft">
         <div class="rail-head">
           <span class="rail-title" id="railTitle">Profiles</span>
@@ -657,6 +690,7 @@
       </aside>
 
       <section id="pane"></section>
+
       <aside id="rail">
         <!-- Outside #railBody on purpose: the body is re-rendered whenever the
              draft changes, and a search box that is re-created as you type into
@@ -814,6 +848,168 @@
         const el = $('msg');
         el.className = kind;
         el.textContent = text;
+      }
+
+      // =====================================================================
+      // Backup and restore
+      //
+      // Two artifacts, deliberately. The YAML is a config document — readable,
+      // editable, committable, and unable to carry avatars. The backup is a
+      // snapshot: one file, everything, restorable. Neither carries a
+      // credential, because credentials do not live in the settings blob these
+      // are built from. See docs/specs/backup-and-restore.md.
+      // =====================================================================
+
+      /** How a person reads a timestamp, not how a machine writes one. */
+      function whenText(iso) {
+        if (!iso) return 'unknown';
+        const then = new Date(iso);
+        if (Number.isNaN(then.getTime())) return 'unknown';
+        const mins = Math.round((Date.now() - then) / 60000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+        if (mins < 60 * 24) {
+          const h = Math.round(mins / 60);
+          return `${h} hour${h === 1 ? '' : 's'} ago`;
+        }
+        return then.toLocaleString(undefined, {
+          day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit',
+        });
+      }
+
+      const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+      /**
+       * Hand the browser a file.
+       *
+       * The editor is a real tab on 127.0.0.1, so this needs no plugin round
+       * trip beyond fetching the content — a Blob and an object URL is the
+       * whole mechanism.
+       */
+      function download(filename, text, type) {
+        const url = URL.createObjectURL(new Blob([text], { type }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      async function refreshBackupStatus() {
+        const el = $('backupStatus');
+        if (!el) return;
+        const r = await ask('getBackupStatus');
+        if (!r?.ok) { el.textContent = 'Backup status unavailable.'; return; }
+        const last = r.lastSavedAt ? `Last saved ${whenText(r.lastSavedAt)}` : 'No backup yet';
+        el.innerHTML = `${last} · ${plural(r.generationCount, 'earlier version')} kept<br />`
+          + `<code>${esc(r.dir)}</code>`;
+      }
+
+      async function refreshHistory() {
+        const el = $('historyList');
+        if (!el) return;
+        const r = await ask('listBackups');
+        if (!r?.ok) { el.textContent = 'Could not read the history.'; return; }
+        if (!r.backups.length) {
+          el.textContent = 'No earlier versions yet. One is saved when your changes settle.';
+          return;
+        }
+        el.innerHTML = r.backups.map((b) => `
+          <div class="histrow">
+            <div>
+              <strong>${esc(whenText(b.savedAt))}</strong>
+              <div class="help">${plural(b.profiles, 'profile')}, ${plural(b.modes, 'Mode')}${
+                b.reason ? ` · ${esc(b.reason)}` : ''}</div>
+            </div>
+            <button class="ghost" data-restore-id="${esc(b.id)}">Restore</button>
+          </div>`).join('');
+      }
+
+      let pendingRestore = null;
+      let dismissedOffer = false;
+
+      /**
+       * Preview, then confirm. Always both.
+       *
+       * A restore replaces configuration, so it is never one click. The preview
+       * says what is in the file and what it will not bring back; confirming is
+       * a separate, deliberate act.
+       */
+      async function previewFile(text) {
+        const box = $('restorePreview');
+        if (!box) return;
+        const r = await ask('previewRestore', { content: text });
+        if (!r?.ok) {
+          box.innerHTML = `<div class="warn">${esc(r?.error ?? 'That file could not be read.')}</div>`;
+          return;
+        }
+        pendingRestore = text;
+        const sm = r.summary;
+        const bits = [plural(sm.profiles, 'profile'), plural(sm.modes, 'Mode')];
+        if (sm.avatars) bits.push(plural(sm.avatars, 'avatar'));
+        const notes = [];
+        if (sm.partial) {
+          notes.push('This is a config export, not a full backup: it has no avatars. Existing ones are left alone.');
+        }
+        if (sm.secretsToReenter?.length) {
+          notes.push(`You will need to re-enter: ${sm.secretsToReenter.map(esc).join(', ')}.`);
+        }
+        box.innerHTML = `
+          <div class="preview">
+            <strong>${sm.savedAt ? `Backup from ${esc(whenText(sm.savedAt))}` : 'Config export'}</strong>
+            <div class="help">${bits.join(', ')}</div>
+            ${notes.map((n) => `<div class="help">${n}</div>`).join('')}
+            <div class="actions">
+              <button id="restoreConfirm">Replace my configuration</button>
+              <button id="restoreCancel" class="ghost">Cancel</button>
+            </div>
+          </div>`;
+      }
+
+      async function doRestore(payload, label) {
+        const r = await ask('restoreBackup', payload);
+        if (!r?.ok) { say(r?.error ?? 'Restore failed.', 'err'); return; }
+        pendingRestore = null;
+        dismissedOffer = true;
+        const extra = r.secretsToReenter?.length
+          ? ` Re-enter ${r.secretsToReenter.join(', ')} above.` : '';
+        say(`Restored ${plural(r.profiles, 'profile')} and ${plural(r.modes, 'Mode')} from ${label}.${extra}`, 'ok');
+        const box = $('restorePreview');
+        if (box) box.innerHTML = '';
+        const bar = $('offerBar');
+        if (bar) bar.hidden = true;
+        await loadProfiles();
+        await refreshBackupStatus();
+        await refreshHistory();
+      }
+
+      /**
+       * The offer, shown when the store holds less than the newest backup does.
+       *
+       * Nothing restores on its own any more. If Stream Deck loses its settings
+       * the deck shows broken keys, and this is what greets whoever opens the
+       * editor to find out why.
+       */
+      async function checkBackupOffer() {
+        if (dismissedOffer) return;
+        const bar = $('offerBar');
+        if (!bar) return;
+        const r = await ask('getBackupOffer');
+        if (!r?.ok || !r.degraded) { bar.hidden = true; return; }
+        bar.hidden = false;
+        bar.innerHTML = `
+          <div>
+            <strong>This looks like it lost data.</strong>
+            The newest backup is from <strong>${esc(whenText(r.newest.savedAt))}</strong> and has
+            ${plural(r.newest.profiles, 'profile')} and ${plural(r.newest.modes, 'Mode')};
+            you currently have ${r.have ? plural(r.have, 'profile') : '<strong>none</strong>'}.
+          </div>
+          <div class="actions">
+            <button id="offerRestore">Restore it</button>
+            <button id="offerDismiss" class="ghost">Dismiss</button>
+          </div>`;
       }
 
       /** The record on screen — a profile or a Mode, depending on the tab. */
@@ -2066,19 +2262,56 @@
             <div class="actions"><button id="goveeDiscover">Discover devices</button></div>
           </div>
 
+          <div class="card" data-sec="backup">
+            <h3>Backup</h3>
+            <p class="muted" style="margin-top:0">
+              A complete snapshot: profiles, Modes, settings and avatars, in one file.
+              Contains no passwords or API keys — after restoring on a new machine,
+              re-enter those above.
+            </p>
+            <div id="backupStatus" class="help">Checking…</div>
+            <div class="actions">
+              <button id="backupDownload">Download backup</button>
+              <button id="backupRestoreLast" class="ghost">Restore latest…</button>
+            </div>
+
+            <div id="dropZone" class="dropzone">
+              <strong>Restore from a file</strong>
+              <div class="help">Drop a <code>.json</code> backup or a <code>.yaml</code> export here, or</div>
+              <button id="pickFile" class="ghost">Choose a file…</button>
+              <input type="file" id="fileInput" accept=".json,.yaml,.yml,application/json" hidden />
+            </div>
+            <div id="restorePreview"></div>
+          </div>
+
+          <div class="card" data-sec="history">
+            <h3>Version history</h3>
+            <p class="muted" style="margin-top:0">
+              Saved automatically when your changes settle, and before anything risky.
+              Older versions are thinned out over time rather than dropped all at once.
+            </p>
+            <div id="historyList" class="help">Loading…</div>
+          </div>
+
           <div class="card" data-sec="yaml">
             <h3>Export YAML</h3>
             <p class="muted" style="margin-top:0">
-              For version control. The Govee API key is never included. Editing
+              A config document for version control — readable and editable, but it
+              cannot carry avatars or keys. For a full copy, use Backup above. Editing
               <code>config/profiles.yaml</code> re-imports it over these profiles on the
               next start, so treat the file as a seed, not a copy.
             </p>
             <textarea class="yaml" id="yamlOut" spellcheck="false" readonly></textarea>
-            <div class="actions"><button id="yamlCopy">Copy to clipboard</button></div>
+            <div class="actions">
+              <button id="yamlCopy">Copy to clipboard</button>
+              <button id="yamlDownload" class="ghost">Download YAML</button>
+            </div>
           </div>
         </div>`;
 
         ask('exportYaml').then((r) => { const el = $('yamlOut'); if (el) el.value = r.yaml ?? ''; });
+        refreshBackupStatus();
+        refreshHistory();
       }
 
       // =====================================================================
@@ -2778,6 +3011,32 @@
           await loadProviders();
           return;
         }
+        if (e.target.id === 'yamlDownload') {
+          const r = await ask('exportYaml');
+          download(`rig-profiles-${new Date().toISOString().slice(0, 10)}.yaml`, r.yaml ?? '', 'text/yaml');
+          say('YAML downloaded.', 'ok');
+        }
+        if (e.target.id === 'backupDownload') {
+          const r = await ask('exportBackup');
+          if (!r?.ok) { say('Could not build the backup.', 'err'); return; }
+          download(r.filename, JSON.stringify(r.bundle, null, 2), 'application/json');
+          say('Backup downloaded. It contains no passwords or API keys.', 'ok');
+        }
+        if (e.target.id === 'pickFile') $('fileInput').click();
+        if (e.target.id === 'restoreCancel') {
+          pendingRestore = null;
+          $('restorePreview').innerHTML = '';
+        }
+        if (e.target.id === 'restoreConfirm' && pendingRestore) {
+          await doRestore({ source: 'upload', content: pendingRestore }, 'the file');
+        }
+        if (e.target.id === 'backupRestoreLast') {
+          await doRestore({ source: 'mirror' }, 'the latest backup');
+        }
+        const histBtn = e.target.closest('[data-restore-id]');
+        if (histBtn) {
+          await doRestore({ source: 'generation', id: histBtn.dataset.restoreId }, 'that version');
+        }
         if (e.target.id === 'yamlCopy') {
           navigator.clipboard?.writeText($('yamlOut').value)
             .then(() => say('Copied.', 'ok'), () => say('Select the text and copy it.', 'err'));
@@ -2866,6 +3125,50 @@
         };
       }
 
+      // The offer bar lives outside #pane, so it needs its own handler.
+      $('offerBar').addEventListener('click', async (e) => {
+        if (e.target.id === 'offerRestore') {
+          await doRestore({ source: 'mirror' }, 'the latest backup');
+        }
+        if (e.target.id === 'offerDismiss') {
+          // Dismissal lasts for this page only. Reopening the editor while the
+          // store is still short of a backup asks again, which is right: the
+          // problem has not gone away just because it was waved off once.
+          dismissedOffer = true;
+          $('offerBar').hidden = true;
+        }
+      });
+
+      // Drag-and-drop, plus the file picker behind "Choose a file…".
+      //
+      // Bound on the document rather than the drop zone, because the zone is
+      // re-rendered with the Settings pane and a listener on the element itself
+      // would be lost every time that happened.
+      document.addEventListener('dragover', (e) => {
+        const zone = e.target.closest?.('#dropZone');
+        if (!zone) return;
+        e.preventDefault();
+        zone.classList.add('over');
+      });
+      document.addEventListener('dragleave', (e) => {
+        e.target.closest?.('#dropZone')?.classList.remove('over');
+      });
+      document.addEventListener('drop', async (e) => {
+        const zone = e.target.closest?.('#dropZone');
+        if (!zone) return;
+        e.preventDefault();
+        zone.classList.remove('over');
+        const file = e.dataTransfer?.files?.[0];
+        if (file) previewFile(await file.text());
+      });
+      document.addEventListener('change', async (e) => {
+        if (e.target.id !== 'fileInput') return;
+        const file = e.target.files?.[0];
+        if (file) previewFile(await file.text());
+        // Cleared so choosing the same file twice fires again.
+        e.target.value = '';
+      });
+
       (async () => {
         connect();
         await loadProfiles();
@@ -2875,6 +3178,8 @@
         setKind('profiles');
         await loadProviders();
         render();
+        // Last, so a degraded store is the first thing seen but nothing waits on it.
+        checkBackupOffer();
       })();
     </script>
   </body>

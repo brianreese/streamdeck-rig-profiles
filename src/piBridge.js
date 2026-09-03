@@ -657,7 +657,19 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       if (msg.source === 'generation') {
         const file = historyFiles().find((f) => f.split(/[\/]/).pop() === msg.id);
         if (!file) return { request, ok: false, error: 'That version is no longer on disk.' };
-        inspected = inspectRestore(readFileSync(file, 'utf8'));
+        // A generation is in mirror format — { version, savedAt, reason,
+        // settings } — not bundle format. Wrap it so one code path validates
+        // and applies everything, whether it came off disk or out of a
+        // downloads folder. Reading it raw looked right and quietly failed
+        // every history restore, because inspectRestore correctly refused a
+        // document with no `kind`.
+        let doc;
+        try {
+          doc = JSON.parse(readFileSync(file, 'utf8'));
+        } catch {
+          return { request, ok: false, error: 'That version could not be read.' };
+        }
+        inspected = inspectRestore(JSON.stringify(buildBundle(doc.settings)));
       } else if (msg.source === 'mirror') {
         const mirror = readBackup();
         if (!mirror) return { request, ok: false, error: 'There is no backup to restore.' };
