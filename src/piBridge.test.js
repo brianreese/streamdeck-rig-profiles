@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { writeSecret, readSecret, _resetForTesting as resetSecrets } from './secrets.js';
 import { mkdtempSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -664,11 +665,22 @@ describe('import marker', () => {
 });
 
 describe('global settings', () => {
+  // The Govee key no longer lives in the settings blob. It is a declared secret
+  // (govee's settingsSchema) and lives in secrets.json, which is what keeps it
+  // out of every export, backup and log by construction rather than by
+  // remembering to filter it — see src/secrets.js.
+  beforeEach(() => resetSecrets());
+  afterEach(() => resetSecrets());
+
   it('never echoes the api key back to the inspector', async () => {
-    const settings = fakeSettings({ settings: { goveeApiKey: 'secret-key' } });
-    const reply = await handlePiRequest({ request: 'getSettings' }, { settings, logger: silent });
+    writeSecret('goveeApiKey', 'secret-key');
+    const reply = await handlePiRequest({ request: 'getSettings' }, { settings: fakeSettings({}), logger: silent });
     expect(reply.settings.goveeApiKey).toBeUndefined();
     expect(reply.settings.goveeApiKeySet).toBe(true);
+    // The page is told a secret exists and its label, never its value.
+    const field = reply.secretFields.find((f) => f.key === 'goveeApiKey');
+    expect(field).toMatchObject({ label: 'Govee API key', providerId: 'govee', isSet: true });
+    expect(JSON.stringify(reply)).not.toContain('secret-key');
   });
 
   it('reports when no key is set', async () => {
@@ -677,36 +689,75 @@ describe('global settings', () => {
       { settings: fakeSettings({}), logger: silent },
     );
     expect(reply.settings.goveeApiKeySet).toBe(false);
+    expect(reply.secretFields.find((f) => f.key === 'goveeApiKey').isSet).toBe(false);
   });
 
   it('keeps the existing key when the field is left blank', async () => {
     // The page cannot show the key, so a blank field means "unchanged" —
     // treating it as "clear" would wipe the key on any unrelated save.
-    const settings = fakeSettings({ settings: { goveeApiKey: 'secret-key' } });
+    writeSecret('goveeApiKey', 'secret-key');
+    const settings = fakeSettings({ settings: {} });
     await handlePiRequest(
       { request: 'saveSettings', settings: { goveeApiKey: '', goveeDevices: ['Strip'] } },
       { settings, logger: silent },
     );
-    expect(settings.written().settings.goveeApiKey).toBe('secret-key');
+    expect(readSecret('goveeApiKey')).toBe('secret-key');
     expect(settings.written().settings.goveeDevices).toEqual(['Strip']);
   });
 
   it('replaces the key when a new one is typed', async () => {
-    const settings = fakeSettings({ settings: { goveeApiKey: 'old' } });
+    writeSecret('goveeApiKey', 'old');
     await handlePiRequest(
       { request: 'saveSettings', settings: { goveeApiKey: 'new' } },
-      { settings, logger: silent },
+      { settings: fakeSettings({ settings: {} }), logger: silent },
     );
-    expect(settings.written().settings.goveeApiKey).toBe('new');
+    expect(readSecret('goveeApiKey')).toBe('new');
   });
 
   it('clears the key only on an explicit request', async () => {
-    const settings = fakeSettings({ settings: { goveeApiKey: 'old' } });
+    writeSecret('goveeApiKey', 'old');
+    await handlePiRequest(
+      { request: 'saveSettings', settings: {}, clearSecrets: ['goveeApiKey'] },
+      { settings: fakeSettings({ settings: {} }), logger: silent },
+    );
+    expect(readSecret('goveeApiKey')).toBeNull();
+  });
+
+  it('still honours the old clearGoveeKey flag from a stale editor tab', async () => {
+    writeSecret('goveeApiKey', 'old');
     await handlePiRequest(
       { request: 'saveSettings', settings: {}, clearGoveeKey: true },
+      { settings: fakeSettings({ settings: {} }), logger: silent },
+    );
+    expect(readSecret('goveeApiKey')).toBeNull();
+  });
+
+  it('never lets a key reach the stored settings blob', async () => {
+    // The load-bearing assertion for the backup guarantee. Whatever the page
+    // sends, the blob a backup copies must not contain the credential.
+    const settings = fakeSettings({ settings: {} });
+    await handlePiRequest(
+      { request: 'saveSettings', settings: { goveeApiKey: 'leaky', goveeDevices: ['Strip'] } },
       { settings, logger: silent },
     );
-    expect(settings.written().settings.goveeApiKey).toBe('');
+    expect(settings.written().settings.goveeApiKey).toBeUndefined();
+    expect(JSON.stringify(settings.written())).not.toContain('leaky');
+    expect(readSecret('goveeApiKey')).toBe('leaky');
+  });
+
+  it('harvests a key that somehow got into the blob anyway', async () => {
+    // Belt and braces: a legacy store, or code that bypassed saveSettings, is
+    // cleaned by the one write door rather than being trusted not to happen.
+    // This is also the migration path for the key that is in global settings
+    // today — the first write lifts it out, with no separate migration step.
+    const settings = fakeSettings({ settings: { goveeApiKey: 'from-before', mozaClosePitHouse: true } });
+    await handlePiRequest(
+      { request: 'saveProfiles', profiles: [validProfile()], settings: {} },
+      { settings, logger: silent },
+    );
+    expect(settings.written().settings.goveeApiKey).toBeUndefined();
+    expect(settings.written().settings.mozaClosePitHouse).toBe(true);
+    expect(readSecret('goveeApiKey')).toBe('from-before');
   });
 
   it('does not touch profiles when saving settings', async () => {

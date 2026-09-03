@@ -41,6 +41,28 @@ export default {
   // just as reasonable as part of a profile.
   contexts: ['profile', 'mode'],
 
+  /**
+   * Installation-wide configuration, as opposed to the per-profile schema()
+   * below. The API key is one credential for the whole plugin, not something
+   * each profile carries — which is why it lived in global settings as a
+   * hardcoded special case, with its secrecy hand-written in four places.
+   *
+   * Declaring it here replaces all four. `type: 'secret'` is what routes the
+   * value to the secret store, keeps it out of every export and backup, stops
+   * it being echoed back to the editor, and makes an empty submission mean
+   * "leave it alone" rather than "clear it".
+   */
+  settingsSchema() {
+    return [
+      {
+        key: 'goveeApiKey',
+        label: 'Govee API key',
+        type: 'secret',
+        help: 'From the Govee Home app: Profile → Settings → Apply for API Key.',
+      },
+    ];
+  },
+
   schema() {
     return [
       {

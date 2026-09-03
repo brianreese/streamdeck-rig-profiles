@@ -9,6 +9,7 @@
 //      on screen, so it must not race the other providers' renders.
 
 import { getProvider, supportsContext, reportsState, isReversible, providerIdOf } from './providers/index.js';
+import { withSecrets } from './secrets.js';
 import { worstOf, STATUS } from './providers/status.js';
 
 /** Providers deferred to the end because they change what is on screen. */
@@ -139,7 +140,11 @@ export async function applyProfile(profile, ctx = {}) {
   // The settings half was documented here but never actually passed, so any
   // provider needing a credential failed with "no API key set" however the key
   // was configured. Callers hand it in as ctx.settings.
-  ctx = { ...ctx, profileId: profile?.id, profile, settings: ctx.settings ?? {} };
+  // Secrets are overlaid here rather than carried in the settings blob. A
+  // provider still reads ctx.settings.goveeApiKey and does not know the value
+  // now comes from secrets.json — see secrets.js for why it lives there. This
+  // object is ephemeral and is never stored.
+  ctx = { ...ctx, profileId: profile?.id, profile, settings: withSecrets(ctx.settings) };
   const { own, fromModes } = plan(profile, ctx);
   if (!own.length && !fromModes.length) {
     return { status: STATUS.SKIPPED, results: [] };
@@ -218,7 +223,11 @@ export async function readModeState(mode, ctx = {}) {
  * turning VR off should not re-run or attempt to undo a throwaway script.
  */
 export async function unapplyMode(mode, ctx = {}) {
-  ctx = { ...ctx, profileId: mode?.id, profile: mode, settings: ctx.settings ?? {} };
+  // Secrets are overlaid here rather than carried in the settings blob. A
+  // provider still reads ctx.settings.goveeApiKey and does not know the value
+  // now comes from secrets.json — see secrets.js for why it lives there. This
+  // object is ephemeral and is never stored.
+  ctx = { ...ctx, profileId: mode?.id, profile: mode, settings: withSecrets(ctx.settings) };
   const results = [];
   for (const [id, cfg] of Object.entries(mode?.providers ?? {})) {
     const provider = getProvider(id);

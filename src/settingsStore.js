@@ -11,6 +11,8 @@
 // disagree with the first.
 
 import { readBackup, writeBackup, hasBeenConfigured } from './settingsBackup.js';
+import { harvestSecrets } from './secrets.js';
+import { secretSettingKeys } from './providers/index.js';
 
 /**
  * Write global settings and mirror them to disk.
@@ -18,7 +20,26 @@ import { readBackup, writeBackup, hasBeenConfigured } from './settingsBackup.js'
  * The mirror is best effort: a plugin that refuses to save because a backup
  * failed has turned a safety net into an outage. It is logged, not thrown.
  */
-export async function saveGlobalSettings(settings, next, { log = () => {}, backup = writeBackup } = {}) {
+export async function saveGlobalSettings(
+  settings,
+  next,
+  { log = () => {}, backup = writeBackup, secretKeys = secretSettingKeys, harvest = harvestSecrets } = {},
+) {
+  // Strip credentials before anything stores or mirrors them.
+  //
+  // This is the whole reason the guarantee holds. Backups promise to contain no
+  // secrets, and the way to keep that promise is not to filter them out on the
+  // way to a backup — it is for them never to be in the object a backup copies.
+  // One door in, one strip, and every artifact downstream is clean without
+  // knowing anything about secrets.
+  //
+  // It doubles as the migration: the first write after this ships lifts the
+  // Govee key out of global settings, with no separate migration step to run
+  // once and then carry forever.
+  const { blob, harvested } = harvest(next, secretKeys());
+  if (harvested.length) log(`[secrets] moved out of global settings: ${harvested.join(', ')}`);
+  next = blob;
+
   await settings.setGlobalSettings(next);
   try {
     const result = backup(next);
@@ -51,16 +72,31 @@ export async function recoverIfEmpty({
   read = readBackup,
   backup = writeBackup,
   configured = hasBeenConfigured,
+  secretKeys = secretSettingKeys,
+  harvest = harvestSecrets,
 } = {}) {
   const current = await settings.getGlobalSettings();
 
   if (current?.profiles?.length || current?.modes?.length) {
+    // Harvest before mirroring, not after.
+    //
+    // This path writes the mirror directly rather than through
+    // saveGlobalSettings, so without this it would faithfully copy a key that
+    // has not been lifted out of the blob yet — and on a machine upgrading to
+    // the secret store, the very first mirror would be the one containing the
+    // credential. It is also what performs the migration on a machine that
+    // starts up and is never edited.
+    const { blob, harvested } = harvest(current, secretKeys());
+    if (harvested.length) {
+      log(`[secrets] moved out of global settings: ${harvested.join(', ')}`);
+      await settings.setGlobalSettings(blob);
+    }
     try {
-      backup(current);
+      backup(blob);
     } catch (err) {
       log(`[backup] mirror failed: ${err.message}`);
     }
-    return { restored: false, reason: 'store healthy' };
+    return { restored: false, reason: 'store healthy', harvested };
   }
 
   if (!configured()) return { restored: false, reason: 'first run' };

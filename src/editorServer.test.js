@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { writeSecret, readSecret, _resetForTesting as resetSecrets } from './secrets.js';
 import { request as rawRequest } from 'http';
 import { startEditor, stopEditor, openInBrowser } from './editorServer.js';
 import { _resetForTesting } from './providers/index.js';
@@ -120,8 +121,12 @@ describe('startEditor', () => {
 });
 
 describe('the API', () => {
+  beforeEach(() => resetSecrets());
+  afterEach(() => resetSecrets());
+
   it('lists profiles but never the Govee key', async () => {
-    await start(fakeSettings({ profiles: [profile()], settings: { goveeApiKey: 'secret' } }));
+    writeSecret('goveeApiKey', 'secret');
+    await start(fakeSettings({ profiles: [profile()], settings: {} }));
     const body = await (await api('getProfiles')).json();
     expect(body.profiles).toHaveLength(1);
     expect(body.settings.goveeApiKeySet).toBe(true);
@@ -129,13 +134,16 @@ describe('the API', () => {
   });
 
   it('saves through the same path the inspector uses', async () => {
-    const settings = fakeSettings({ profiles: [], settings: { goveeApiKey: 'secret' } });
+    writeSecret('goveeApiKey', 'secret');
+    const settings = fakeSettings({ profiles: [], settings: {} });
     await start(settings);
     const body = await (await api('saveProfiles', { profiles: [profile()] })).json();
     expect(body.ok).toBe(true);
     expect(settings.written().profiles[0].id).toBe('kai');
-    // The page is never told the key, so a save from it must not clear one.
-    expect(settings.written().settings.goveeApiKey).toBe('secret');
+    // The page is never told the key, so a save from it must not clear one —
+    // and the key it must not clear now lives outside the blob entirely.
+    expect(readSecret('goveeApiKey')).toBe('secret');
+    expect(JSON.stringify(settings.written())).not.toContain('secret');
   });
 
   it('rejects an invalid profile server-side, whatever the page believes', async () => {

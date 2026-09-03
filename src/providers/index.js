@@ -135,6 +135,34 @@ export function isReversible(id) {
   return typeof provider?.unapply === 'function';
 }
 
+/**
+ * Installation-wide settings fields, across every provider.
+ *
+ * The Hardware pane renders these instead of hardcoding one input per provider,
+ * so a provider added later gets its configuration surfaced without the editor
+ * knowing it exists. Each field is tagged with the provider that declared it,
+ * because two providers may both reasonably want a field called `apiKey`.
+ */
+export function allSettingsFields() {
+  return allProviders().flatMap((p) =>
+    (p.settingsSchema?.() ?? []).map((f) => ({ ...f, providerId: p.id, providerLabel: p.label })),
+  );
+}
+
+/**
+ * The names of every field a provider has declared sensitive.
+ *
+ * This is the list that keeps credentials out of global settings, and therefore
+ * out of every backup and export. It is derived from declarations rather than
+ * maintained by hand precisely so that adding a provider with an API key cannot
+ * leak it by omission — the failure mode the Govee key had until now.
+ */
+export function secretSettingKeys() {
+  return allSettingsFields()
+    .filter((f) => f.type === 'secret')
+    .map((f) => f.key);
+}
+
 export function allProviders() {
   return [...registry.values()];
 }

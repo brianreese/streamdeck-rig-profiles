@@ -130,3 +130,64 @@ describe('a surviving empty list is loss, not data', () => {
     expect(s.read().profiles).toHaveLength(1);
   });
 });
+
+describe('secrets never reach the store or the mirror', () => {
+  const withKey = () => ({
+    profiles: [{ id: 'brian' }],
+    settings: { goveeApiKey: 'leaky', mozaClosePitHouse: true },
+  });
+
+  it('strips a declared secret on the way in', async () => {
+    const s = store();
+    const harvested = [];
+    await saveGlobalSettings(s, withKey(), {
+      backup: vi.fn(),
+      secretKeys: () => ['goveeApiKey'],
+      harvest: (blob, keys) => {
+        harvested.push(...keys);
+        const { goveeApiKey, ...rest } = blob.settings;
+        return { blob: { ...blob, settings: rest }, harvested: ['goveeApiKey'] };
+      },
+    });
+    expect(harvested).toEqual(['goveeApiKey']);
+    expect(s.read().settings.goveeApiKey).toBeUndefined();
+    expect(s.read().settings.mozaClosePitHouse).toBe(true);
+  });
+
+  it('mirrors the stripped blob, not the original', async () => {
+    // The load-bearing one. A mirror taken before the strip is a backup file
+    // on disk containing the credential, which is the thing being prevented.
+    const backup = vi.fn();
+    await saveGlobalSettings(store(), withKey(), {
+      backup,
+      secretKeys: () => ['goveeApiKey'],
+      harvest: (blob) => {
+        const { goveeApiKey, ...rest } = blob.settings;
+        return { blob: { ...blob, settings: rest }, harvested: ['goveeApiKey'] };
+      },
+    });
+    expect(JSON.stringify(backup.mock.calls[0][0])).not.toContain('leaky');
+  });
+
+  it('harvests at startup too, so an unedited machine still migrates', async () => {
+    // recoverIfEmpty mirrors directly rather than through saveGlobalSettings.
+    // Without its own harvest, the first mirror on an upgrading machine would
+    // be the one carrying the key.
+    const backup = vi.fn();
+    const s = store(withKey());
+    const result = await recoverIfEmpty({
+      settings: s,
+      configured: () => true,
+      read: () => null,
+      backup,
+      secretKeys: () => ['goveeApiKey'],
+      harvest: (blob) => {
+        const { goveeApiKey, ...rest } = blob.settings;
+        return { blob: { ...blob, settings: rest }, harvested: ['goveeApiKey'] };
+      },
+    });
+    expect(result.harvested).toEqual(['goveeApiKey']);
+    expect(s.read().settings.goveeApiKey).toBeUndefined();
+    expect(JSON.stringify(backup.mock.calls[0][0])).not.toContain('leaky');
+  });
+});

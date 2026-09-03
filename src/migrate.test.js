@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { convertProfile, convertConfig, migrateIfNeeded } from './migrate.js';
+import { writeSecret, readSecret, _resetForTesting as resetSecrets } from './secrets.js';
 
 const LEGACY_YAML = `
 profiles:
@@ -175,6 +176,9 @@ describe('migrateIfNeeded', () => {
 });
 
 describe('an import must not factory-reset the plugin', () => {
+  beforeEach(() => resetSecrets());
+  afterEach(() => resetSecrets());
+
   // Editing profiles.yaml re-imports profiles. It used to replace the whole of
   // global settings, destroying everything the YAML did not describe. The
   // profiles reverting to their YAML originals after a reboot was the visible
@@ -193,15 +197,21 @@ describe('an import must not factory-reset the plugin', () => {
     await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML.replace(/\s+govee_api_key.*/, '')), settings, configured: () => false });
 
     const stored = await settings.getGlobalSettings();
-    expect(stored.settings.goveeApiKey).toBe('typed-into-the-editor');
+    // The key is a declared secret now, so an import moves it to the secret
+    // store rather than leaving it in the blob. What must not happen either
+    // way is losing it, which is what this has always been about.
+    expect(readSecret('goveeApiKey')).toBe('typed-into-the-editor');
+    expect(stored.settings.goveeApiKey).toBeUndefined();
     // And the hardware toggles beside it.
     expect(stored.settings.mozaClosePitHouse).toBe(false);
   });
 
   it('lets the YAML win when it does specify a key', async () => {
-    const settings = fakeSettings({ settings: { goveeApiKey: 'old' } });
+    writeSecret('goveeApiKey', 'old');
+    const settings = fakeSettings({ settings: {} });
     await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings, configured: () => false });
-    expect((await settings.getGlobalSettings()).settings.goveeApiKey).toBe('abc123');
+    expect(readSecret('goveeApiKey')).toBe('abc123');
+    expect((await settings.getGlobalSettings()).settings.goveeApiKey).toBeUndefined();
   });
 
   it('keeps scenes, which the YAML knows nothing about', async () => {

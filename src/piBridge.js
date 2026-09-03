@@ -16,8 +16,10 @@
 
 import yaml from 'js-yaml';
 import { saveGlobalSettings } from './settingsStore.js';
+import { withSecrets, writeSecret, secretsSet, readSecret } from './secrets.js';
 import {
   getProvider, allProviders, reportsState, providerIdOf, isRepeatable, STATUS,
+  allSettingsFields, secretSettingKeys,
 } from './providers/index.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar } from './avatars.js';
 // buttonRenderer's half of the rename has landed.
@@ -226,9 +228,10 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         modes: storedModes(current),
         settings: {
           ...current?.settings,
-          // Same rule as getSettings: the key is never echoed to a page.
-          goveeApiKey: undefined,
-          goveeApiKeySet: Boolean(current?.settings?.goveeApiKey),
+          // Same rule as getSettings: a secret's value never reaches a page,
+          // only whether one exists. It is not in the blob any more either —
+          // secrets.js explains why that is the load-bearing part.
+          goveeApiKeySet: secretsSet().includes('goveeApiKey'),
         },
       };
     }
@@ -253,7 +256,7 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
             f.optionsLive = !p.options;
             if (!p.options) continue;
             try {
-              const live = await p.options({ settings: settingsBlob });
+              const live = await p.options({ settings: withSecrets(settingsBlob) });
               if (live?.length) {
                 f.options = live;
                 f.optionsLive = true;
@@ -429,32 +432,74 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
     // saved separately, so entering a key does not require touching profiles.
     case 'getSettings': {
       const current = (await settings.getGlobalSettings())?.settings ?? {};
+      const isSet = new Set(secretsSet());
+
+      // Secret VALUES are never echoed to the page — only whether one exists.
+      // The page cannot leak what it was never given, and a masked field with
+      // nothing behind it is what makes "empty means leave it alone" safe.
+      //
+      // The fields are declared by providers rather than listed here, so a
+      // provider added later gets a Hardware pane entry without this handler
+      // learning its name. goveeApiKeySet is still emitted for the existing
+      // page; it falls away when the pane goes generic.
+      const secretFields = allSettingsFields()
+        .filter((f) => f.type === 'secret')
+        .map((f) => ({
+          key: f.key,
+          label: f.label,
+          help: f.help ?? null,
+          providerId: f.providerId,
+          providerLabel: f.providerLabel,
+          isSet: isSet.has(f.key),
+        }));
+
       return {
         request,
-        settings: {
-          ...current,
-          // Never echo the key back to the page. The inspector only needs to
-          // know whether one is set, not what it is.
-          goveeApiKey: undefined,
-          goveeApiKeySet: Boolean(current.goveeApiKey),
-        },
+        settings: { ...current, goveeApiKeySet: isSet.has('goveeApiKey') },
+        secretFields,
       };
     }
 
     case 'saveSettings': {
       const current = await settings.getGlobalSettings();
       const next = { ...current?.settings, ...msg.settings };
-      // An empty key field means "leave it alone", not "clear it" — otherwise
-      // saving any other setting would wipe a key the page never displayed.
-      if (!msg.settings?.goveeApiKey) next.goveeApiKey = current?.settings?.goveeApiKey ?? '';
-      if (msg.clearGoveeKey) next.goveeApiKey = '';
+
+      // Route declared secrets to the secret store and out of the blob.
+      //
+      // Three rules, and they are the same three that used to be written by
+      // hand for the Govee key alone. A submitted value is stored. An EMPTY
+      // submission means "leave it alone", never "clear it" — the page holds no
+      // value for a masked field, so treating empty as a clear would wipe a
+      // working key every time someone saved an unrelated setting. Clearing is
+      // its own explicit request.
+      const clearing = new Set([
+        ...(msg.clearSecrets ?? []),
+        // The old single-purpose flag, still honoured so a stale editor tab
+        // does not silently fail to clear a key.
+        ...(msg.clearGoveeKey ? ['goveeApiKey'] : []),
+      ]);
+
+      for (const key of secretSettingKeys()) {
+        if (clearing.has(key)) writeSecret(key, null);
+        else if (typeof msg.settings?.[key] === 'string' && msg.settings[key]) {
+          writeSecret(key, msg.settings[key]);
+        }
+        // Never let a secret ride along in the blob, whatever the page sent.
+        delete next[key];
+      }
 
       await saveGlobalSettings(settings, { ...current, settings: next }, { log: (m) => logger?.info?.(m) });
-      return { request, ok: true, goveeApiKeySet: Boolean(next.goveeApiKey) };
+      const isSet = new Set(secretsSet());
+      return {
+        request,
+        ok: true,
+        goveeApiKeySet: isSet.has('goveeApiKey'),
+        secretsSet: [...isSet],
+      };
     }
 
     case 'goveeDiscover': {
-      const apiKey = (await settings.getGlobalSettings())?.settings?.goveeApiKey;
+      const apiKey = readSecret('goveeApiKey');
       if (!apiKey) return { request, ok: false, error: 'enter a Govee API key first' };
       try {
         const { init, getDiscoveredDevices, getSceneNames } = await import('./govee.js');

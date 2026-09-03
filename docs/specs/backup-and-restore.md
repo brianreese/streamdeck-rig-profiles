@@ -1,6 +1,6 @@
 # Spec — Backup and restore
 
-- **Status:** Proposed — needs review before implementation (ADR-0001)
+- **Status:** Accepted 2026-09-03 — reviewed and approved, all questions closed
 - **Date:** 2026-09-02
 - **Revised:** 2026-09-02 — secrets excluded from backups entirely; restore is
   always prompted; adds the secret-field contract that makes both structural
@@ -337,14 +337,12 @@ export bug and remove a leak that is currently prevented only by a comment.
    Always prompted, per the transition note in item 3.
 2. ~~Does the bundle include the Govee key?~~ **Resolved: never**, and made
    structural by Decisions 1–3.
-3. **Is `type: 'secret'` the right shape, or should it be `secret: true` on an
-   existing type?** A flag composes with `textarea` for free; a type gives one
-   obvious rendering and one obvious storage route. Recommended: the type.
-4. **Is 90 seconds the right settle window?** Long enough that a burst of
-   autosaves is one generation, short enough that closing the laptop right after
-   an edit still captures it.
-5. **Should `Reveal in Explorer` exist?** A new shell-out for convenience.
-6. **Does `secrets.json` need at-rest protection?** Windows DPAPI would bind it
-   to the user account. Recommended no for now — it is a lighting API key, and
-   `%APPDATA%` is already per-user — but the decision belongs in the record
-   rather than in silence.
+3. ~~Is `type: 'secret'` the right shape, or `secret: true` on an existing
+   type?~~ **Resolved: the type.** One obvious rendering, one obvious storage
+   route. A multi-line secret gets its own type if something ever needs one.
+4. ~~Is 90 seconds the right settle window?~~ **Resolved: yes.**
+5. ~~Should `Reveal in Explorer` exist?~~ **Resolved: no.** The path as
+   selectable text is enough; not worth a new shell-out.
+6. ~~Does `secrets.json` need at-rest protection?~~ **Resolved: no.** It is a
+   lighting API key and `%APPDATA%` is already per-user. Revisit only if a
+   provider ever wants something that matters more.
