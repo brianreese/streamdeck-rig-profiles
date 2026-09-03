@@ -60,6 +60,8 @@ scripts/scans/
 # names, colours and wheelbase slots stay out of the repo and out of any
 # release built from it.
 config/profiles.yaml
+config/profiles.*.yaml
+!config/profiles.yaml.template
 
 # Release staging and the packed plugin, rebuilt by docs/RELEASING.md.
 /dist/

@@ -102,7 +102,7 @@ describe('convertConfig', () => {
 describe('migrateIfNeeded', () => {
   it('imports legacy profiles when global settings are empty', async () => {
     const settings = fakeSettings({});
-    const out = await migrateIfNeeded({ configPath: writeLegacy(), settings, log: () => {} });
+    const out = await migrateIfNeeded({ configPath: writeLegacy(), settings, log: () => {}, configured: () => false });
 
     expect(out.migrated).toBe(true);
     expect(out.count).toBe(2);
@@ -113,11 +113,11 @@ describe('migrateIfNeeded', () => {
     const path = writeLegacy();
     const settings = fakeSettings({});
 
-    await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+    await migrateIfNeeded({ configPath: path, settings, log: () => {}, configured: () => false });
     const afterFirst = settings.written();
 
     // Second run over the identical file must be a no-op.
-    const out = await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+    const out = await migrateIfNeeded({ configPath: path, settings, log: () => {}, configured: () => false });
     expect(out.migrated).toBe(false);
     expect(out.reason).toBe('already configured');
     expect(settings.written()).toBe(afterFirst);
@@ -126,24 +126,24 @@ describe('migrateIfNeeded', () => {
   it('leaves property-inspector edits alone while the yaml is untouched', async () => {
     const path = writeLegacy();
     const settings = fakeSettings({});
-    await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+    await migrateIfNeeded({ configPath: path, settings, log: () => {}, configured: () => false });
 
     // Simulate the user renaming a profile in the PI.
     const edited = { ...settings.written() };
     edited.profiles = [{ ...edited.profiles[0], name: 'Renamed In PI' }];
     await settings.setGlobalSettings(edited);
 
-    await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+    await migrateIfNeeded({ configPath: path, settings, log: () => {}, configured: () => false });
     expect(settings.written().profiles[0].name).toBe('Renamed In PI');
   });
 
   it('re-imports when the yaml has actually changed', async () => {
     const path = writeLegacy();
     const settings = fakeSettings({});
-    await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+    await migrateIfNeeded({ configPath: path, settings, log: () => {}, configured: () => false });
 
     writeFileSync(path, LEGACY_YAML.replace('name: Primary', 'name: Renamed In Yaml'), 'utf8');
-    const out = await migrateIfNeeded({ configPath: path, settings, log: () => {} });
+    const out = await migrateIfNeeded({ configPath: path, settings, log: () => {}, configured: () => false });
 
     expect(out.migrated).toBe(true);
     expect(settings.written().profiles[0].name).toBe('Renamed In Yaml');
@@ -155,6 +155,7 @@ describe('migrateIfNeeded', () => {
       configPath: join(tmpdir(), 'definitely-not-here.yaml'),
       settings,
       log: () => {},
+      configured: () => false,
     });
     expect(out.migrated).toBe(false);
     expect(out.reason).toBe('no legacy config');
@@ -166,6 +167,7 @@ describe('migrateIfNeeded', () => {
       configPath: writeLegacy('settings:\n  default_profile: null\n'),
       settings,
       log: () => {},
+      configured: () => false,
     });
     expect(out.migrated).toBe(false);
     expect(settings.written()).toEqual({});
@@ -188,7 +190,7 @@ describe('an import must not factory-reset the plugin', () => {
     const settings = fakeSettings({
       settings: { goveeApiKey: 'typed-into-the-editor', mozaClosePitHouse: false },
     });
-    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML.replace(/\s+govee_api_key.*/, '')), settings });
+    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML.replace(/\s+govee_api_key.*/, '')), settings, configured: () => false });
 
     const stored = await settings.getGlobalSettings();
     expect(stored.settings.goveeApiKey).toBe('typed-into-the-editor');
@@ -198,13 +200,13 @@ describe('an import must not factory-reset the plugin', () => {
 
   it('lets the YAML win when it does specify a key', async () => {
     const settings = fakeSettings({ settings: { goveeApiKey: 'old' } });
-    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings });
+    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings, configured: () => false });
     expect((await settings.getGlobalSettings()).settings.goveeApiKey).toBe('abc123');
   });
 
   it('keeps scenes, which the YAML knows nothing about', async () => {
     const settings = fakeSettings({ scenes: [{ id: 'ambient', name: 'Ambient', providers: {} }] });
-    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings });
+    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings, configured: () => false });
     expect((await settings.getGlobalSettings()).scenes).toEqual([
       { id: 'ambient', name: 'Ambient', providers: {} },
     ]);
@@ -227,8 +229,73 @@ describe('an import must not factory-reset the plugin', () => {
 
   it('still replaces the profiles, which is the point of importing', async () => {
     const settings = fakeSettings({ profiles: [{ id: 'stale', name: 'Stale' }] });
-    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings });
+    await migrateIfNeeded({ configPath: withYaml(LEGACY_YAML), settings, configured: () => false });
     const stored = await settings.getGlobalSettings();
     expect(stored.profiles.map((p) => p.id)).toEqual(['primary', 'secondary']);
+  });
+});
+
+describe('an empty store is not proof of a first run', () => {
+  // 2026-09-02. StreamDeck.exe was force-killed so it would rescan its plugins
+  // folder. It holds global settings in memory and flushes on a clean exit, so
+  // nothing was written. `getGlobalSettings()` came back empty; six seconds
+  // later this function read that as a fresh install and imported the two
+  // example profiles over `brian`, `ethan`, `carter` and `guest`. The deck keys
+  // survived, still pointing at ids that no longer existed.
+  //
+  // The old guard was `existing?.profiles?.length && existing.importedFrom ===
+  // hash` — false when there are no profiles, and therefore an instruction to
+  // import. Every branch of it was correct about what it tested; none of it
+  // asked whether the emptiness was legitimate.
+
+  it('refuses to import over a wipe', async () => {
+    const settings = fakeSettings({});
+    const out = await migrateIfNeeded({
+      configPath: writeLegacy(),
+      settings,
+      log: () => {},
+      configured: () => true,
+    });
+
+    expect(out.migrated).toBe(false);
+    expect(out.reason).toBe('empty store, previously configured');
+    expect(settings.written()).toEqual({});
+  });
+
+  it('says why, so the log explains an empty deck', async () => {
+    const lines = [];
+    await migrateIfNeeded({
+      configPath: writeLegacy(),
+      settings: fakeSettings({}),
+      log: (m) => lines.push(m),
+      configured: () => true,
+    });
+    expect(lines.join('\n')).toMatch(/REFUSING to import/);
+  });
+
+  it('still imports on a machine that has genuinely never run it', async () => {
+    const settings = fakeSettings({});
+    const out = await migrateIfNeeded({
+      configPath: writeLegacy(),
+      settings,
+      log: () => {},
+      configured: () => false,
+    });
+    expect(out.migrated).toBe(true);
+    expect(settings.written().profiles).toHaveLength(2);
+  });
+
+  it('still honours a genuinely edited YAML once profiles exist', async () => {
+    // The guard keys on emptiness, not on having run before, so the normal
+    // reimport path is untouched.
+    const settings = fakeSettings({ profiles: [{ id: 'stale' }], importedFrom: 'other' });
+    const out = await migrateIfNeeded({
+      configPath: writeLegacy(),
+      settings,
+      log: () => {},
+      configured: () => true,
+    });
+    expect(out.migrated).toBe(true);
+    expect(settings.written().profiles.map((p) => p.id)).toEqual(['primary', 'secondary']);
   });
 });

@@ -15,6 +15,7 @@
 // both and neither can drift into its own validation rules.
 
 import yaml from 'js-yaml';
+import { saveGlobalSettings } from './settingsStore.js';
 import {
   getProvider, allProviders, reportsState, providerIdOf, isRepeatable, STATUS,
 } from './providers/index.js';
@@ -344,7 +345,7 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       const { ok, errors } = validateProfiles(msg.profiles, { modeIds: modes.map((s) => s.id) });
       if (!ok) return { request, ok: false, errors, modeErrors: [] };
 
-      await settings.setGlobalSettings({
+      await saveGlobalSettings(settings, {
         ...current,
         profiles: msg.profiles,
         modes,
@@ -448,7 +449,7 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       if (!msg.settings?.goveeApiKey) next.goveeApiKey = current?.settings?.goveeApiKey ?? '';
       if (msg.clearGoveeKey) next.goveeApiKey = '';
 
-      await settings.setGlobalSettings({ ...current, settings: next });
+      await saveGlobalSettings(settings, { ...current, settings: next }, { log: (m) => logger?.info?.(m) });
       return { request, ok: true, goveeApiKeySet: Boolean(next.goveeApiKey) };
     }
 

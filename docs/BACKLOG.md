@@ -373,27 +373,85 @@ Each profile therefore needs its own trigger game, each with that profile's
 preset set as the game default. Any game works — including ones with dozens of
 other presets bound — because the default slot is single-occupancy.
 
-## 8. Profiles were lost across a reboot
+## 8. Profiles were lost — twice (FIXED 2026-09-02)
 
-After a Windows restart the plugin came back with only "Brian" and "Kai" — the
-two profiles in `config/profiles.yaml`. Everything created in the editor was
-gone.
+**First occurrence, ~2026-08-28.** After a Windows restart the plugin came back
+with only "Brian" and "Kai", the two profiles in `config/profiles.yaml`.
+Everything created in the editor was gone.
 
-That points at Stream Deck's global settings not surviving the reboot, followed
-by `migrateIfNeeded` doing exactly what it is told: seeing an empty profile list
-and re-importing the YAML. The migration is not the bug, but it does disguise
-one, because the result looks like a working plugin with the wrong data rather
-than an obvious failure.
+**Second occurrence, 2026-09-02 22:25:43Z.** `StreamDeck.exe` was force-killed
+with `Stop-Process -Force` and restarted, to make it rescan its plugins folder.
+Six seconds later:
 
-Worth fixing regardless of the root cause, because profiles are now the most
-valuable state the plugin holds:
+    22:25:49.841Z INFO [migrate] imported 2 profile(s) from profiles.yaml
 
-- Write a copy of the profile list to the plugin data dir on every save, and
-  prefer it over `profiles.yaml` when global settings come back empty. The YAML
-  is a seed for first run; a backup is a restore.
-- Consider warning rather than silently importing when global settings are empty
-  but a backup exists and disagrees with the YAML.
-- Log loudly on any migration that overwrites a non-empty profile list.
+`brian`, `ethan`, `carter` and `guest` were replaced by the two examples. The
+deck keys survived and kept pointing at ids that no longer existed.
+
+### Why it happened twice
+
+The first entry in this section already prescribed the fix — "write a copy of
+the profile list to the plugin data dir on every save, and prefer it over
+`profiles.yaml` when global settings come back empty". It was written down and
+not done. What *was* done, later, was stopping the import from destroying the
+data it did not describe (see the comment in `migrate.js`), which is a real bug
+and a different one. The import remained trusted to be non-destructive at the
+point where it decides to run at all.
+
+The mechanism, precisely:
+
+1. Stream Deck holds plugin global settings **in memory** and flushes on a clean
+   exit. A force-kill flushes nothing. Nothing on this machine holds a second
+   copy — not `%APPDATA%`, not `%PROGRAMDATA%`, not Stream Deck's own
+   `BackupV3` (deck layouts only), and not git.
+2. `getGlobalSettings()` therefore returned `{}`.
+3. `migrateIfNeeded`'s guard was `existing?.profiles?.length && existing.importedFrom === hash`.
+   With no profiles that is false, which reads as "import". Every branch was
+   correct about what it tested; none asked whether the emptiness was legitimate.
+
+A fresh install, a crash, a force-kill and a botched upgrade are **indistinguishable
+from inside the plugin**, and the response to all four was destructive.
+
+### What was built
+
+- `src/settingsBackup.js` — an on-disk mirror at
+  `%APPDATA%com.rig.profilessettings.backup.json`, plus 20 timestamped
+  generations. It **refuses to mirror a blob that has lost content**, because a
+  backup that faithfully records the moment of a wipe destroys the copy that
+  would have undone it. Its existence doubles as the first-run marker — the
+  question `getGlobalSettings()` cannot answer, kept outside the thing that gets
+  lost.
+- `src/settingsStore.js` — one door for writes, so the mirror cannot silently
+  stop tracking, and `recoverIfEmpty()` at startup. Empty store plus a marker
+  means loss, and it restores; empty store with no marker is a genuine first
+  run. That distinction is the whole fix.
+- `migrate.js` refuses to import over an empty-but-previously-configured store,
+  as a second line of defence for when the mirror is unusable.
+- A toast fires on restore. A silent recovery looks identical to nothing having
+  gone wrong.
+
+Reads deliberately do **not** go through the mirror. Stream Deck stays the
+source of truth; a mirror that answers reads is a second source of truth and
+will eventually disagree with the first.
+
+### Recovering the 2026-09-02 loss
+
+The profile *contents* turned out to be reconstructable, because every
+`verified` line logs the values the hardware confirmed:
+
+    Ethan · MOZA mBooster: verified — pedal confirmed from "Carter Brake"
+    peak force 24.00kg, load cell threshold 200.00kg, travel start 3.80mm,
+    travel end 8.50mm
+
+`config/profiles.recovered.yaml` holds all four, rebuilt from the newest applied
+value per profile. Colours, avatars and the Govee API key were never logged and
+are not guessed; Guest's pedal config never verified cleanly and is left out
+rather than invented.
+
+### Still open
+
+- The verification log is now known to be the only durable record of applied
+  state. That is an accident, not a design. Worth deciding whether it should be.
 
 ## 9. MOZA mBooster — settings we can read but cannot yet write (2026-08-27)
 

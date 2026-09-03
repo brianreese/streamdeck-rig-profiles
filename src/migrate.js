@@ -24,6 +24,8 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 import streamDeck from '@elgato/streamdeck';
+import { saveGlobalSettings } from './settingsStore.js';
+import { hasBeenConfigured } from './settingsBackup.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LEGACY_CONFIG = resolve(__dirname, '..', 'config', 'profiles.yaml');
@@ -94,11 +96,27 @@ export async function migrateIfNeeded({
   configPath = LEGACY_CONFIG,
   settings = streamDeck.settings,
   log = (m) => streamDeck.logger.info(m),
+  configured = hasBeenConfigured,
 } = {}) {
   const existing = await settings.getGlobalSettings();
 
   if (!existsSync(configPath)) {
     return { migrated: false, count: 0, reason: 'no legacy config' };
+  }
+
+  // An empty store is NOT proof of a first run.
+  //
+  // This is what caused the 2026-09-02 data loss. Stream Deck was force-killed,
+  // never flushed its in-memory global settings, and came back with nothing.
+  // Six seconds later this function read that emptiness as a fresh install and
+  // imported the two example profiles over the top of four real ones. A crash, a
+  // forced restart and a botched upgrade all look exactly like a new install
+  // from in here, and the response to all three was destructive.
+  //
+  // The marker deliberately lives on disk, outside the thing that gets lost.
+  if (!existing?.profiles?.length && configured()) {
+    log('[migrate] REFUSING to import: global settings are empty, but this plugin has been configured before on this machine. This is data loss, not a first run. See settingsBackup.js.');
+    return { migrated: false, count: 0, reason: 'empty store, previously configured' };
   }
 
   const source = readFileSync(configPath, 'utf8');
@@ -122,14 +140,14 @@ export async function migrateIfNeeded({
   // filled in `goveeApiKey: ''` when the file had none — the Govee API key and
   // the hardware toggles alongside it. Editing profiles.yaml is meant to
   // reimport profiles, not to factory-reset the plugin.
-  await settings.setGlobalSettings({
+  await saveGlobalSettings(settings, {
     ...existing,
     ...converted,
     settings: { ...(existing?.settings ?? {}), ...converted.settings },
     // A YAML without a scenes list leaves the stored ones alone.
     scenes: converted.scenes ?? existing?.scenes ?? [],
     importedFrom: hash,
-  });
+  }, { log });
 
   const needSetup = converted.profiles.filter((p) => p.needsWheelbaseSetup).map((p) => p.name);
   log(`[migrate] imported ${converted.profiles.length} profile(s) from profiles.yaml`);
