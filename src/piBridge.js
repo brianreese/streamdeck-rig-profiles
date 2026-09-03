@@ -14,9 +14,17 @@
 // exactly these requests over HTTP, so a feature reaching one surface reaches
 // both and neither can drift into its own validation rules.
 
+import { readFileSync } from 'fs';
 import yaml from 'js-yaml';
 import { saveGlobalSettings } from './settingsStore.js';
 import { withSecrets, writeSecret, secretsSet, readSecret } from './secrets.js';
+import {
+  buildBundle, bundleFilename, inspectRestore, restoreAvatars, settingsFromRestore,
+} from './backupBundle.js';
+import {
+  BACKUP_PATH, HISTORY_DIR, historyFiles, generationDate, readBackup,
+} from './settingsBackup.js';
+import { checkpointNow } from './backupSchedule.js';
 import {
   getProvider, allProviders, reportsState, providerIdOf, isRepeatable, STATUS,
   allSettingsFields, secretSettingKeys,
@@ -544,6 +552,142 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         logger.error?.(`[pi] openEditor failed: ${err.stack ?? err.message}`);
         return { request, ok: false, error: err.message };
       }
+    }
+
+    // Backup and restore. The YAML above is a config document; these are
+    // snapshots. See docs/specs/backup-and-restore.md for why they are separate
+    // artifacts rather than one that tries to be both.
+    case 'exportBackup': {
+      const bundle = buildBundle(await settings.getGlobalSettings());
+      return { request, ok: true, filename: bundleFilename(), bundle };
+    }
+
+    case 'getBackupStatus': {
+      const generations = historyFiles().map((f) => ({
+        id: f.split(/[\/]/).pop(),
+        savedAt: generationDate(f)?.toISOString() ?? null,
+      }));
+      const mirror = readBackup();
+      return {
+        request,
+        ok: true,
+        dir: HISTORY_DIR.replace(/[\/]settings-history$/, ''),
+        mirrorPath: BACKUP_PATH,
+        lastSavedAt: mirror?.savedAt ?? null,
+        generationCount: generations.length,
+        generations,
+      };
+    }
+
+    case 'listBackups': {
+      // Each generation is opened so the list can say what is IN it. A date
+      // alone does not let anyone choose between two versions.
+      const out = [];
+      for (const file of historyFiles()) {
+        try {
+          const doc = JSON.parse(readFileSync(file, 'utf8'));
+          out.push({
+            id: file.split(/[\/]/).pop(),
+            savedAt: doc.savedAt ?? generationDate(file)?.toISOString() ?? null,
+            reason: doc.reason ?? null,
+            profiles: doc.settings?.profiles?.length ?? 0,
+            modes: storedModes(doc.settings).length,
+          });
+        } catch {
+          // A corrupt generation is skipped rather than breaking the list.
+        }
+      }
+      return { request, ok: true, backups: out };
+    }
+
+    /**
+     * Should the editor offer to restore?
+     *
+     * Answered here rather than in the page because the page cannot see the
+     * generations. "Degraded" deliberately means fewer profiles than the newest
+     * backup holds, not merely zero: losing three of four profiles is data loss
+     * that a "do you have none?" check would sail straight past.
+     */
+    case 'getBackupOffer': {
+      const current = await settings.getGlobalSettings();
+      const have = current?.profiles?.length ?? 0;
+      const haveModes = storedModes(current).length;
+
+      let newest = null;
+      for (const file of historyFiles()) {
+        try {
+          const doc = JSON.parse(readFileSync(file, 'utf8'));
+          newest = {
+            id: file.split(/[\/]/).pop(),
+            savedAt: doc.savedAt ?? null,
+            profiles: doc.settings?.profiles?.length ?? 0,
+            modes: storedModes(doc.settings).length,
+          };
+          break;
+        } catch {
+          /* try the next generation */
+        }
+      }
+      if (!newest) {
+        const mirror = readBackup();
+        if (mirror) {
+          newest = {
+            id: null,
+            savedAt: mirror.savedAt ?? null,
+            profiles: mirror.settings?.profiles?.length ?? 0,
+            modes: storedModes(mirror.settings).length,
+          };
+        }
+      }
+
+      const degraded = Boolean(newest) && (newest.profiles > have || newest.modes > haveModes);
+      return { request, ok: true, degraded, have, haveModes, newest };
+    }
+
+    case 'previewRestore': {
+      const inspected = inspectRestore(msg.content);
+      if (!inspected.ok) return { request, ok: false, error: inspected.error };
+      return { request, ok: true, kind: inspected.kind, summary: inspected.summary };
+    }
+
+    case 'restoreBackup': {
+      const current = await settings.getGlobalSettings();
+
+      let inspected;
+      if (msg.source === 'generation') {
+        const file = historyFiles().find((f) => f.split(/[\/]/).pop() === msg.id);
+        if (!file) return { request, ok: false, error: 'That version is no longer on disk.' };
+        inspected = inspectRestore(readFileSync(file, 'utf8'));
+      } else if (msg.source === 'mirror') {
+        const mirror = readBackup();
+        if (!mirror) return { request, ok: false, error: 'There is no backup to restore.' };
+        inspected = inspectRestore(JSON.stringify(buildBundle(mirror.settings)));
+      } else {
+        inspected = inspectRestore(msg.content);
+      }
+      if (!inspected.ok) return { request, ok: false, error: inspected.error };
+
+      // Take a checkpoint of what is about to be replaced. An unwanted restore
+      // has to be undoable, or confirming one is a leap of faith.
+      checkpointNow(current, 'before-restore', { log: (m) => logger?.info?.(m) });
+
+      const next = settingsFromRestore(inspected, current);
+      let avatars = { written: [], failed: [] };
+      if (inspected.kind === 'bundle') avatars = restoreAvatars(inspected.parsed.avatars);
+
+      await saveGlobalSettings(settings, next, { log: (m) => logger?.info?.(m) });
+      await onChanged?.();
+
+      logger?.info?.(`[restore] ${next.profiles?.length ?? 0} profile(s) from ${msg.source ?? 'upload'}`);
+      return {
+        request,
+        ok: true,
+        profiles: next.profiles?.length ?? 0,
+        modes: storedModes(next).length,
+        avatars: avatars.written.length,
+        avatarsFailed: avatars.failed.length,
+        secretsToReenter: inspected.summary?.secretsToReenter ?? [],
+      };
     }
 
     case 'exportYaml':

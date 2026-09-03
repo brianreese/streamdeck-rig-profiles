@@ -62,22 +62,24 @@ export async function saveGlobalSettings(
 }
 
 /**
- * Restore from the mirror when the store came back empty and should not have.
+ * Work out, at startup, whether the store is healthy — and say so.
  *
- * Runs once at startup, before anything else looks at global settings. Three
- * cases, and only the middle one does anything:
+ * Runs once before anything else looks at global settings. Three cases:
  *
- *   store has content  -> refresh the mirror; this is the normal path
- *   store empty, mirror exists -> Stream Deck lost it. Put it back.
- *   store empty, no mirror     -> genuinely a fresh install. Leave it alone.
+ *   store has content          -> harvest secrets, checkpoint; the normal path
+ *   store empty, backup exists -> Stream Deck lost it. Report, do not restore.
+ *   store empty, no backup     -> genuinely a fresh install. Leave it alone.
  *
- * The distinction between the last two is the entire fix. They were previously
- * indistinguishable, so a wipe was read as a first run and the example profiles
- * were written over the top of what had just been lost.
+ * The distinction between the last two is the fix that matters. They were
+ * previously indistinguishable, so a wipe was read as a first run and the
+ * example profiles were written over the top of what had just been lost.
  *
- * @returns {Promise<{ restored: boolean, reason: string, count?: number }>}
+ * This function writes nothing in the degraded case. Restoring is the editor's
+ * offer to make and the user's to accept.
+ *
+ * @returns {Promise<{ restored: boolean, degraded?: boolean, reason: string, count?: number }>}
  */
-export async function recoverIfEmpty({
+export async function assessStore({
   settings,
   log = () => {},
   read = readBackup,
@@ -121,24 +123,32 @@ export async function recoverIfEmpty({
     // We know it has run before, so this is loss — but there is nothing to put
     // back. Say so loudly: the alternative is a silent empty deck.
     log('[backup] global settings are empty and no usable backup was found — NOT re-seeding');
-    return { restored: false, reason: 'no usable backup' };
+    return { restored: false, degraded: true, reason: 'no usable backup' };
   }
 
-  // Anything Stream Deck did manage to keep wins over the mirror, which may be
-  // a few writes old — but only where it actually kept something. A surviving
-  // `profiles: []` is the shape of the loss, not a value, and spreading it over
-  // the restored list would quietly undo the restore.
-  const kept = Object.fromEntries(
-    Object.entries(current ?? {}).filter(([, v]) => !(v == null || (Array.isArray(v) && !v.length))),
+  // A restore is OFFERED, never taken.
+  //
+  // An earlier version put the backup back automatically here, on the argument
+  // that a child at the rig cannot open an editor and an empty deck is worse
+  // than a restored one. That was overruled, and the reasoning is better:
+  // losing data should now be close to impossible, so on the rare occasion it
+  // happens it is worth being explicit rather than papering over. Nothing
+  // overwrites configuration without being asked.
+  //
+  // The failure path is deliberately the ordinary one. Broken or missing keys
+  // on the deck are themselves the prompt; opening the editor puts the offer,
+  // dated and counted, at the top of the screen.
+  const count = found.settings?.profiles?.length ?? 0;
+  log(
+    `[backup] global settings are empty but a backup from ${found.savedAt} holds ` +
+      `${count} profile(s) — open the editor to restore it`,
   );
-  const merged = {
-    ...found.settings,
-    ...kept,
-    settings: { ...found.settings?.settings, ...current?.settings },
+  return {
+    restored: false,
+    degraded: true,
+    reason: 'restore available',
+    count,
+    savedAt: found.savedAt,
+    source: found.source,
   };
-
-  await settings.setGlobalSettings(merged);
-  const count = merged.profiles?.length ?? 0;
-  log(`[backup] restored ${count} profile(s) from ${found.source} (saved ${found.savedAt})`);
-  return { restored: true, reason: 'restored from backup', count, savedAt: found.savedAt };
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { saveGlobalSettings, recoverIfEmpty } from './settingsStore.js';
+import { saveGlobalSettings, assessStore } from './settingsStore.js';
 
 const store = (initial = {}) => {
   let blob = initial;
@@ -37,16 +37,21 @@ describe('every write is mirrored', () => {
 describe('recovery at startup', () => {
   it('does nothing on a genuinely fresh install', async () => {
     const s = store({});
-    const result = await recoverIfEmpty({ settings: s, configured: () => false, read: () => null, backup: vi.fn() });
+    const result = await assessStore({ settings: s, configured: () => false, read: () => null, backup: vi.fn() });
     expect(result).toEqual({ restored: false, reason: 'first run' });
     expect(s.read()).toEqual({});
   });
 
-  it('restores when the store is empty but the plugin has run before', async () => {
+  it('offers rather than restores when the store is empty but has run before', async () => {
     // The 2026-09-02 incident: StreamDeck.exe force-killed, in-memory global
     // settings never flushed, getGlobalSettings() back empty six seconds later.
+    //
+    // An earlier version put the backup back automatically here. Restoring is
+    // now the editor's offer to make and the user's to accept, so this reports
+    // and writes NOTHING — the deck's broken keys are the other half of the
+    // prompt.
     const s = store({});
-    const result = await recoverIfEmpty({
+    const result = await assessStore({
       settings: s,
       configured: () => true,
       read: () => ({
@@ -56,15 +61,29 @@ describe('recovery at startup', () => {
       }),
       backup: vi.fn(),
     });
-    expect(result.restored).toBe(true);
+    expect(result.restored).toBe(false);
+    expect(result.degraded).toBe(true);
     expect(result.count).toBe(4);
-    expect(s.read().profiles.map((p) => p.id)).toEqual(['brian', 'ethan', 'carter', 'guest']);
+    expect(result.savedAt).toBe('2026-09-02T04:30:00.000Z');
+    expect(s.read()).toEqual({});
+  });
+
+  it('logs where to go, since nothing happens on its own', async () => {
+    const log = vi.fn();
+    await assessStore({
+      settings: store({}),
+      configured: () => true,
+      read: () => ({ savedAt: '2026-09-02T04:30:00.000Z', settings: { profiles: [{ id: 'a' }] } }),
+      backup: vi.fn(),
+      log,
+    });
+    expect(log.mock.calls.join(' ')).toMatch(/open the editor/i);
   });
 
   it('says so loudly when it knows data was lost and cannot get it back', async () => {
     const log = vi.fn();
     const s = store({});
-    const result = await recoverIfEmpty({ settings: s, configured: () => true, read: () => null, backup: vi.fn(), log });
+    const result = await assessStore({ settings: s, configured: () => true, read: () => null, backup: vi.fn(), log });
     expect(result.reason).toBe('no usable backup');
     expect(log.mock.calls[0][0]).toMatch(/NOT re-seeding/);
     expect(s.read()).toEqual({});
@@ -75,7 +94,7 @@ describe('recovery at startup', () => {
     // step back to — so it takes a generation rather than only a mirror.
     const checkpoint = vi.fn();
     const s = store({ profiles: [{ id: 'brian' }] });
-    const result = await recoverIfEmpty({
+    const result = await assessStore({
       settings: s, configured: () => true, read: () => null, backup: vi.fn(), checkpoint,
     });
     expect(result.restored).toBe(false);
@@ -83,58 +102,9 @@ describe('recovery at startup', () => {
     expect(checkpoint.mock.calls[0][1]).toBe('startup');
   });
 
-  it('prefers a partial flush over an older mirror', async () => {
-    // Stream Deck kept the Modes but lost the profiles. What survived wins.
-    const s = store({ modes: [{ id: 'vr' }] });
-    await recoverIfEmpty({
-      settings: s,
-      configured: () => true,
-      read: () => ({ settings: { profiles: [{ id: 'brian' }], modes: [{ id: 'stale' }] } }),
-      backup: vi.fn(),
-    });
-    // modes present means the store was not considered empty at all
-    expect(s.read().modes.map((m) => m.id)).toEqual(['vr']);
-  });
-
-  it('merges nested settings rather than replacing them', async () => {
-    const s = store({});
-    await recoverIfEmpty({
-      settings: s,
-      configured: () => true,
-      read: () => ({ settings: { profiles: [{ id: 'a' }], settings: { goveeApiKey: 'k', defaultProfile: 'a' } } }),
-      backup: vi.fn(),
-    });
-    expect(s.read().settings).toEqual({ goveeApiKey: 'k', defaultProfile: 'a' });
-  });
 });
 
-describe('a surviving empty list is loss, not data', () => {
-  it('does not let profiles: [] overwrite the restored list', async () => {
-    // Stream Deck can come back with the key present and the value empty. That
-    // is the shape of the wipe; spreading it over the mirror undoes the restore.
-    const s = store({ profiles: [], modes: [] });
-    const result = await recoverIfEmpty({
-      settings: s,
-      configured: () => true,
-      read: () => ({ settings: { profiles: [{ id: 'brian' }, { id: 'ethan' }] } }),
-      backup: vi.fn(),
-    });
-    expect(result.restored).toBe(true);
-    expect(s.read().profiles.map((p) => p.id)).toEqual(['brian', 'ethan']);
-  });
 
-  it('still keeps a genuinely non-empty survivor', async () => {
-    const s = store({ profiles: [], importedFrom: 'abc123' });
-    await recoverIfEmpty({
-      settings: s,
-      configured: () => true,
-      read: () => ({ settings: { profiles: [{ id: 'brian' }], importedFrom: 'old' } }),
-      backup: vi.fn(),
-    });
-    expect(s.read().importedFrom).toBe('abc123');
-    expect(s.read().profiles).toHaveLength(1);
-  });
-});
 
 describe('secrets never reach the store or the mirror', () => {
   const withKey = () => ({
@@ -175,12 +145,12 @@ describe('secrets never reach the store or the mirror', () => {
   });
 
   it('harvests at startup too, so an unedited machine still migrates', async () => {
-    // recoverIfEmpty mirrors directly rather than through saveGlobalSettings.
+    // assessStore mirrors directly rather than through saveGlobalSettings.
     // Without its own harvest, the first mirror on an upgrading machine would
     // be the one carrying the key.
     const checkpoint = vi.fn();
     const s = store(withKey());
-    const result = await recoverIfEmpty({
+    const result = await assessStore({
       settings: s,
       configured: () => true,
       read: () => null,
