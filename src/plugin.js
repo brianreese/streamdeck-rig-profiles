@@ -46,6 +46,19 @@ streamDeck.connect();
 // verdict is what the log will be read against if anything looks wrong.
 assessStore({ settings: streamDeck.settings, log: (m) => streamDeck.logger.warn(m) })
   .then((result) => {
+    // One line per start, at info.
+    //
+    // With the event trace moved to debug there is otherwise NOTHING at info
+    // until someone presses a key, so the log file does not exist at all — and
+    // an absent log is worse to diagnose from than a short one. This says the
+    // plugin came up, what it found, and what it decided, which is the first
+    // thing anyone wants to know.
+    streamDeck.logger.info(
+      `[plugin] started — ${result?.reason ?? 'state unknown'}` +
+        (result?.harvested?.length ? `, secrets moved: ${result.harvested.join(', ')}` : '') +
+        (result?.degraded ? ' — RESTORE AVAILABLE, open the editor' : ''),
+    );
+
     // Nothing is restored automatically. The toast exists because the deck's
     // own broken keys are the other half of the prompt, and a person seeing
     // them should know where to go rather than guessing.
