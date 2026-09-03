@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeSecret, readSecret, _resetForTesting as resetSecrets } from './secrets.js';
+import { convertConfig } from './migrate.js';
+import { allSettingsFields } from './providers/index.js';
+import yaml from 'js-yaml';
 import { mkdtempSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -829,5 +832,56 @@ describe('openEditor', () => {
     );
     expect(reply).toMatchObject({ ok: false, error: 'EADDRINUSE' });
     vi.doUnmock('./editorServer.js');
+  });
+});
+
+describe('the YAML export carries every declared setting', () => {
+  beforeEach(() => resetSecrets());
+  afterEach(() => resetSecrets());
+
+  const globals = {
+    profiles: [validProfile()],
+    settings: {
+      defaultProfile: 'kai',
+      goveeDevices: ['Strip'],
+      mozaClosePitHouse: false,
+      mozaReopenPitHouse: true,
+      fanatecAutoStart: false,
+    },
+  };
+
+  it('emits the three toggles that used to be dropped', () => {
+    // They were real settings the exporter simply never listed, so anyone
+    // treating the YAML as a full config document lost them silently.
+    const out = yaml.load(profilesToYaml(globals));
+    expect(out.settings.mozaClosePitHouse).toBe(false);
+    expect(out.settings.mozaReopenPitHouse).toBe(true);
+    expect(out.settings.fanatecAutoStart).toBe(false);
+  });
+
+  it('round-trips through the importer', () => {
+    const out = yaml.load(profilesToYaml(globals));
+    const back = convertConfig(out);
+    expect(back.settings.mozaClosePitHouse).toBe(false);
+    expect(back.settings.mozaReopenPitHouse).toBe(true);
+    expect(back.settings.fanatecAutoStart).toBe(false);
+    expect(back.settings.goveeDevices).toEqual(['Strip']);
+    expect(back.settings.defaultProfile).toBe('kai');
+  });
+
+  it('still never carries a secret', () => {
+    writeSecret('goveeApiKey', 'leaky');
+    const text = profilesToYaml(globals);
+    expect(text).not.toContain('leaky');
+    expect(text).not.toContain('goveeApiKey');
+  });
+
+  it('names no setting the exporter has to know by hand', () => {
+    // The guard against this regressing: every declared non-secret field must
+    // appear, so adding a provider setting cannot be half-done.
+    const out = yaml.load(profilesToYaml(globals));
+    for (const f of allSettingsFields().filter((x) => x.type !== 'secret')) {
+      expect(Object.keys(out.settings)).toContain(f.key);
+    }
   });
 });

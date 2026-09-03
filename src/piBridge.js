@@ -68,11 +68,24 @@ export function profilesToYaml(globals) {
     profiles,
     ...(modes.length ? { modes } : {}),
     settings: {
+      // Kept snake_case because every existing profiles.yaml and the shipped
+      // template spell it this way, and an export that cannot be re-imported is
+      // not an export.
       default_profile: globals?.settings?.defaultProfile ?? profiles[0]?.id ?? null,
-      // The Govee API key is deliberately NOT exported. Export exists so this
-      // can be committed to version control, and a credential in a repo is a
-      // credential leaked. Enter it in the inspector on each machine instead.
-      govee_devices: globals?.settings?.goveeDevices ?? null,
+      // Everything else comes from what providers declare, under the key they
+      // declared. Listing these by hand is how mozaClosePitHouse,
+      // mozaReopenPitHouse and fanatecAutoStart came to be silently missing
+      // from every export: three real settings, dropped because nobody
+      // remembered to add three lines here.
+      //
+      // Secrets are excluded — and would be absent anyway, since they do not
+      // live in this object. Filtering them here is belt and braces, not the
+      // mechanism; see secrets.js.
+      ...Object.fromEntries(
+        allSettingsFields()
+          .filter((f) => f.type !== 'secret')
+          .map((f) => [f.key, globals?.settings?.[f.key] ?? f.default ?? null]),
+      ),
     },
   });
 }

@@ -26,6 +26,7 @@ import yaml from 'js-yaml';
 import streamDeck from '@elgato/streamdeck';
 import { saveGlobalSettings } from './settingsStore.js';
 import { hasBeenConfigured } from './settingsBackup.js';
+import { allSettingsFields } from './providers/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LEGACY_CONFIG = resolve(__dirname, '..', 'config', 'profiles.yaml');
@@ -72,7 +73,18 @@ export function convertConfig(parsed) {
     settings.defaultProfile = parsed?.settings?.default_profile ?? profiles[0]?.id;
   }
   if (parsed?.settings?.govee_api_key) settings.goveeApiKey = parsed.settings.govee_api_key;
+  // Legacy spelling, still honoured so an old file keeps importing.
   if (parsed?.settings?.govee_devices) settings.goveeDevices = parsed.settings.govee_devices;
+
+  // Declared installation-wide settings, read back under the key they were
+  // exported with. Generic so that a provider added later round-trips through
+  // YAML without this function learning its name — the same reason the
+  // providers map is copied verbatim rather than translated.
+  for (const field of allSettingsFields()) {
+    if (field.type === 'secret') continue; // never imported from a document
+    const value = parsed?.settings?.[field.key];
+    if (value !== undefined && value !== null) settings[field.key] = value;
+  }
 
   return {
     profiles,

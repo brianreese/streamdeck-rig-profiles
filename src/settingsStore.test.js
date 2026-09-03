@@ -70,12 +70,17 @@ describe('recovery at startup', () => {
     expect(s.read()).toEqual({});
   });
 
-  it('leaves a healthy store alone and refreshes the mirror', async () => {
-    const backup = vi.fn();
+  it('leaves a healthy store alone and checkpoints it', async () => {
+    // Startup is a risky moment — whatever happens next, this is the version to
+    // step back to — so it takes a generation rather than only a mirror.
+    const checkpoint = vi.fn();
     const s = store({ profiles: [{ id: 'brian' }] });
-    const result = await recoverIfEmpty({ settings: s, configured: () => true, read: () => null, backup });
+    const result = await recoverIfEmpty({
+      settings: s, configured: () => true, read: () => null, backup: vi.fn(), checkpoint,
+    });
     expect(result.restored).toBe(false);
-    expect(backup).toHaveBeenCalledOnce();
+    expect(checkpoint).toHaveBeenCalledOnce();
+    expect(checkpoint.mock.calls[0][1]).toBe('startup');
   });
 
   it('prefers a partial flush over an older mirror', async () => {
@@ -173,13 +178,13 @@ describe('secrets never reach the store or the mirror', () => {
     // recoverIfEmpty mirrors directly rather than through saveGlobalSettings.
     // Without its own harvest, the first mirror on an upgrading machine would
     // be the one carrying the key.
-    const backup = vi.fn();
+    const checkpoint = vi.fn();
     const s = store(withKey());
     const result = await recoverIfEmpty({
       settings: s,
       configured: () => true,
       read: () => null,
-      backup,
+      checkpoint,
       secretKeys: () => ['goveeApiKey'],
       harvest: (blob) => {
         const { goveeApiKey, ...rest } = blob.settings;
@@ -188,6 +193,6 @@ describe('secrets never reach the store or the mirror', () => {
     });
     expect(result.harvested).toEqual(['goveeApiKey']);
     expect(s.read().settings.goveeApiKey).toBeUndefined();
-    expect(JSON.stringify(backup.mock.calls[0][0])).not.toContain('leaky');
+    expect(JSON.stringify(checkpoint.mock.calls[0][0])).not.toContain('leaky');
   });
 });

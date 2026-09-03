@@ -61,6 +61,23 @@ export default {
    * has nothing to say about a wheelbase simply does not enable this provider,
    * and so adding hardware later needs no editor changes.
    */
+  /**
+   * Installation-wide, not per profile — one wheelbase, one answer. Declared
+   * here rather than known by name in the editor and the exporter, which is how
+   * these three came to be silently missing from every YAML export.
+   */
+  settingsSchema() {
+    return [
+      {
+        key: 'fanatecAutoStart',
+        label: 'Start FanaLab if it is not running',
+        type: 'boolean',
+        default: true,
+        help: 'Switching a profile needs FanaLab up to change the setup slot.',
+      },
+    ];
+  },
+
   schema() {
     return [
       {

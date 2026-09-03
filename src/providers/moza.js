@@ -111,6 +111,29 @@ export default {
   // safety setting, not an ambience one.
   contexts: ['profile'],
 
+  /**
+   * Installation-wide, not per profile. See fanatecBase for why these are
+   * declared rather than hardcoded in the editor and the exporter.
+   */
+  settingsSchema() {
+    return [
+      {
+        key: 'mozaClosePitHouse',
+        label: 'Close Pit House when switching',
+        type: 'boolean',
+        default: true,
+        help: 'Pit House holds the serial port, so the pedal cannot be written while it is open.',
+      },
+      {
+        key: 'mozaReopenPitHouse',
+        label: 'Reopen Pit House afterwards',
+        type: 'boolean',
+        default: false,
+        help: 'Off by default: reopening re-applies its own preset over the one just written.',
+      },
+    ];
+  },
+
   schema() {
     return [
       {

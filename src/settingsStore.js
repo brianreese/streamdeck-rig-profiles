@@ -12,6 +12,7 @@
 
 import { readBackup, writeBackup, hasBeenConfigured } from './settingsBackup.js';
 import { harvestSecrets } from './secrets.js';
+import { noteWrite, checkpointNow } from './backupSchedule.js';
 import { secretSettingKeys } from './providers/index.js';
 
 /**
@@ -23,7 +24,13 @@ import { secretSettingKeys } from './providers/index.js';
 export async function saveGlobalSettings(
   settings,
   next,
-  { log = () => {}, backup = writeBackup, secretKeys = secretSettingKeys, harvest = harvestSecrets } = {},
+  {
+    log = () => {},
+    backup = writeBackup,
+    secretKeys = secretSettingKeys,
+    harvest = harvestSecrets,
+    schedule = noteWrite,
+  } = {},
 ) {
   // Strip credentials before anything stores or mirrors them.
   //
@@ -44,6 +51,10 @@ export async function saveGlobalSettings(
   try {
     const result = backup(next);
     if (!result.written) log(`[backup] not mirrored: ${result.reason}`);
+    // The mirror is current as of this instant. A generation is a separate
+    // decision and waits for the config to stop moving — see backupSchedule.js
+    // for why every-write generations spent the whole depth in an evening.
+    else schedule(next, { log });
   } catch (err) {
     log(`[backup] mirror failed: ${err.message}`);
   }
@@ -74,6 +85,7 @@ export async function recoverIfEmpty({
   configured = hasBeenConfigured,
   secretKeys = secretSettingKeys,
   harvest = harvestSecrets,
+  checkpoint = checkpointNow,
 } = {}) {
   const current = await settings.getGlobalSettings();
 
@@ -92,7 +104,10 @@ export async function recoverIfEmpty({
       await settings.setGlobalSettings(blob);
     }
     try {
-      backup(blob);
+      // A checkpoint before anything else runs. Free — this happens once per
+      // start, not per keystroke — and it is the version to step back to when
+      // a session goes wrong.
+      checkpoint(blob, 'startup', { log });
     } catch (err) {
       log(`[backup] mirror failed: ${err.message}`);
     }

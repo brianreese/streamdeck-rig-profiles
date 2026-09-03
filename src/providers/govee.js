@@ -60,6 +60,13 @@ export default {
         type: 'secret',
         help: 'From the Govee Home app: Profile → Settings → Apply for API Key.',
       },
+      {
+        key: 'goveeDevices',
+        label: 'Only these devices',
+        type: 'text',
+        default: null,
+        help: 'Optional. Leave empty to use every device on the account.',
+      },
     ];
   },
 
