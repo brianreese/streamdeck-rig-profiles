@@ -11,6 +11,29 @@
 // `manifestId` field, and V8 has no native decorator support — using a plain
 // class field keeps this buildless, which is how the rest of the plugin runs.
 
+//
+// Log levels here are deliberately split, and the split matters.
+//
+// The EVENT TRACE — willAppear, didReceiveSettings, keyDown, keyUp, and the
+// property-inspector request/reply pairs — is at debug. It earned its place
+// while this was being built (three bugs were only ever visible in the trace),
+// but it is several lines per key per appearance and the SDK writes info and
+// above in normal operation. It is still there when it is wanted: run the
+// plugin in debug mode and the whole trace comes back.
+//
+// The OUTCOMES stay at info, and are not a candidate for the same treatment.
+// Lines like
+//
+//     Ethan · MOZA mBooster: verified — pedal confirmed from "Carter Brake"
+//     peak force 24.00kg, load cell threshold 200.00kg, travel start 3.80mm
+//
+// were the only surviving record of what four lost profiles contained after
+// the 2026-09-02 wipe, and every one of them was reconstructed from these
+// lines. That was an accident rather than a design — docs/BACKLOG.md §8 keeps
+// it as an open question — but until something deliberate replaces it, this is
+// the durable record of what the hardware was actually set to, and it stays
+// where a person can read it.
+
 import streamDeck, { SingletonAction } from '@elgato/streamdeck';
 import { applyProfile, summarise } from '../profileSwitch.js';
 import { renderProfileKey } from '../buttonRenderer.js';
@@ -123,7 +146,7 @@ export class ProfileKey extends SingletonAction {
     const settings = await streamDeck.settings.getGlobalSettings();
     const profileId = ev.payload.settings?.profileId;
     visible.set(ev.action.id, { action: ev.action, profileId });
-    streamDeck.logger.info(
+    streamDeck.logger.debug(
       `[profileKey] willAppear key=${ev.action.id} profileId=${JSON.stringify(profileId)} ` +
         `knownProfiles=${(settings?.profiles ?? []).map((p) => p.id).join(',') || 'none'}`,
     );
@@ -155,7 +178,7 @@ export class ProfileKey extends SingletonAction {
   async onDidReceiveSettings(ev) {
     const profileId = ev.payload.settings?.profileId;
     visible.set(ev.action.id, { action: ev.action, profileId });
-    streamDeck.logger.info(
+    streamDeck.logger.debug(
       `[profileKey] didReceiveSettings key=${ev.action.id} profileId=${JSON.stringify(profileId)}`,
     );
     await repaintAll(await streamDeck.settings.getGlobalSettings());
@@ -173,7 +196,7 @@ export class ProfileKey extends SingletonAction {
     const request = ev.payload?.request;
     // Logged before any await: a later log line cannot distinguish "never
     // arrived" from "arrived and hung part-way through".
-    streamDeck.logger.info(
+    streamDeck.logger.debug(
       `[pi] <- ${request} (${JSON.stringify(ev.payload ?? {}).length} bytes)`,
     );
     try {
@@ -185,7 +208,7 @@ export class ProfileKey extends SingletonAction {
         onChanged: refreshKeys,
       });
       await streamDeck.ui.sendToPropertyInspector(reply);
-      streamDeck.logger.info(`[pi] ${request} -> ${JSON.stringify(reply).slice(0, 200)}`);
+      streamDeck.logger.debug(`[pi] ${request} -> ${JSON.stringify(reply).slice(0, 200)}`);
 
       // A save or avatar change alters what the keys should look like.
       if (['saveProfiles', 'uploadAvatar', 'deleteAvatar'].includes(request)) {
@@ -230,7 +253,7 @@ export class ProfileKey extends SingletonAction {
       const wanted = ev.payload.settings?.profileId;
       const profile = findProfile(settings, wanted);
 
-      streamDeck.logger.info(
+      streamDeck.logger.debug(
         `[profileKey] keyDown key=${ev.action.id} profileId=${JSON.stringify(wanted)} ` +
           `resolved=${profile ? profile.name : 'NONE'} restricted=${profile?.restricted ?? '-'}`,
       );
@@ -259,7 +282,7 @@ export class ProfileKey extends SingletonAction {
 
   async onKeyUp(ev) {
     const held = this.#timers.get(ev.action.id);
-    streamDeck.logger.info(
+    streamDeck.logger.debug(
       `[profileKey] keyUp key=${ev.action.id} pending=${Boolean(held)}`,
     );
     if (!held) return; // already fired

@@ -78,6 +78,20 @@ const API_BASE  = 'https://openapi.api.govee.com/router/api/v1';
  */
 export const CACHE_PATH = resolve(PLUGIN_DATA_DIR, 'govee-cache.json');
 
+/**
+ * How long a cached catalog is trusted.
+ *
+ * The cache used to be indefinite, which is wrong in one direction only: a
+ * scene created in the Govee app never showed up in the editor's dropdown, and
+ * nothing on screen suggested why. Discovery costs a few seconds and runs at
+ * most once a day, so the trade is not close.
+ *
+ * Deliberately not shorter. The catalog changes when a person adds a device or
+ * a scene — a rare, deliberate act — and re-fetching on every plugin start
+ * would spend seconds of startup on a list that almost never moves.
+ */
+export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // Module-level in-memory cache
 // ---------------------------------------------------------------------------
@@ -167,7 +181,7 @@ export function keyHint(apiKey) {
  * Load device cache from disk into the in-memory Map.
  * Returns true if loaded successfully, false if absent, stale (key mismatch), or corrupt.
  */
-function loadCache(apiKey, { cachePath = CACHE_PATH } = {}) {
+function loadCache(apiKey, { cachePath = CACHE_PATH, ttlMs = CACHE_TTL_MS, now = () => Date.now() } = {}) {
   if (!existsSync(cachePath)) return false;
   try {
     const data = JSON.parse(readFileSync(cachePath, 'utf8'));
@@ -175,6 +189,16 @@ function loadCache(apiKey, { cachePath = CACHE_PATH } = {}) {
       console.log('[govee] API key changed since last cache — refreshing from network.');
       return false;
     }
+
+    // A cache with no timestamp predates the TTL, and "unknown age" is safer
+    // read as expired than as trusted forever.
+    const age = now() - new Date(data.cachedAt ?? 0).getTime();
+    if (!Number.isFinite(age) || age < 0 || age > ttlMs) {
+      const how = Number.isFinite(age) && age >= 0 ? `${Math.round(age / 3600000)}h old` : 'of unknown age';
+      console.log(`[govee] Cache is ${how} — refreshing from network.`);
+      return false;
+    }
+
     deviceCache.clear();
     for (const d of data.devices ?? []) {
       deviceCache.set(d.id, { sku: d.sku, deviceName: d.deviceName, sceneMap: d.sceneMap ?? {} });
@@ -228,14 +252,17 @@ function saveCache(apiKey, { cachePath = CACHE_PATH } = {}) {
  * @param {string}  apiKey
  * @param {{ forceRefresh?: boolean }} opts
  */
-export async function init(apiKey, { forceRefresh = false, _fetch = fetch, cachePath = CACHE_PATH } = {}) {
+export async function init(
+  apiKey,
+  { forceRefresh = false, _fetch = fetch, cachePath = CACHE_PATH, ttlMs = CACHE_TTL_MS, now = () => Date.now() } = {},
+) {
   if (!apiKey) {
     console.log('[govee] No API key configured — Govee integration disabled.');
     deviceCache.clear();
     return;
   }
 
-  if (!forceRefresh && loadCache(apiKey, { cachePath })) return;
+  if (!forceRefresh && loadCache(apiKey, { cachePath, ttlMs, now })) return;
 
   console.log('[govee] Fetching devices and scene catalogs from network...');
   deviceCache.clear();

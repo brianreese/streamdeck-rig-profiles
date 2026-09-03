@@ -15,8 +15,8 @@
 //   clearCache       — deletes file + clears cache
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, mkdtempSync } from 'fs';
+import { join, resolve, dirname } from 'path';
 import { tmpdir } from 'os';
 
 import {
@@ -360,3 +360,66 @@ function jsonOk(body) {
     json: async () => JSON.parse(json),
   };
 }
+
+describe('the cache expires', () => {
+  const key = 'test-key';
+  const write = (path, cachedAt) => {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({
+      cachedAt,
+      apiKeyHint: keyHint(key),
+      devices: [{ id: 'd1', sku: 'H1', deviceName: 'Strip', sceneMap: { Racing: 1 } }],
+    }), 'utf8');
+  };
+
+  let dir;
+  let cachePath;
+  beforeEach(() => {
+    dir = mkdtempSync(resolve(tmpdir(), 'govee-ttl-'));
+    cachePath = resolve(dir, 'govee-cache.json');
+    _resetForTesting();
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const noNetwork = () => { throw new Error('network was called'); };
+
+  it('uses a fresh cache without touching the network', async () => {
+    write(cachePath, new Date('2026-09-03T00:00:00Z').toISOString());
+    await init(key, { cachePath, _fetch: noNetwork, now: () => Date.parse('2026-09-03T06:00:00Z') });
+    expect(getDiscoveredDevices()).toHaveLength(1);
+  });
+
+  it('refetches once the cache is older than the TTL', async () => {
+    // A scene added in the Govee app used to never appear, because the cache
+    // was trusted indefinitely and nothing on screen suggested why.
+    write(cachePath, new Date('2026-09-01T00:00:00Z').toISOString());
+    let called = false;
+    await init(key, {
+      cachePath,
+      now: () => Date.parse('2026-09-03T06:00:00Z'),
+      _fetch: () => { called = true; throw new Error('stop here'); },
+    }).catch(() => {});
+    expect(called).toBe(true);
+  });
+
+  it('treats a cache with no timestamp as expired, not as trusted forever', async () => {
+    write(cachePath, undefined);
+    let called = false;
+    await init(key, {
+      cachePath,
+      _fetch: () => { called = true; throw new Error('stop here'); },
+    }).catch(() => {});
+    expect(called).toBe(true);
+  });
+
+  it('forceRefresh still bypasses a perfectly fresh cache', async () => {
+    write(cachePath, new Date().toISOString());
+    let called = false;
+    await init(key, {
+      cachePath,
+      forceRefresh: true,
+      _fetch: () => { called = true; throw new Error('stop here'); },
+    }).catch(() => {});
+    expect(called).toBe(true);
+  });
+});

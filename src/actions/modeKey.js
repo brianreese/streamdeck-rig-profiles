@@ -27,6 +27,29 @@
 // press switches the Mode OFF. It is not a safety gate, so it is shorter, and
 // a Mode with nothing reversible ignores it and simply activates.
 
+//
+// Log levels here are deliberately split, and the split matters.
+//
+// The EVENT TRACE — willAppear, didReceiveSettings, keyDown, keyUp, and the
+// property-inspector request/reply pairs — is at debug. It earned its place
+// while this was being built (three bugs were only ever visible in the trace),
+// but it is several lines per key per appearance and the SDK writes info and
+// above in normal operation. It is still there when it is wanted: run the
+// plugin in debug mode and the whole trace comes back.
+//
+// The OUTCOMES stay at info, and are not a candidate for the same treatment.
+// Lines like
+//
+//     Ethan · MOZA mBooster: verified — pedal confirmed from "Carter Brake"
+//     peak force 24.00kg, load cell threshold 200.00kg, travel start 3.80mm
+//
+// were the only surviving record of what four lost profiles contained after
+// the 2026-09-02 wipe, and every one of them was reconstructed from these
+// lines. That was an accident rather than a design — docs/BACKLOG.md §8 keeps
+// it as an open question — but until something deliberate replaces it, this is
+// the durable record of what the hardware was actually set to, and it stays
+// where a person can read it.
+
 import streamDeck, { SingletonAction } from '@elgato/streamdeck';
 import { applyProfile, readModeState, unapplyMode, summarise } from '../profileSwitch.js';
 import { renderModeKey } from '../buttonRenderer.js';
@@ -117,7 +140,7 @@ export class ModeKey extends SingletonAction {
    */
   async onSendToPlugin(ev) {
     const request = ev.payload?.request;
-    streamDeck.logger.info(`[pi] <- ${request} (mode key)`);
+    streamDeck.logger.debug(`[pi] <- ${request} (mode key)`);
     try {
       const reply = await handlePiRequest(ev.payload, {
         settings: streamDeck.settings,
@@ -125,7 +148,7 @@ export class ModeKey extends SingletonAction {
         onChanged: () => paintEveryModeKey(),
       });
       await streamDeck.ui.sendToPropertyInspector(reply);
-      streamDeck.logger.info(`[pi] ${request} -> ${JSON.stringify(reply).slice(0, 200)}`);
+      streamDeck.logger.debug(`[pi] ${request} -> ${JSON.stringify(reply).slice(0, 200)}`);
       if (['saveProfiles', 'uploadAvatar', 'deleteAvatar'].includes(request)) {
         await paintEveryModeKey();
       }
@@ -235,7 +258,7 @@ export class ModeKey extends SingletonAction {
 
   async #switchOn(ev) {
     const { settings, modeId, mode } = await this.#resolve(ev);
-    streamDeck.logger.info(
+    streamDeck.logger.debug(
       `[modeKey] keyUp key=${ev.action.id} modeId=${JSON.stringify(modeId)} ` +
         `resolved=${mode ? mode.name : 'NONE'}`,
     );

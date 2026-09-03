@@ -82,9 +82,11 @@ Still to do:
 
 - `HOLD_MS` is fixed at 1000ms. Confirmed to feel right, so it stays hardcoded
   until someone wants otherwise.
-- Diagnostic logging in `profileKey.js` is verbose (every willAppear, keyDown,
-  keyUp, PI request). It earned its place — three bugs were only visible in the
-  event trace — but should drop to debug level once this settles.
+- ~~Diagnostic logging in `profileKey.js` is verbose.~~ **Done 2026-09-03.**
+  The event trace (willAppear, didReceiveSettings, keyDown, keyUp, PI pairs) is
+  now at debug in both action files. The switch OUTCOME lines stay at info
+  deliberately: they were the only surviving record of what the four lost
+  profiles contained, and every one was reconstructed from them. See §8.
 ## 5. Stream Deck profile switching — parked, harder than it looks
 
 `profileSwitch.js` reserves `streamdeck` in its DEFERRED ordering, but the

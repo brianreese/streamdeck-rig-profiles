@@ -528,7 +528,7 @@ streamdeck-rig-profiles/
 │   setup.test.js              # Unit tests: first-run copy, shared state dir
 │   profileSwitch.js           # Orchestrates macro chain; iterates hardware drivers
 │   fanatec.js                 # Driver: FanaLab hotkey bridge (robotjs)
-│   moza.js                    # Driver: Pit House (stub — implementation TBD)
+│   moza/                      # Driver: mBooster serial protocol (implemented)
 │   govee.js                   # Driver: Govee scene client (auto-discovery + cache)
 │   state.js                   # Persistent state read/write
 │   buttonRenderer.js          # Button image/color/label per profile state

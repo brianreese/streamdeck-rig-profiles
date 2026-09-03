@@ -422,4 +422,4 @@ Community investigation (via the `pithouse2boxflat` converter project) confirms 
 
 ---
 
-**Current status:** Stub in `src/moza.js` — logs intent, no-op. Implement Path 1 once the serial protocol is validated against the target hardware.
+**Current status (2026-09-03):** Implemented. The provider is `src/providers/moza.js` and the serial protocol lives in `src/moza/` — see `docs/BACKLOG.md` §6, §7 and §9. The `src/moza.js` stub this section described was deleted once nothing imported it.

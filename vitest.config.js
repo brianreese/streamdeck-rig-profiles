@@ -9,6 +9,10 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    // Runs once per worker, before any test file loads. It exists solely to
+    // stop parallel workers racing on the Stream Deck SDK's log rotation —
+    // see vitest.setup.js for the full explanation.
+    setupFiles: ['./vitest.setup.js'],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

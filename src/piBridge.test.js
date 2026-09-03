@@ -795,45 +795,9 @@ describe('yaml export secrecy', () => {
   });
 });
 
-describe('openEditor', () => {
-  it('starts the browser editor and hands back its address', async () => {
-    // The editor server is mocked out: this is about the wiring, and the real
-    // thing would bind a socket and open a window on whoever runs the tests.
-    vi.resetModules();
-    const startEditor = vi.fn(async () => ({ url: 'http://127.0.0.1:1234/?t=abc', alreadyRunning: false }));
-    const openInBrowser = vi.fn();
-    vi.doMock('./editorServer.js', () => ({ startEditor, openInBrowser }));
-
-    const repaint = () => {};
-    const { handlePiRequest: handle } = await import('./piBridge.js');
-    const reply = await handle(
-      { request: 'openEditor' },
-      { settings: fakeSettings({}), logger: silent, onChanged: repaint },
-    );
-
-    expect(reply).toMatchObject({ ok: true, url: 'http://127.0.0.1:1234/?t=abc' });
-    expect(openInBrowser).toHaveBeenCalledWith('http://127.0.0.1:1234/?t=abc', expect.anything());
-    // The editor saves without the inspector in the loop, so the repaint hook
-    // has to reach it or the keys keep the old names.
-    expect(startEditor.mock.calls[0][0].onChanged).toBe(repaint);
-    vi.doUnmock('./editorServer.js');
-  });
-
-  it('reports a server that will not start instead of throwing at the inspector', async () => {
-    vi.resetModules();
-    vi.doMock('./editorServer.js', () => ({
-      startEditor: async () => { throw new Error('EADDRINUSE'); },
-      openInBrowser: () => {},
-    }));
-    const { handlePiRequest: handle } = await import('./piBridge.js');
-    const reply = await handle(
-      { request: 'openEditor' },
-      { settings: fakeSettings({}), logger: { ...silent, error: () => {} } },
-    );
-    expect(reply).toMatchObject({ ok: false, error: 'EADDRINUSE' });
-    vi.doUnmock('./editorServer.js');
-  });
-});
+// openEditor lives in piBridge.openEditor.test.js — it needs a hoisted
+// vi.mock of the editor server, which cannot share a file with tests that
+// import piBridge normally.
 
 describe('the YAML export carries every declared setting', () => {
   beforeEach(() => resetSecrets());
