@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeSecret, readSecret, _resetForTesting as resetSecrets } from './secrets.js';
-import { convertConfig } from './migrate.js';
+import { convertConfig } from './configConvert.js';
 import { allSettingsFields } from './providers/index.js';
 import yaml from 'js-yaml';
 import { mkdtempSync, existsSync, readFileSync } from 'fs';

@@ -26,7 +26,7 @@ import yaml from 'js-yaml';
 import { AVATAR_DIR, loadAvatarDataUri, saveAvatar } from './avatars.js';
 import { secretsSet } from './secrets.js';
 import { allSettingsFields } from './providers/index.js';
-import { convertConfig } from './migrate.js';
+import { convertConfig } from './configConvert.js';
 
 export const BUNDLE_KIND = 'rig-profiles-backup';
 export const BUNDLE_VERSION = 1;

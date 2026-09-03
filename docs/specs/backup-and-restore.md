@@ -1,10 +1,25 @@
 # Spec — Backup and restore
 
-- **Status:** Accepted 2026-09-03 — reviewed and approved, all questions closed
+- **Status:** Implemented 2026-09-03 — all five steps shipped; see Delivered below
 - **Date:** 2026-09-02
 - **Revised:** 2026-09-02 — secrets excluded from backups entirely; restore is
   always prompted; adds the secret-field contract that makes both structural
 - **Prompted by:** the second total loss of global settings, `docs/BACKLOG.md` §8
+
+## Delivered
+
+| Step | State |
+|---|---|
+| 1. `type: 'secret'`, secrets.json, key migrated out of settings | Shipped |
+| 2. `settingsSchema()`, three hardware toggles declared, export gap closed | Shipped |
+| 3. Bundle format, download buttons, upload + drag-and-drop, preview | Shipped |
+| 4. Version history, restore offer, auto-restore removed | Shipped |
+| 5. Settle-based generations, tiered retention | Shipped |
+
+The Hardware pane still renders its fields by hand rather than from
+`settingsSchema()`. The declarations drive the export, the backup and the
+secret routing, which is where correctness lives; generic rendering is
+cosmetic and was left alone rather than churning a pane that works.
 
 ## Why
 

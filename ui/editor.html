@@ -266,6 +266,9 @@
         border: 1px solid #8a6d1f; border-radius: 8px;
         background: #2b2410; color: #f0e6c8;
       }
+      /* display:flex beats [hidden]'s display:none, so say it explicitly.
+         Without this the bar sits there empty on every healthy load. */
+      .offerbar[hidden] { display: none; }
       .offerbar .actions { margin: 0; }
       .dropzone {
         margin-top: 12px; padding: 18px; text-align: center;
@@ -980,7 +983,12 @@
         if (box) box.innerHTML = '';
         const bar = $('offerBar');
         if (bar) bar.hidden = true;
+        // loadProfiles only refills the model. The list, the pane and the rail
+        // are drawn by render(), and without it a restore that plainly worked
+        // still says "No profiles yet" — which reads as the restore failing.
         await loadProfiles();
+        setKind(kind);
+        render();
         await refreshBackupStatus();
         await refreshHistory();
       }
@@ -2375,7 +2383,8 @@
         if (view === 'settings') {
           parts.push(`<div class="rail-group"><h4>Jump to</h4>
             ${[['fanatec-base', 'Fanatec wheelbase'], ['moza', 'MOZA pedal'],
-               ['govee', 'Govee lighting'], ['yaml', 'Export YAML']]
+               ['govee', 'Govee lighting'], ['backup', 'Backup'],
+               ['history', 'Version history'], ['yaml', 'Export YAML']]
               .map(([sec, label]) =>
                 `<button class="addbtn" data-jump="${sec}"><span class="nm">${esc(label)}</span></button>`)
               .join('')}</div>`);

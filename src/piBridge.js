@@ -14,6 +14,7 @@
 // exactly these requests over HTTP, so a feature reaching one surface reaches
 // both and neither can drift into its own validation rules.
 
+import { dirname } from 'path';
 import { readFileSync } from 'fs';
 import yaml from 'js-yaml';
 import { saveGlobalSettings } from './settingsStore.js';
@@ -46,6 +47,22 @@ import { _resetForTesting as resetGoveeCatalog } from './providers/govee.js';
  * it is saved.
  */
 const storedModes = (globals) => globals?.modes ?? globals?.scenes ?? [];
+
+/**
+ * Of the credentials a bundle omitted, which are missing HERE?
+ *
+ * A bundle records what was set when it was written, which is what makes it
+ * useful on a new machine. Saying "re-enter your Govee API key" on the machine
+ * where it is still sitting there is noise — and noise in a restore message is
+ * exactly where a real warning goes unread.
+ */
+function secretsMissingHere(labels) {
+  const set = secretsSet();
+  return (labels ?? []).filter((label) => {
+    const field = allSettingsFields().find((f) => f.label === label);
+    return field ? !set.includes(field.key) : true;
+  });
+}
 
 /** Turn a stored profile list into the legacy-shaped YAML we can re-import. */
 export function profilesToYaml(globals) {
@@ -571,7 +588,11 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       return {
         request,
         ok: true,
-        dir: HISTORY_DIR.replace(/[\/]settings-history$/, ''),
+        // dirname, not a regex. The first attempt used a character class that
+        // collapsed to forward-slash only, so on Windows it matched nothing and
+        // the pane showed the history subdirectory instead of the folder a
+        // person would actually open.
+        dir: dirname(HISTORY_DIR),
         mirrorPath: BACKUP_PATH,
         lastSavedAt: mirror?.savedAt ?? null,
         generationCount: generations.length,
@@ -647,7 +668,15 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
     case 'previewRestore': {
       const inspected = inspectRestore(msg.content);
       if (!inspected.ok) return { request, ok: false, error: inspected.error };
-      return { request, ok: true, kind: inspected.kind, summary: inspected.summary };
+      return {
+        request,
+        ok: true,
+        kind: inspected.kind,
+        summary: {
+          ...inspected.summary,
+          secretsToReenter: secretsMissingHere(inspected.summary?.secretsToReenter),
+        },
+      };
     }
 
     case 'restoreBackup': {
@@ -698,7 +727,7 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         modes: storedModes(next).length,
         avatars: avatars.written.length,
         avatarsFailed: avatars.failed.length,
-        secretsToReenter: inspected.summary?.secretsToReenter ?? [],
+        secretsToReenter: secretsMissingHere(inspected.summary?.secretsToReenter),
       };
     }
 

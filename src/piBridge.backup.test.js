@@ -220,3 +220,37 @@ describe('restoring', () => {
     expect(r.secretsToReenter).toEqual(['Govee API key']);
   });
 });
+
+describe('what a restore asks you to re-enter', () => {
+  it('names only the credentials this machine is actually missing', async () => {
+    // A bundle records what existed when it was written, which is right for
+    // moving machines. Telling someone to re-enter a key that is still sitting
+    // there is noise, and noise in a restore message is where a real warning
+    // goes unread.
+    writeSecret('goveeApiKey', 'STILL-HERE');
+    const bundle = (await send({ request: 'exportBackup' }, fakeSettings(full()))).bundle;
+    expect(bundle.secretsOmitted.find((s) => s.key === 'goveeApiKey').wasSet).toBe(true);
+
+    const r = await send({ request: 'restoreBackup', source: 'upload', content: JSON.stringify(bundle) },
+      fakeSettings({ profiles: [] }));
+    expect(r.secretsToReenter).toEqual([]);
+    expect(readSecret('goveeApiKey')).toBe('STILL-HERE');
+  });
+});
+
+describe('the preview agrees with the result', () => {
+  it('does not warn about a key that is still on this machine', async () => {
+    writeSecret('goveeApiKey', 'STILL-HERE');
+    const bundle = (await send({ request: 'exportBackup' }, fakeSettings(full()))).bundle;
+    const r = await send({ request: 'previewRestore', content: JSON.stringify(bundle) }, fakeSettings({}));
+    expect(r.summary.secretsToReenter).toEqual([]);
+  });
+
+  it('does warn when the key is genuinely absent, as on a new machine', async () => {
+    writeSecret('goveeApiKey', 'REAL-KEY');
+    const bundle = (await send({ request: 'exportBackup' }, fakeSettings(full()))).bundle;
+    resetSecrets();
+    const r = await send({ request: 'previewRestore', content: JSON.stringify(bundle) }, fakeSettings({}));
+    expect(r.summary.secretsToReenter).toEqual(['Govee API key']);
+  });
+});
