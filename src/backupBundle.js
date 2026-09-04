@@ -25,7 +25,7 @@ import { resolve } from 'path';
 import yaml from 'js-yaml';
 import { AVATAR_DIR, loadAvatarDataUri, saveAvatar } from './avatars.js';
 import { secretsSet } from './secrets.js';
-import { allSettingsFields } from './providers/index.js';
+import { allSettingsFields, getProvider } from './providers/index.js';
 import { convertConfig } from './configConvert.js';
 
 export const BUNDLE_KIND = 'rig-profiles-backup';
@@ -73,6 +73,30 @@ export function buildBundle(globals, { avatarDir = AVATAR_DIR, now = () => new D
 /** A filename that sorts and reads well in a downloads folder. */
 export function bundleFilename(now = () => new Date()) {
   return `rig-backup-${now().toISOString().slice(0, 10)}.json`;
+}
+
+/**
+ * Provider ids in this document that no installed provider answers to.
+ *
+ * Unknown ids are tolerated on purpose — config outlives code, and a profile
+ * written by a newer version must survive a downgrade rather than be mangled.
+ * The cost is that a typo restores, validates, and then quietly does nothing.
+ *
+ * That is not hypothetical: the file reconstructing four lost profiles was
+ * written with `moza-pedals` (the legacy migration key) instead of `moza`, and
+ * with `loadCellThresholdKg` instead of `maxForceKg`. It passed validation and
+ * would have restored four profiles whose brake settings were inert — on a rig
+ * a six-year-old uses. Saying so in the preview is the cheapest place to catch
+ * it, and the only place anyone is looking.
+ */
+function unknownProvidersIn(records) {
+  const unknown = new Set();
+  for (const record of records ?? []) {
+    for (const key of Object.keys(record?.providers ?? {})) {
+      if (!getProvider(key)) unknown.add(key);
+    }
+  }
+  return [...unknown];
 }
 
 function countsOf(settings) {
@@ -128,6 +152,9 @@ export function inspectRestore(content) {
         // Only the ones that were actually set are worth mentioning; listing a
         // key nobody had configured is noise dressed as a warning.
         secretsToReenter: (parsed.secretsOmitted ?? []).filter((s) => s.wasSet).map((s) => s.label),
+        unknownProviders: unknownProvidersIn([
+          ...(parsed.settings?.profiles ?? []), ...storedModes(parsed.settings),
+        ]),
       },
     };
   }
@@ -152,6 +179,9 @@ export function inspectRestore(content) {
       avatars: 0,
       savedAt: null,
       secretsToReenter: [],
+      unknownProviders: unknownProvidersIn([
+        ...(doc.profiles ?? []), ...(doc.modes ?? doc.scenes ?? []),
+      ]),
       // Said plainly in the preview: a YAML is a config document and was never
       // going to carry images. Restoring one leaves the existing avatars alone
       // rather than deleting what it cannot replace.

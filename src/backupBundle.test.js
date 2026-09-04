@@ -171,3 +171,28 @@ describe('restoring avatars', () => {
     expect(restoreAvatars(undefined, { dir, save: vi.fn() })).toEqual({ written: [], failed: [] });
   });
 });
+
+describe('config for hardware that is not here', () => {
+  it('names provider ids nothing answers to', () => {
+    // Unknown ids are tolerated on purpose — config outlives code — so a typo
+    // restores, validates, and then quietly does nothing. The recovered-profile
+    // file really did say `moza-pedals` instead of `moza`, which would have
+    // restored four profiles with inert brake settings.
+    const doc = yaml.dump({
+      profiles: [{ id: 'brian', name: 'Brian', color: '#2255CC', providers: { 'moza-pedals': { preset: 'x' } } }],
+    });
+    expect(inspectRestore(doc).summary.unknownProviders).toEqual(['moza-pedals']);
+  });
+
+  it('says nothing when every provider resolves', () => {
+    const doc = yaml.dump({
+      profiles: [{ id: 'brian', name: 'Brian', color: '#2255CC', providers: { moza: { preset: 'x' } } }],
+    });
+    expect(inspectRestore(doc).summary.unknownProviders).toEqual([]);
+  });
+
+  it('checks Modes too, not only profiles', () => {
+    const b = { ...build(), settings: { profiles: [], modes: [{ id: 'vr', providers: { 'no-such': {} } }] } };
+    expect(inspectRestore(JSON.stringify(b)).summary.unknownProviders).toEqual(['no-such']);
+  });
+});

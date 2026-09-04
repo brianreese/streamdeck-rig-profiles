@@ -956,6 +956,13 @@
         if (sm.partial) {
           notes.push('This is a config export, not a full backup: it has no avatars. Existing ones are left alone.');
         }
+        if (sm.unknownProviders?.length) {
+          // Config for hardware nothing here answers to. It restores and does
+          // nothing, which is worse than refusing — so say it, plainly.
+          notes.push(`Warning: ${sm.unknownProviders.map(esc).join(', ')} ` +
+            `${sm.unknownProviders.length === 1 ? 'is not a provider' : 'are not providers'} on this machine. ` +
+            'That configuration will be kept but will do nothing.');
+        }
         if (sm.secretsToReenter?.length) {
           notes.push(`You will need to re-enter: ${sm.secretsToReenter.map(esc).join(', ')}.`);
         }
