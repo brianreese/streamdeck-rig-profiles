@@ -20,6 +20,7 @@ import { ProfileKey } from './actions/profileKey.js';
 import { ModeKey } from './actions/modeKey.js';
 import { migrateIfNeeded } from './migrate.js';
 import { assessStore } from './settingsStore.js';
+import { configuredState } from './settingsBackup.js';
 import { notify } from './notify.js';
 
 // An uncaught rejection here kills the plugin process and Stream Deck silently
@@ -55,6 +56,7 @@ assessStore({ settings: streamDeck.settings, log: (m) => streamDeck.logger.warn(
     // thing anyone wants to know.
     streamDeck.logger.info(
       `[plugin] started — ${result?.reason ?? 'state unknown'}` +
+        ` (backups: ${configuredState()})` +
         (result?.harvested?.length ? `, secrets moved: ${result.harvested.join(', ')}` : '') +
         (result?.degraded ? ' — RESTORE AVAILABLE, open the editor' : ''),
     );

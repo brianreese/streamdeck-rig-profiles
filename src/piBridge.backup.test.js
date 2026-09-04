@@ -100,7 +100,7 @@ describe('status and history', () => {
     let n = 0;
     const now = () => new Date(Date.UTC(2026, 8, 3, 12, 0, n++));
     writeBackup(full(), { checkpoint: true, reason: 'startup', now });
-    writeBackup({ ...full(), profiles: [profile('brian')] }, { checkpoint: true, reason: 'settled', now });
+    writeBackup({ ...full(), profiles: [profile('brian')] }, { checkpoint: true, reason: 'settled', now, shrink: true });
 
     const r = await send({ request: 'listBackups' }, fakeSettings(full()));
     expect(r.backups).toHaveLength(2);
@@ -159,7 +159,7 @@ describe('restoring', () => {
     let n = 0;
     const now = () => new Date(Date.UTC(2026, 8, 3, 12, 0, n++));
     writeBackup(full(), { checkpoint: true, now });
-    writeBackup({ ...full(), profiles: [profile('brian')] }, { checkpoint: true, now });
+    writeBackup({ ...full(), profiles: [profile('brian')] }, { checkpoint: true, now, shrink: true });
 
     const list = await send({ request: 'listBackups' }, fakeSettings({}));
     const older = list.backups.find((b) => b.profiles === 4);

@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { resolve } from 'path';
 import {
   writeBackup, readBackup, hasBeenConfigured, historyFiles, isWorthKeeping,
-  HISTORY_LIMIT, RETENTION, planRetention, generationDate,
+  HISTORY_LIMIT, RETENTION, planRetention, generationDate, configuredState,
 } from './settingsBackup.js';
 
 let dir;
@@ -189,5 +189,84 @@ describe('retention tiers', () => {
     const left = historyFiles(opts);
     expect(left.length).toBeLessThanOrEqual(HISTORY_LIMIT);
     expect(left.length).toBeGreaterThan(0);
+  });
+});
+
+describe('could-not-tell is not the same as never-configured', () => {
+  // The 2026-09-04 loss. The plugin started a minute after a PC restart, said
+  // "first run", and re-imported profiles.yaml over four recovered profiles —
+  // with the mirror on disk the whole time and readable minutes later.
+  //
+  // existsSync returns false for EPERM and EBUSY exactly as it does for ENOENT,
+  // and historyFiles swallowed every error and returned []. So "the disk did not
+  // answer" and "nothing was ever configured" were one value, and that value
+  // authorised a destructive re-seed. Boot is when a transient read failure is
+  // most likely, and boot is when this runs.
+  const throwing = (code) => () => {
+    const err = new Error(code);
+    err.code = code;
+    throw err;
+  };
+
+  it('says no only when both are definitely absent', () => {
+    expect(configuredState({ stat: throwing('ENOENT'), list: throwing('ENOENT') })).toBe('no');
+  });
+
+  it('says unknown when the mirror cannot be read', () => {
+    expect(configuredState({ stat: throwing('EPERM'), list: throwing('ENOENT') })).toBe('unknown');
+    expect(configuredState({ stat: throwing('EBUSY'), list: throwing('ENOENT') })).toBe('unknown');
+  });
+
+  it('says unknown when the history directory cannot be read', () => {
+    expect(configuredState({ stat: throwing('ENOENT'), list: throwing('EACCES') })).toBe('unknown');
+  });
+
+  it('treats unknown as configured, so a bad read can never authorise a re-seed', () => {
+    // Wrong in this direction costs one restart. Wrong the other way destroys
+    // the configuration.
+    expect(hasBeenConfigured({ stat: throwing('EPERM'), list: throwing('EPERM') })).toBe(true);
+    expect(hasBeenConfigured({ stat: throwing('ENOENT'), list: throwing('ENOENT') })).toBe(false);
+  });
+
+  it('still answers yes from a real mirror', () => {
+    writeBackup(real, opts);
+    expect(configuredState(opts)).toBe('yes');
+  });
+});
+
+describe('the mirror refuses to be downgraded', () => {
+  const four = { profiles: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }], modes: [{ id: 'vr' }] };
+  const two = { profiles: [{ id: 'a' }, { id: 'b' }] };
+
+  it('will not replace a richer mirror with a poorer one', () => {
+    // isWorthKeeping only ever asked "is there anything at all", so four
+    // profiles collapsing to two sailed through and overwrote the good copy —
+    // the same partial-loss blind spot the restore offer had, and worse here,
+    // because this destroys the copy that would have undone the loss.
+    writeBackup(four, opts);
+    const r = writeBackup(two, opts);
+    expect(r.written).toBe(false);
+    expect(r.reason).toMatch(/refusing to shrink/i);
+    expect(readBackup(opts).settings.profiles).toHaveLength(4);
+  });
+
+  it('counts Modes as well as profiles', () => {
+    writeBackup(four, opts);
+    const r = writeBackup({ profiles: four.profiles, modes: [] }, opts);
+    expect(r.written).toBe(false);
+  });
+
+  it('allows a shrink when a person asked for one', () => {
+    // Deleting a profile is legitimate. Only the startup snapshot, which cannot
+    // tell loss from intent, is suspicious.
+    writeBackup(four, opts);
+    expect(writeBackup(two, { ...opts, shrink: true }).written).toBe(true);
+    expect(readBackup(opts).settings.profiles).toHaveLength(2);
+  });
+
+  it('allows growth and equality without being asked', () => {
+    writeBackup(two, opts);
+    expect(writeBackup(four, opts).written).toBe(true);
+    expect(writeBackup(four, opts).written).toBe(true);
   });
 });

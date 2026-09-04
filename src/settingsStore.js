@@ -10,7 +10,7 @@
 // mirror that answers reads is a second source of truth and will eventually
 // disagree with the first.
 
-import { readBackup, writeBackup, hasBeenConfigured } from './settingsBackup.js';
+import { readBackup, writeBackup, hasBeenConfigured, isWorthKeeping } from './settingsBackup.js';
 import { harvestSecrets } from './secrets.js';
 import { noteWrite, checkpointNow } from './backupSchedule.js';
 import { secretSettingKeys } from './providers/index.js';
@@ -49,7 +49,10 @@ export async function saveGlobalSettings(
 
   await settings.setGlobalSettings(next);
   try {
-    const result = backup(next);
+    // shrink: true — this write came from a person. Deleting a profile is a
+    // legitimate reason for the mirror to get smaller, and only the startup
+    // snapshot has to be suspicious of that.
+    const result = backup(next, { shrink: true });
     if (!result.written) log(`[backup] not mirrored: ${result.reason}`);
     // The mirror is current as of this instant. A generation is a separate
     // decision and waits for the config to stop moving — see backupSchedule.js
@@ -67,15 +70,14 @@ export async function saveGlobalSettings(
  * Runs once before anything else looks at global settings. Three cases:
  *
  *   store has content          -> harvest secrets, checkpoint; the normal path
- *   store empty, backup exists -> Stream Deck lost it. Report, do not restore.
- *   store empty, no backup     -> genuinely a fresh install. Leave it alone.
+ *   store EMPTY, backup exists -> fill it. Nothing is being overwritten.
+ *   store empty, no backup     -> genuinely a fresh install, or the disk did
+ *                                 not answer. Either way, leave it alone.
  *
- * The distinction between the last two is the fix that matters. They were
- * previously indistinguishable, so a wipe was read as a first run and the
- * example profiles were written over the top of what had just been lost.
- *
- * This function writes nothing in the degraded case. Restoring is the editor's
- * offer to make and the user's to accept.
+ * Filling an empty store is not a violation of "never overwrite without
+ * asking" — there is nothing there to overwrite, and after a PC restart the
+ * alternative is a deck that stays broken until an adult opens a browser.
+ * PARTIAL loss is different and still only ever offers, in the editor.
  *
  * @returns {Promise<{ restored: boolean, degraded?: boolean, reason: string, count?: number }>}
  */
@@ -126,18 +128,32 @@ export async function assessStore({
     return { restored: false, degraded: true, reason: 'no usable backup' };
   }
 
-  // A restore is OFFERED, never taken.
+  // Filling a vacuum is not overwriting.
   //
-  // An earlier version put the backup back automatically here, on the argument
-  // that a child at the rig cannot open an editor and an empty deck is worse
-  // than a restored one. That was overruled, and the reasoning is better:
-  // losing data should now be close to impossible, so on the rare occasion it
-  // happens it is worth being explicit rather than papering over. Nothing
-  // overwrites configuration without being asked.
+  // The rule is "never overwrite configuration without asking", and an EMPTY
+  // store has no configuration to overwrite — so restoring into one breaks no
+  // promise. This matters because the empty case is not rare after all: Stream
+  // Deck came back from a PC restart on 2026-09-04 having lost everything, and
+  // leaving it empty meant the deck stayed broken until someone opened an
+  // editor. A child at the rig cannot do that.
   //
-  // The failure path is deliberately the ordinary one. Broken or missing keys
-  // on the deck are themselves the prompt; opening the editor puts the offer,
-  // dated and counted, at the top of the screen.
+  // PARTIAL loss still only ever offers. That is where a restore would genuinely
+  // replace something a person might have meant, and the editor asks.
+  if (!current?.profiles?.length && !current?.modes?.length && isWorthKeeping(found.settings)) {
+    await settings.setGlobalSettings(found.settings);
+    const filled = found.settings.profiles?.length ?? 0;
+    log(`[backup] store was empty — restored ${filled} profile(s) from ${found.source}`);
+    return {
+      restored: true,
+      reason: 'store was empty, filled from backup',
+      count: filled,
+      savedAt: found.savedAt,
+    };
+  }
+
+  // Reached only if the backup exists but holds nothing worth restoring, which
+  // readBackup already screens for. Kept as a belt-and-braces report rather than
+  // a silent fall-through.
   const count = found.settings?.profiles?.length ?? 0;
   log(
     `[backup] global settings are empty but a backup from ${found.savedAt} holds ` +

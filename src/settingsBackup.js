@@ -22,7 +22,7 @@
 //     failure being defended against here is precisely a write that looked
 //     routine at the time.
 
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, readdirSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs';
 import { resolve } from 'path';
 import { tmpdir } from 'os';
 import { PLUGIN_DATA_DIR } from './setup.js';
@@ -75,6 +75,13 @@ export function isWorthKeeping(blob) {
       blob.scenes?.length ||
       blob.settings?.goveeApiKey,
   );
+}
+
+/** How much configuration a blob holds, for comparing two of them. */
+function countsOf(blob) {
+  const profiles = blob?.profiles?.length ?? 0;
+  const modes = (blob?.modes ?? blob?.scenes ?? []).length;
+  return { profiles, modes, total: profiles + modes };
 }
 
 function writeAtomic(path, body) {
@@ -155,16 +162,66 @@ export function planRetention(files, { now = () => new Date(), retention = RETEN
 }
 
 /**
+ * Three answers, not two: yes, no, and COULD NOT TELL.
+ *
+ * The distinction is the whole point. `existsSync` returns false for EPERM and
+ * EBUSY exactly as it does for ENOENT, and `historyFiles` swallows every error
+ * and returns an empty list. So "the disk did not answer" and "nothing was ever
+ * configured here" arrived as the same value — and the caller treated that value
+ * as permission to seed example profiles over the top.
+ *
+ * That is the original data-loss bug (docs/BACKLOG.md §8) one level down:
+ * absence of evidence read as evidence of absence. It cost a restored config on
+ * 2026-09-04, when the plugin started a minute after a reboot, reported
+ * "first run", and re-imported profiles.yaml over four recovered profiles —
+ * with the mirror sitting on disk the whole time, readable a few minutes later.
+ *
+ * Boot is precisely when a transient read failure is most likely, and precisely
+ * when this runs.
+ *
+ * @returns {'yes'|'no'|'unknown'}
+ */
+export function configuredState({
+  path = BACKUP_PATH,
+  dir = HISTORY_DIR,
+  stat = statSync,
+  list = readdirSync,
+} = {}) {
+  const probe = (target) => {
+    try {
+      stat(target);
+      return 'yes';
+    } catch (err) {
+      // Only "it is definitely not there" counts as a no. Anything else means
+      // the question went unanswered.
+      return err?.code === 'ENOENT' ? 'no' : 'unknown';
+    }
+  };
+
+  const mirror = probe(path);
+  if (mirror === 'yes') return 'yes';
+
+  let generations = 'no';
+  try {
+    const found = list(dir).some((f) => f.startsWith('settings-') && f.endsWith('.json'));
+    generations = found ? 'yes' : 'no';
+  } catch (err) {
+    generations = err?.code === 'ENOENT' ? 'no' : 'unknown';
+  }
+  if (generations === 'yes') return 'yes';
+
+  return mirror === 'unknown' || generations === 'unknown' ? 'unknown' : 'no';
+}
+
+/**
  * Has this plugin ever been configured on this machine?
  *
- * The question `getGlobalSettings()` cannot answer, and the whole reason the
- * data loss happened: an empty store looks identical to a fresh install, so the
- * importer treated a wipe as a first run and seeded over the top. This marker
- * lives outside the thing that gets lost, which is the only property that
- * matters about it.
+ * "Could not tell" answers YES. Being wrong in that direction means declining to
+ * seed a genuinely fresh install until the next start, which costs a person one
+ * restart. Being wrong in the other direction destroys their configuration.
  */
-export function hasBeenConfigured({ path = BACKUP_PATH, dir = HISTORY_DIR } = {}) {
-  return existsSync(path) || historyFiles({ dir }).length > 0;
+export function hasBeenConfigured(opts) {
+  return configuredState(opts) !== 'no';
 }
 
 /** The most recent usable backup, or null. Never throws. */
@@ -195,7 +252,10 @@ export function readBackup({ path = BACKUP_PATH, dir = HISTORY_DIR } = {}) {
  */
 export function writeBackup(
   blob,
-  { path = BACKUP_PATH, dir = HISTORY_DIR, now = () => new Date(), checkpoint = false, reason = null } = {},
+  {
+    path = BACKUP_PATH, dir = HISTORY_DIR, now = () => new Date(),
+    checkpoint = false, reason = null, shrink = false,
+  } = {},
 ) {
   if (!isWorthKeeping(blob)) return { written: false, reason: 'nothing worth keeping' };
 
@@ -209,16 +269,31 @@ export function writeBackup(
   // Has anything actually changed since the last mirror? An unchanged write is
   // still a healthy write, it just does not deserve a generation.
   let changed = true;
+  let previous = null;
   try {
-    const previous = JSON.parse(readFileSync(path, 'utf8'));
+    previous = JSON.parse(readFileSync(path, 'utf8'));
     changed = JSON.stringify(previous?.settings) !== JSON.stringify(blob);
   } catch {
     changed = true; // missing, or unreadable and therefore not a copy of this
   }
 
-  // The mirror is written on EVERY call. It is the crash-recovery copy and its
-  // whole job is to be current — about 1 KB against a local disk, against the
-  // window that lost everything twice.
+  // The mirror must not be DOWNGRADED without someone saying so.
+  //
+  // "Never mirror a wipe" was only ever enforced for a total wipe: isWorthKeeping
+  // asks whether there is anything at all, so four profiles collapsing to two
+  // sailed straight through and overwrote the good copy. That is the same
+  // partial-loss blind spot the restore offer had, and it is far more dangerous
+  // here — the offer merely stays quiet, whereas this destroys the copy that
+  // would have undone the loss.
+  //
+  // A restore or an explicit save passes `shrink: true`, because deliberately
+  // deleting a profile is a legitimate reason for the mirror to get smaller.
+  const previousBlob = previous?.settings;
+  const lost = countsOf(previousBlob).total - countsOf(blob).total;
+  if (!shrink && previousBlob && lost > 0) {
+    return { written: false, reason: `refusing to shrink the mirror by ${lost} record(s)`, lost };
+  }
+
   writeAtomic(path, body);
 
   // A generation is a different thing with a different cadence, and only

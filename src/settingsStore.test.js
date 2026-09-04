@@ -17,7 +17,9 @@ describe('every write is mirrored', () => {
     const backup = vi.fn(() => ({ written: true }));
     const s = store();
     await saveGlobalSettings(s, { profiles: [{ id: 'brian' }] }, { backup });
-    expect(backup).toHaveBeenCalledWith({ profiles: [{ id: 'brian' }] });
+    // shrink: true — an explicit save is intentional, so the mirror must accept
+    // a smaller blob. Only the startup snapshot refuses one.
+    expect(backup).toHaveBeenCalledWith({ profiles: [{ id: 'brian' }] }, { shrink: true });
     expect(s.read().profiles).toHaveLength(1);
   });
 
@@ -42,42 +44,43 @@ describe('recovery at startup', () => {
     expect(s.read()).toEqual({});
   });
 
-  it('offers rather than restores when the store is empty but has run before', async () => {
-    // The 2026-09-02 incident: StreamDeck.exe force-killed, in-memory global
-    // settings never flushed, getGlobalSettings() back empty six seconds later.
+  it('fills an EMPTY store from the backup, because that overwrites nothing', async () => {
+    // A PC restart on 2026-09-04 brought Stream Deck back with nothing. Leaving
+    // it empty meant the deck stayed broken until an adult opened a browser,
+    // which is not a thing a child at the rig can do.
     //
-    // An earlier version put the backup back automatically here. Restoring is
-    // now the editor's offer to make and the user's to accept, so this reports
-    // and writes NOTHING — the deck's broken keys are the other half of the
-    // prompt.
+    // This does not break "never overwrite without asking": an empty store has
+    // no configuration to overwrite. PARTIAL loss still only ever offers.
     const s = store({});
     const result = await assessStore({
       settings: s,
       configured: () => true,
       read: () => ({
-        savedAt: '2026-09-02T04:30:00.000Z',
+        savedAt: '2026-09-04T02:19:01.540Z',
         source: 'settings.backup.json',
-        settings: { profiles: [{ id: 'brian' }, { id: 'ethan' }, { id: 'carter' }, { id: 'guest' }] },
+        settings: {
+          profiles: [{ id: 'brian' }, { id: 'ethan' }, { id: 'carter' }, { id: 'guest' }],
+          modes: [{ id: 'vr' }],
+        },
       }),
       backup: vi.fn(),
     });
-    expect(result.restored).toBe(false);
-    expect(result.degraded).toBe(true);
+    expect(result.restored).toBe(true);
     expect(result.count).toBe(4);
-    expect(result.savedAt).toBe('2026-09-02T04:30:00.000Z');
-    expect(s.read()).toEqual({});
+    expect(s.read().profiles.map((p) => p.id)).toEqual(['brian', 'ethan', 'carter', 'guest']);
+    expect(s.read().modes).toHaveLength(1);
   });
 
-  it('logs where to go, since nothing happens on its own', async () => {
+  it('says what it did, since it did it without being asked', async () => {
     const log = vi.fn();
     await assessStore({
       settings: store({}),
       configured: () => true,
-      read: () => ({ savedAt: '2026-09-02T04:30:00.000Z', settings: { profiles: [{ id: 'a' }] } }),
+      read: () => ({ savedAt: '2026-09-04T02:19:01.540Z', settings: { profiles: [{ id: 'a' }] } }),
       backup: vi.fn(),
       log,
     });
-    expect(log.mock.calls.join(' ')).toMatch(/open the editor/i);
+    expect(log.mock.calls.join(' ')).toMatch(/store was empty — restored/i);
   });
 
   it('says so loudly when it knows data was lost and cannot get it back', async () => {
