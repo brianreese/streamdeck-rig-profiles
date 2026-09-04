@@ -375,7 +375,7 @@ Each profile therefore needs its own trigger game, each with that profile's
 preset set as the game default. Any game works — including ones with dozens of
 other presets bound — because the default slot is single-occupancy.
 
-## 8. Profiles were lost — twice (FIXED 2026-09-02)
+## 8. Profiles were lost — three times (seed removed 2026-09-04)
 
 **First occurrence, ~2026-08-28.** After a Windows restart the plugin came back
 with only "Brian" and "Kai", the two profiles in `config/profiles.yaml`.
@@ -449,6 +449,55 @@ The profile *contents* turned out to be reconstructable, because every
 value per profile. Colours, avatars and the Govee API key were never logged and
 are not guessed; Guest's pedal config never verified cleanly and is left out
 rather than invented.
+
+### Third occurrence, 2026-09-04 — and the seed is gone
+
+A PC restart. The plugin started a minute later, reported `first run`, and
+re-imported profiles.yaml over four freshly recovered profiles and five Modes.
+
+The guard was there and answered wrongly. `existsSync` returns false for EPERM
+and EBUSY exactly as it does for ENOENT, and `historyFiles` caught every error
+and returned `[]` — so "the disk did not answer" and "nothing was ever
+configured here" arrived as one value, and that value authorised the re-seed.
+The same absence-of-evidence bug as the first occurrence, one level down, and
+failing OPEN at boot, which is when a transient read failure is most likely.
+`configuredState()` now returns yes / no / unknown, and unknown counts as
+configured: wrong that way costs one restart, wrong the other way costs the
+configuration.
+
+Two follow-on bugs made a recoverable loss look unrecoverable:
+
+- `getBackupOffer` compared against the NEWEST generation, which was the startup
+  snapshot taken moments after the loss. It compared two profiles against two,
+  concluded nothing was wrong, and stayed silent while the mirror beside it held
+  four profiles and five Modes. The editor showing nothing reads as "there are
+  no backups", not "I looked at the wrong one". It now scores every candidate —
+  mirror and generations — and offers the richest.
+- The mirror had no protection against a PARTIAL downgrade. `isWorthKeeping`
+  only ever asked whether there was anything at all, so four profiles collapsing
+  to two would overwrite the good copy. An explicit save may shrink the mirror;
+  the startup snapshot, which cannot tell loss from intent, may not.
+
+### The seed is removed entirely (2026-09-04)
+
+`src/migrate.js`, `src/configLoader.js` (already dead — nothing imported it),
+`config/profiles.yaml.template`, and the template copy in `ensureConfig` are all
+deleted. `ensureConfig` now creates directories and no data, and returns nothing,
+because there is no first run left to report.
+
+The reasoning, from the engineer: a profile names this rig's specific hardware —
+a Pit House preset by uuid, a wheelbase setup slot, a Govee scene by name — so a
+canned profile cannot be right for anyone, and there is no way to know what
+hardware someone has. It was never a useful feature. What it did reliably was
+overwrite real configuration: **all three losses recorded here ran through that
+importer.**
+
+Deliberate YAML import survives, because it is user-initiated: drop a file on the
+restore zone, preview what it contains, confirm. `configConvert.js` exists for
+exactly that path, and the YAML export is unchanged.
+
+A fresh install now starts empty and the editor asks for the first profile, which
+is the honest state for software that cannot know your hardware.
 
 ### Still open
 

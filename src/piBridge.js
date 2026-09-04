@@ -93,9 +93,8 @@ export function profilesToYaml(globals) {
     profiles,
     ...(modes.length ? { modes } : {}),
     settings: {
-      // Kept snake_case because every existing profiles.yaml and the shipped
-      // template spell it this way, and an export that cannot be re-imported is
-      // not an export.
+      // Kept snake_case because every YAML anyone already has spells it this
+      // way, and an export that its own restore cannot read is not an export.
       default_profile: globals?.settings?.defaultProfile ?? profiles[0]?.id ?? null,
       // Everything else comes from what providers declare, under the key they
       // declared. Listing these by hand is how mozaClosePitHouse,
