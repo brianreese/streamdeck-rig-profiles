@@ -224,10 +224,11 @@ export function restoreAvatars(avatars, { dir = AVATAR_DIR, save = saveAvatar } 
 /** The settings blob a restore should store, given what was dropped in. */
 export function settingsFromRestore(inspected, current) {
   if (inspected.kind === 'bundle') {
-    // importedFrom rides along deliberately. Without it the next start sees
-    // profiles present but the YAML hash not matching, and re-imports
-    // profiles.yaml straight over the restore — a restore that undoes itself
-    // on the next restart.
+    // Taken verbatim, importedFrom included. That field used to be
+    // load-bearing — without it a restore re-imported profiles.yaml over itself
+    // on the next start — and is now inert, because the importer is gone. It
+    // still rides along so a bundle written before that removal restores to
+    // exactly the blob it recorded.
     return { ...inspected.parsed.settings };
   }
 

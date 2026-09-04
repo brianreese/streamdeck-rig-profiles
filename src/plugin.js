@@ -3,10 +3,8 @@
 // Startup sequence:
 //   1. ensureConfig()      — first-run setup; creates the shared state dir
 //   2. assessStore()       — notice, and report, if Stream Deck lost them
-//   3. migrateIfNeeded()   — import legacy profiles.yaml into global settings
-//                            the first time, so existing configs survive
-//   4. registerAction()    — wire actions before connecting
-//   5. streamDeck.connect()
+//   3. registerAction()    — wire actions before connecting
+//   4. streamDeck.connect()
 //
 // Profiles live in Stream Deck global settings, not on disk. YAML remains
 // available as an import/export format (see configLoader) but is no longer the
@@ -18,7 +16,6 @@ import streamDeck from '@elgato/streamdeck';
 import { ensureConfig } from './setup.js';
 import { ProfileKey } from './actions/profileKey.js';
 import { ModeKey } from './actions/modeKey.js';
-import { migrateIfNeeded } from './migrate.js';
 import { assessStore } from './settingsStore.js';
 import { configuredState } from './settingsBackup.js';
 import { notify } from './notify.js';
@@ -77,9 +74,4 @@ assessStore({ settings: streamDeck.settings, log: (m) => streamDeck.logger.warn(
   })
   .catch((err) => {
     streamDeck.logger.error(`[plugin] settings assessment failed: ${err.stack ?? err.message}`);
-  })
-  .then(() =>
-    migrateIfNeeded().catch((err) => {
-      streamDeck.logger.warn(`[plugin] profile migration skipped: ${err.message}`);
-    }),
-  );
+  });

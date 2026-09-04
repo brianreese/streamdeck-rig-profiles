@@ -395,11 +395,10 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         // question — `storedModes` reads either, and everything writes `modes`.
         scenes: undefined,
         settings: { ...current?.settings, ...msg.settings },
-        // Keep the import marker exactly as it was. It records which YAML we
-        // last imported, so an untouched profiles.yaml still matches and these
-        // edits survive the next start; genuinely editing the YAML changes the
-        // hash and lets the file win again. Clearing it here made every
-        // restart look like a new file and silently re-imported over the top.
+        // Vestigial: nothing imports profiles.yaml any more, so this hash
+        // controls nothing. Carried through rather than dropped so a blob
+        // written before the importer was removed round-trips unchanged, and a
+        // backup taken then still restores byte-for-byte.
         importedFrom: current?.importedFrom ?? null,
       });
       return { request, ok: true, count: msg.profiles.length, modeCount: modes.length };

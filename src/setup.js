@@ -1,28 +1,35 @@
-// setup.js — first-run setup helper.
+// setup.js — directory setup at plugin startup.
 //
-// Call ensureConfig() once at plugin startup (before configLoader.init()).
-// If config/profiles.yaml doesn't exist yet, it is copied from the bundled
-// template so the user has a ready-to-edit starting point.
+// Call ensureConfig() once at startup. It creates directories, and nothing
+// else. It does NOT create any profiles.
+//
+// It used to seed config/profiles.yaml from a bundled template, which an
+// importer then read into global settings on every start. Both are gone. A
+// profile names this rig's specific hardware — a Pit House preset by uuid, a
+// wheelbase setup slot, a Govee scene by name — so a canned one cannot be
+// right for anybody, and it was never possible to know what hardware a person
+// has. What the seed did reliably was overwrite real configuration: all three
+// losses recorded in docs/BACKLOG.md §8 ran through that importer.
+//
+// A fresh install now starts empty, and the editor asks for the first profile.
 //
 // Also ensures the shared state directory used by both plugins exists.
 //
 // Usage (plugin startup):
 //   import { ensureConfig } from './setup.js';
-//   const firstRun = ensureConfig();
+//   ensureConfig();
 //
 // Usage (tests): pass path overrides so tests never touch the real config dir.
-//   ensureConfig({ profilesPath: tmpProfilesPath, sharedStateDir: tmpSharedDir });
+//   ensureConfig({ sharedStateDir: tmpSharedDir, pluginDataDir: tmpDataDir });
 
-import { existsSync, copyFileSync, mkdirSync } from 'fs';
+import { mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import os from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const _CONFIG_DIR    = resolve(__dirname, '..', 'config');
-const _TEMPLATE_PATH = resolve(_CONFIG_DIR, 'profiles.yaml.template');
-const _PROFILES_PATH = resolve(_CONFIG_DIR, 'profiles.yaml');
+const _CONFIG_DIR = resolve(__dirname, '..', 'config');
 
 // Shared state directory written by this plugin and read by streamdeck-ac-launcher.
 // On macOS the conventional equivalent of %APPDATA% is ~/Library/Application Support.
@@ -50,26 +57,24 @@ const PLUGIN_DATA_DIR = process.platform === 'win32'
 // ---------------------------------------------------------------------------
 
 /**
- * Run once at plugin startup.
+ * Run once at plugin startup. Creates directories, and creates no data.
  *
  * - Creates the config directory if it doesn't exist.
- * - Copies profiles.yaml.template → profiles.yaml on first run.
  * - Creates the cross-plugin shared state directory.
  * - Creates the plugin-private data directory (for caches, state.json, etc.).
  *
- * Returns true if the template was copied (first run), false otherwise.
+ * There is no first run to detect any more, and nothing to report, so this
+ * returns nothing. It used to copy a template into config/profiles.yaml and
+ * return whether it had — see the note at the top of this file for why seeding
+ * is gone.
  *
  * @param {object} [options]           - Optional path overrides (primarily for testing).
  * @param {string} [options.configDir]      - Override the config/ directory path.
- * @param {string} [options.templatePath]   - Override the template file path.
- * @param {string} [options.profilesPath]   - Override the profiles.yaml output path.
  * @param {string} [options.sharedStateDir] - Override the shared state directory path.
  * @param {string} [options.pluginDataDir]  - Override the plugin-private data directory path.
  */
 export function ensureConfig({
   configDir    = _CONFIG_DIR,
-  templatePath = _TEMPLATE_PATH,
-  profilesPath = _PROFILES_PATH,
   sharedStateDir = SHARED_STATE_DIR,
   pluginDataDir  = PLUGIN_DATA_DIR,
 } = {}) {
@@ -77,44 +82,20 @@ export function ensureConfig({
   //    but guard against unusual install layouts).
   mkdirSync(configDir, { recursive: true });
 
-  // Also ensure the directory for profilesPath exists, since it may point
-  // outside configDir when overridden (e.g. in tests).
-  const profilesDir = dirname(profilesPath);
-  mkdirSync(profilesDir, { recursive: true });
-  // 2. Auto-copy template if profiles.yaml is absent.
-  let firstRun = false;
-  if (!existsSync(profilesPath)) {
-    if (!existsSync(templatePath)) {
-      console.error(
-        '[setup] profiles.yaml.template not found — cannot create default config. ' +
-        'Please restore the template from the repo or create config/profiles.yaml manually.'
-      );
-    } else {
-      copyFileSync(templatePath, profilesPath);
-      firstRun = true;
-      console.log(
-        '[setup] First run detected — created config/profiles.yaml from template. ' +
-        'Open the file and set your Govee API key, FanaLab hotkeys, and ' +
-        'Stream Deck profile names before switching profiles.'
-      );
-    }
-  }
-
-  // 3. Ensure shared state directory exists so both plugins can read/write it.
+  // 2. Ensure shared state directory exists so both plugins can read/write it.
   try {
     mkdirSync(sharedStateDir, { recursive: true });
   } catch (err) {
     console.warn(`[setup] Could not create shared state directory "${sharedStateDir}": ${err.message}`);
   }
 
-  // 4. Ensure plugin-private data directory exists (govee cache, state.json, etc.).
+  // 3. Ensure plugin-private data directory exists (govee cache, state.json, etc.).
   try {
     mkdirSync(pluginDataDir, { recursive: true });
   } catch (err) {
     console.warn(`[setup] Could not create plugin data directory "${pluginDataDir}": ${err.message}`);
   }
 
-  return firstRun;
 }
 
 /**
