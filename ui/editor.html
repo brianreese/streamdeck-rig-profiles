@@ -932,6 +932,7 @@
 
       let pendingRestore = null;
       let dismissedOffer = false;
+      let offered = null;
 
       /**
        * Preview, then confirm. Always both.
@@ -1012,6 +1013,7 @@
         const bar = $('offerBar');
         if (!bar) return;
         const r = await ask('getBackupOffer');
+        offered = r?.newest ?? null;
         if (!r?.ok || !r.degraded) { bar.hidden = true; return; }
         bar.hidden = false;
         bar.innerHTML = `
@@ -3144,7 +3146,14 @@
       // The offer bar lives outside #pane, so it needs its own handler.
       $('offerBar').addEventListener('click', async (e) => {
         if (e.target.id === 'offerRestore') {
-          await doRestore({ source: 'mirror' }, 'the latest backup');
+          // Restore the copy the banner described. It is not always the
+          // mirror: the best available may be an older generation.
+          await doRestore(
+            offered?.source === 'generation'
+              ? { source: 'generation', id: offered.id }
+              : { source: 'mirror' },
+            'the backup',
+          );
         }
         if (e.target.id === 'offerDismiss') {
           // Dismissal lasts for this page only. Reopening the editor while the

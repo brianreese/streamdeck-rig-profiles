@@ -67,6 +67,9 @@ export function checkpointNow(blob, reason, { write = writeBackup, log = () => {
   try {
     const result = write(blob, { checkpoint: true, reason });
     if (result?.generation) log(`[backup] checkpoint written (${reason})`);
+    // A refusal is the guard doing its job, and saying nothing about it is how
+    // a protected loss looks identical to an ordinary start.
+    else if (result && !result.written) log(`[backup] checkpoint (${reason}) NOT written: ${result.reason}`);
     return result;
   } catch (err) {
     log(`[backup] checkpoint failed: ${err.message}`);

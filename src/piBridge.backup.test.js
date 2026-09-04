@@ -254,3 +254,41 @@ describe('the preview agrees with the result', () => {
     expect(r.summary.secretsToReenter).toEqual(['Govee API key']);
   });
 });
+
+describe('the offer picks the richest copy, not the newest', () => {
+  it('does not let a post-loss snapshot hide a good mirror', async () => {
+    // 2026-09-04. The store lost everything on a PC restart; the plugin then
+    // took a startup snapshot of the WRECKAGE, which became the newest
+    // generation. The offer looked at that one, compared two profiles against
+    // two, and stayed silent — while the mirror beside it held four profiles
+    // and five Modes. The editor showed nothing, which reads as "there are no
+    // backups" rather than "I looked at the wrong one".
+    writeBackup(full(), { checkpoint: true, reason: 'settled' });
+    writeBackup(
+      { profiles: [profile('brian'), profile('kai')], scenes: [] },
+      { checkpoint: true, reason: 'startup', shrink: true },
+    );
+
+    const r = await send({ request: 'getBackupOffer' },
+      fakeSettings({ profiles: [profile('brian'), profile('kai')] }));
+
+    expect(r.degraded).toBe(true);
+    expect(r.newest.profiles).toBe(4);
+    expect(r.newest.modes).toBe(1);
+  });
+
+  it('names which copy it is offering, so the button restores that one', async () => {
+    writeBackup(full(), { checkpoint: true });
+    const r = await send({ request: 'getBackupOffer' }, fakeSettings({ profiles: [] }));
+    expect(['mirror', 'generation']).toContain(r.newest.source);
+    if (r.newest.source === 'generation') expect(r.newest.id).not.toMatch(/[\/]/);
+  });
+
+  it('counts Modes toward how much was lost', async () => {
+    // Same number of profiles, five fewer Modes, is still a loss.
+    writeBackup(full(), { checkpoint: true });
+    const r = await send({ request: 'getBackupOffer' },
+      fakeSettings({ profiles: full().profiles, modes: [] }));
+    expect(r.degraded).toBe(true);
+  });
+});

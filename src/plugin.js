@@ -56,6 +56,7 @@ assessStore({ settings: streamDeck.settings, log: (m) => streamDeck.logger.warn(
     // thing anyone wants to know.
     streamDeck.logger.info(
       `[plugin] started — ${result?.reason ?? 'state unknown'}` +
+        ` — ${result?.counts?.profiles ?? '?'} profile(s), ${result?.counts?.modes ?? '?'} Mode(s)` +
         ` (backups: ${configuredState()})` +
         (result?.harvested?.length ? `, secrets moved: ${result.harvested.join(', ')}` : '') +
         (result?.degraded ? ' — RESTORE AVAILABLE, open the editor' : ''),

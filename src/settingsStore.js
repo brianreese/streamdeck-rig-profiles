@@ -115,7 +115,15 @@ export async function assessStore({
     } catch (err) {
       log(`[backup] mirror failed: ${err.message}`);
     }
-    return { restored: false, reason: 'store healthy', harvested };
+    return {
+      restored: false,
+      reason: 'store healthy',
+      harvested,
+      counts: {
+        profiles: blob?.profiles?.length ?? 0,
+        modes: (blob?.modes ?? blob?.scenes ?? []).length,
+      },
+    };
   }
 
   if (!configured()) return { restored: false, reason: 'first run' };
@@ -148,6 +156,10 @@ export async function assessStore({
       reason: 'store was empty, filled from backup',
       count: filled,
       savedAt: found.savedAt,
+      counts: {
+        profiles: filled,
+        modes: (found.settings.modes ?? found.settings.scenes ?? []).length,
+      },
     };
   }
 

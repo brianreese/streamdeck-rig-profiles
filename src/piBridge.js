@@ -634,34 +634,49 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
       const have = current?.profiles?.length ?? 0;
       const haveModes = storedModes(current).length;
 
-      let newest = null;
+      // Offer the RICHEST copy available, not the most recent one.
+      //
+      // This used to take the newest generation and stop. On 2026-09-04 that
+      // newest generation was the startup snapshot taken moments AFTER the loss
+      // — two example profiles — so the offer compared two against two, decided
+      // nothing was wrong, and stayed silent while the mirror sat next to it
+      // holding four profiles and five Modes. The editor showed nothing, which
+      // reads as "there are no backups" rather than "I looked at the wrong one".
+      //
+      // Newest is the wrong question. What a person wants is the best thing that
+      // can be put back; ties go to the newer copy.
+      const candidates = [];
+      const mirror = readBackup();
+      if (mirror) {
+        candidates.push({
+          source: 'mirror',
+          id: null,
+          savedAt: mirror.savedAt ?? null,
+          profiles: mirror.settings?.profiles?.length ?? 0,
+          modes: storedModes(mirror.settings).length,
+        });
+      }
       for (const file of historyFiles()) {
         try {
           const doc = JSON.parse(readFileSync(file, 'utf8'));
-          newest = {
-            id: file.split(/[\/]/).pop(),
+          candidates.push({
+            source: 'generation',
+            id: file.split(/[\\/]/).pop(),
             savedAt: doc.savedAt ?? null,
             profiles: doc.settings?.profiles?.length ?? 0,
             modes: storedModes(doc.settings).length,
-          };
-          break;
+          });
         } catch {
-          /* try the next generation */
-        }
-      }
-      if (!newest) {
-        const mirror = readBackup();
-        if (mirror) {
-          newest = {
-            id: null,
-            savedAt: mirror.savedAt ?? null,
-            profiles: mirror.settings?.profiles?.length ?? 0,
-            modes: storedModes(mirror.settings).length,
-          };
+          /* a corrupt generation is skipped, not fatal */
         }
       }
 
-      const degraded = Boolean(newest) && (newest.profiles > have || newest.modes > haveModes);
+      const score = (c) => c.profiles + c.modes;
+      candidates.sort((a, b) => score(b) - score(a)
+        || String(b.savedAt ?? '').localeCompare(String(a.savedAt ?? '')));
+
+      const newest = candidates[0] ?? null;
+      const degraded = Boolean(newest) && score(newest) > have + haveModes;
       return { request, ok: true, degraded, have, haveModes, newest };
     }
 
