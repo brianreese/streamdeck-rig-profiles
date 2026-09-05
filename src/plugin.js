@@ -17,7 +17,7 @@ import { ensureConfig } from './setup.js';
 import { ProfileKey } from './actions/profileKey.js';
 import { ModeKey } from './actions/modeKey.js';
 import { assessStore } from './settingsStore.js';
-import { configuredState } from './settingsBackup.js';
+import { configuredState, historyFiles, readBackup, HISTORY_DIR } from './settingsBackup.js';
 import { notify } from './notify.js';
 
 // An uncaught rejection here kills the plugin process and Stream Deck silently
@@ -58,6 +58,28 @@ assessStore({ settings: streamDeck.settings, log: (m) => streamDeck.logger.warn(
         (result?.harvested?.length ? `, secrets moved: ${result.harvested.join(', ')}` : '') +
         (result?.degraded ? ' — RESTORE AVAILABLE, open the editor' : ''),
     );
+
+    // Where the backups actually are, and what they hold, from inside the
+    // running process.
+    //
+    // Every incident so far has been diagnosed afterwards from file timestamps
+    // and guesswork about which directory the plugin resolved. One line at
+    // startup settles it: if a future reboot loses the config again, this says
+    // what the plugin could see at the moment it mattered.
+    try {
+      const generations = historyFiles();
+      const mirror = readBackup();
+      streamDeck.logger.info(
+        `[backup] ${HISTORY_DIR} — ${generations.length} generation(s); ` +
+          (mirror
+            ? `mirror ${mirror.settings?.profiles?.length ?? 0} profile(s), ` +
+              `${(mirror.settings?.modes ?? mirror.settings?.scenes ?? []).length} Mode(s), ` +
+              `saved ${mirror.savedAt}`
+            : 'no usable mirror'),
+      );
+    } catch (err) {
+      streamDeck.logger.error(`[backup] could not report state: ${err.message}`);
+    }
 
     // Nothing is restored automatically. The toast exists because the deck's
     // own broken keys are the other half of the prompt, and a person seeing
