@@ -8,13 +8,19 @@
 //   %APPDATA%\streamdeck-rig-shared\rig-flags.json
 //   ~/Library/Application Support/streamdeck-rig-shared/rig-flags.json
 //
-//   { "version": 1, "flags": { "display": "vr" }, "updated": "<ISO-8601>" }
+//   { "version": 1, "flags": { "vr": true }, "updated": "<ISO-8601>" }
+//
+// Flag VALUES are booleans, and flag NAMES are chosen by whoever configures the
+// provider — `vr` is its placeholder, not a reserved word. An earlier version
+// stored arbitrary strings (`display: "vr"`), which read well until you tried
+// to switch one off; see providers/stateFlag.js for why that was abandoned.
 //
 // The point of this file is that NOTHING here knows who reads it, and nothing
 // that reads it knows about this plugin. A Playnite plugin that launches VR
-// titles differently reads `flags.display`; if this plugin is not installed, a
-// batch file writing the same JSON works identically. The interface is the
-// file, not either program — which is why neither imports the other.
+// titles differently reads the boolean flag by whatever name was configured;
+// if this plugin is not installed, a batch file writing the same JSON works
+// identically. The interface is the file, not either program — which is why
+// neither imports the other.
 //
 // Anyone may write it. This plugin is one possible author, not the owner.
 
