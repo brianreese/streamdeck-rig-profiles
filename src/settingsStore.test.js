@@ -44,13 +44,14 @@ describe('recovery at startup', () => {
     expect(s.read()).toEqual({});
   });
 
-  it('fills an EMPTY store from the backup, because that overwrites nothing', async () => {
-    // A PC restart on 2026-09-04 brought Stream Deck back with nothing. Leaving
-    // it empty meant the deck stayed broken until an adult opened a browser,
-    // which is not a thing a child at the rig can do.
+  it('reports an empty store without touching it', async () => {
+    // The 2026-09-02 and 09-04 shape: Stream Deck came back holding nothing.
     //
-    // This does not break "never overwrite without asking": an empty store has
-    // no configuration to overwrite. PARTIAL loss still only ever offers.
+    // An earlier version restored here automatically, reasoning that filling a
+    // vacuum overwrites nothing. Overruled: always confirm a write, never write
+    // without consent — and "there was nothing there anyway" is the plugin
+    // deciding on the user's behalf what counts as data. The deck stays broken
+    // until someone opens the editor and says yes, which is the accepted cost.
     const s = store({});
     const result = await assessStore({
       settings: s,
@@ -65,13 +66,13 @@ describe('recovery at startup', () => {
       }),
       backup: vi.fn(),
     });
-    expect(result.restored).toBe(true);
+    expect(result.restored).toBe(false);
+    expect(result.degraded).toBe(true);
     expect(result.count).toBe(4);
-    expect(s.read().profiles.map((p) => p.id)).toEqual(['brian', 'ethan', 'carter', 'guest']);
-    expect(s.read().modes).toHaveLength(1);
+    expect(s.read()).toEqual({});
   });
 
-  it('says what it did, since it did it without being asked', async () => {
+  it('points at the editor, since nothing happens on its own', async () => {
     const log = vi.fn();
     await assessStore({
       settings: store({}),
@@ -80,7 +81,7 @@ describe('recovery at startup', () => {
       backup: vi.fn(),
       log,
     });
-    expect(log.mock.calls.join(' ')).toMatch(/store was empty — restored/i);
+    expect(log.mock.calls.join(' ')).toMatch(/open the editor/i);
   });
 
   it('says so loudly when it knows data was lost and cannot get it back', async () => {

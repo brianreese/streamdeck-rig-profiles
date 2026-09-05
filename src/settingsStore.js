@@ -10,7 +10,7 @@
 // mirror that answers reads is a second source of truth and will eventually
 // disagree with the first.
 
-import { readBackup, writeBackup, hasBeenConfigured, isWorthKeeping } from './settingsBackup.js';
+import { readBackup, writeBackup, hasBeenConfigured } from './settingsBackup.js';
 import { harvestSecrets } from './secrets.js';
 import { noteWrite, checkpointNow } from './backupSchedule.js';
 import { secretSettingKeys } from './providers/index.js';
@@ -70,14 +70,14 @@ export async function saveGlobalSettings(
  * Runs once before anything else looks at global settings. Three cases:
  *
  *   store has content          -> harvest secrets, checkpoint; the normal path
- *   store EMPTY, backup exists -> fill it. Nothing is being overwritten.
+ *   store empty, backup exists -> report it. Restoring is the editor's offer
+ *                                 to make and the user's to accept.
  *   store empty, no backup     -> genuinely a fresh install, or the disk did
  *                                 not answer. Either way, leave it alone.
  *
- * Filling an empty store is not a violation of "never overwrite without
- * asking" — there is nothing there to overwrite, and after a PC restart the
- * alternative is a deck that stays broken until an adult opens a browser.
- * PARTIAL loss is different and still only ever offers, in the editor.
+ * This function never writes configuration. Not when the store is degraded, and
+ * not when it is empty — see the note further down for why the empty case is
+ * not an exception.
  *
  * @returns {Promise<{ restored: boolean, degraded?: boolean, reason: string, count?: number }>}
  */
@@ -136,36 +136,18 @@ export async function assessStore({
     return { restored: false, degraded: true, reason: 'no usable backup' };
   }
 
-  // Filling a vacuum is not overwriting.
+  // A restore is OFFERED, never taken. No exceptions, including this one.
   //
-  // The rule is "never overwrite configuration without asking", and an EMPTY
-  // store has no configuration to overwrite — so restoring into one breaks no
-  // promise. This matters because the empty case is not rare after all: Stream
-  // Deck came back from a PC restart on 2026-09-04 having lost everything, and
-  // leaving it empty meant the deck stayed broken until someone opened an
-  // editor. A child at the rig cannot do that.
+  // An earlier version restored automatically when the store came back EMPTY,
+  // on the argument that filling a vacuum overwrites nothing and that a child
+  // at the rig cannot open a browser. That was overruled: the rule is always
+  // confirm a write, never write without consent, and "there was nothing there
+  // anyway" is the plugin deciding on the user's behalf what counts as data.
   //
-  // PARTIAL loss still only ever offers. That is where a restore would genuinely
-  // replace something a person might have meant, and the editor asks.
-  if (!current?.profiles?.length && !current?.modes?.length && isWorthKeeping(found.settings)) {
-    await settings.setGlobalSettings(found.settings);
-    const filled = found.settings.profiles?.length ?? 0;
-    log(`[backup] store was empty — restored ${filled} profile(s) from ${found.source}`);
-    return {
-      restored: true,
-      reason: 'store was empty, filled from backup',
-      count: filled,
-      savedAt: found.savedAt,
-      counts: {
-        profiles: filled,
-        modes: (found.settings.modes ?? found.settings.scenes ?? []).length,
-      },
-    };
-  }
-
-  // Reached only if the backup exists but holds nothing worth restoring, which
-  // readBackup already screens for. Kept as a belt-and-braces report rather than
-  // a silent fall-through.
+  // The cost is accepted deliberately. After a loss the deck stays broken until
+  // someone opens the editor and says yes, and the toast is what points them
+  // there. A broken deck is visible and recoverable; an unasked-for write is
+  // neither.
   const count = found.settings?.profiles?.length ?? 0;
   log(
     `[backup] global settings are empty but a backup from ${found.savedAt} holds ` +

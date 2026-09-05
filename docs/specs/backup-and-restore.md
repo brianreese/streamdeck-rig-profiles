@@ -1,6 +1,8 @@
 # Spec — Backup and restore
 
-- **Status:** Implemented 2026-09-03 — all five steps shipped; see Delivered below
+- **Status:** Implemented 2026-09-03; amended 2026-09-05 — see Item 3, which
+  settles the empty-store case: always confirm a write, never write without
+  consent, with no exception for a store that looks empty
 - **Date:** 2026-09-02
 - **Revised:** 2026-09-02 — secrets excluded from backups entirely; restore is
   always prompted; adds the secret-field contract that makes both structural
@@ -14,6 +16,7 @@
 | 2. `settingsSchema()`, three hardware toggles declared, export gap closed | Shipped |
 | 3. Bundle format, download buttons, upload + drag-and-drop, preview | Shipped |
 | 4. Version history, restore offer, auto-restore removed | Shipped |
+| — Empty-store auto-fill, added 09-04 and removed 09-05 | Reverted — see Item 3 |
 | 5. Settle-based generations, tiered retention | Shipped |
 
 The Hardware pane still renders its fields by hand rather than from
@@ -218,17 +221,37 @@ unless asked for.
 
 New PI request: `getBackupStatus` → `{ dir, lastSavedAt, generationCount }`.
 
-### 3. Automatic restore — always prompted
+### 3. Automatic restore — always prompted, without exception
 
 **`recoverIfEmpty()` stops writing.** It becomes `assessStore()`: it detects the
 condition, logs it, fires a toast pointing at the editor, and writes nothing.
-Losing data should now be close to impossible, so when it does happen it is
-worth being explicit about rather than papering over. Nothing overwrites
-configuration without being asked.
+Nothing overwrites configuration without being asked.
 
-The failure path is deliberately the ordinary one: the deck shows broken or
-missing buttons, which is a visible prompt in itself. Open the editor and the
-offer is the first thing on screen.
+**This holds even when the store is completely empty.** That case was argued
+both ways and settled on 2026-09-05:
+
+> **The rule is: always confirm a write, never write without consent.**
+
+The counter-argument was that filling an empty store overwrites nothing, so it
+breaks no promise — and that after a reboot the alternative is a deck that stays
+broken until an adult opens a browser, which a child at the rig cannot do. It
+was implemented that way on 2026-09-04 during the third data-loss incident, and
+then removed.
+
+The reason it was removed is worth keeping: *"there was nothing there anyway"* is
+the plugin deciding, on the user's behalf, what counts as data. That judgement is
+exactly what went wrong three times — the seed importer also believed an empty
+store meant nothing was at stake. A rule with an exception for "obviously safe"
+cases is not a rule, and this codebase has now demonstrated twice that the
+plugin's idea of obviously safe was wrong.
+
+The cost is accepted deliberately: after a loss the deck shows broken keys until
+someone opens the editor and confirms. A broken deck is visible and recoverable.
+An unasked-for write is neither.
+
+The failure path is therefore the ordinary one. Broken or missing keys on the
+deck are themselves the prompt; opening the editor puts the offer, dated and
+counted, at the top of the screen.
 
 > ⚠ **This looks like it lost data.** The newest backup is from
 > **2 September, 8:09 pm** and has **4 profiles and 3 Modes**; you currently
@@ -237,19 +260,17 @@ offer is the first thing on screen.
 Dated, counted, dismissible. Restoring takes a checkpoint of the current state
 first, so an unwanted restore is itself undoable.
 
+The offer names the **richest** copy available, not the newest. On 2026-09-04 the
+newest generation was a startup snapshot taken moments after a loss, so an
+offer keyed on recency compared two profiles against two, decided nothing was
+wrong, and stayed silent while the mirror beside it held nine records.
+
 Below it, always available and not only after a disaster, a **Version history**
 list in Settings: each generation by date with its profile and Mode counts, and
-a Restore button per row. That turns the generations that already exist into
-something a person can reach.
+a Restore button per row.
 
-> **Transition note.** Auto-restore is live on this machine today and is the
-> only recovery that exists until this ships. It stays until the editor prompt
-> is built, then is removed in the same change. Removing it first would leave a
-> window with no recovery at all. In the interim it can only fire against a
-> completely empty store, so there is nothing for it to overwrite.
-
-New PI requests: `getBackupOffer` → `{ degraded, newest: { savedAt, profiles, modes } }`,
-`listBackups`, `restoreBackup { source: 'generation', id }`.
+New PI requests: `getBackupOffer` → `{ degraded, have, haveModes, newest }`,
+`listBackups`, `restoreBackup { source: 'generation' | 'mirror' | 'upload', id, content }`.
 
 ### 4. Manual restore — upload and drag-and-drop
 
