@@ -557,9 +557,10 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
     // rather than at boot for the same reason.
     case 'openEditor': {
       try {
-        const { startEditor, openInBrowser } = await import('./editorServer.js');
-        const { url, alreadyRunning } = await startEditor({ settings, logger, onChanged });
-        openInBrowser(url, { logger });
+        // Shared with the deck key (actions/editorKey.js), so the two ways in
+        // cannot start the editor with different services.
+        const { openEditor } = await import('./openEditor.js');
+        const { url, alreadyRunning } = await openEditor({ settings, logger, onChanged });
         // The URL comes back either way: if the browser refuses to launch, it
         // is the one thing that lets the user finish the job by hand.
         return { request, ok: true, url, alreadyRunning };

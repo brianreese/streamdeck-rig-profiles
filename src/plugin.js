@@ -16,6 +16,7 @@ import streamDeck from '@elgato/streamdeck';
 import { ensureConfig } from './setup.js';
 import { ProfileKey } from './actions/profileKey.js';
 import { ModeKey } from './actions/modeKey.js';
+import { EditorKey } from './actions/editorKey.js';
 import { assessStore } from './settingsStore.js';
 import { configuredState, historyFiles, readBackup, HISTORY_DIR } from './settingsBackup.js';
 import { notify } from './notify.js';
@@ -33,6 +34,9 @@ ensureConfig();
 
 streamDeck.actions.registerAction(new ProfileKey());
 streamDeck.actions.registerAction(new ModeKey());
+// A way into the editor that does not involve opening the Stream Deck app,
+// selecting a key and pressing a button in its inspector.
+streamDeck.actions.registerAction(new EditorKey());
 
 streamDeck.connect();
 

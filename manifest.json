@@ -36,6 +36,21 @@
       ],
       "SupportedInMultiActions": true,
       "UUID": "com.rig.profiles.mode"
+    },
+    {
+      "Name": "Open Editor",
+      "UUID": "com.rig.profiles.editor",
+      "Icon": "assets/action-icon",
+      "Tooltip": "Open the rig profiles editor in a browser",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "assets/action-icon"
+        }
+      ],
+      "UserTitleEnabled": false
     }
   ],
   "OS": [
