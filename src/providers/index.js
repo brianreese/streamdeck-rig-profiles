@@ -59,6 +59,7 @@ import govee from './govee.js';
 import apps from './apps.js';
 import moza from './moza.js';
 import stateFlag from './stateFlag.js';
+import aceDriver from './aceDriver.js';
 
 export { STATUS, worstOf, isConfirmed, isProblem } from './status.js';
 
@@ -179,6 +180,7 @@ function registerBuiltins() {
   register(apps);
   register(moza);
   register(stateFlag);
+  register(aceDriver);
 }
 
 registerBuiltins();

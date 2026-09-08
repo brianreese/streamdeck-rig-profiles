@@ -269,6 +269,8 @@ describe('getProviders', () => {
       govee: ['profile', 'mode'],
       apps: ['profile', 'mode'],
       'state-flag': ['profile', 'mode'],
+      // Who is at the rig is a profile's business, and a Mode may set it too.
+      'ace-driver': ['profile', 'mode'],
     });
   });
 
@@ -281,6 +283,8 @@ describe('getProviders', () => {
       govee: false,
       apps: false,
       'state-flag': true,
+      // A deep link has no reply, so it cannot answer this and does not try.
+      'ace-driver': false,
     });
   });
 
