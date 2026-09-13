@@ -53,30 +53,31 @@ and nothing else currently does.
 
 ## Open
 
--  **Fixed 2026-09-13.** The AI Mode key reported
+- `[bug][ampersand-commands]` **Fixed 2026-09-13.** The AI Mode key reported
   *"launched 1, not waiting for them"* on every press and the script never ran.
-  Commands go through , and on Windows that shell is
-  **cmd.exe**, where  is the command SEPARATOR — not PowerShell's call
-  operator. So  asked cmd to run an empty command and got
-  *"& was unexpected at this time"*, exit 1. Proven both ways at a prompt, and by
-  , which has no run at either of the two key presses
-  (12:21:14 and 12:21:47 local) while showing four manual runs the same day.
+  Commands go through `spawn(..., { shell: true })`, and on Windows that shell is
+  **cmd.exe**, where `&` is the command SEPARATOR — not PowerShell's call
+  operator. So `& C:\Users\brian\Development\pc-mode\ai-mode.bat` asked cmd to
+  run an empty command and got *"& was unexpected at this time"*, exit 1. Proven
+  both ways at a prompt, and by `pc-mode/mode.log`, which has no run at either of
+  the two key presses (12:21:14 and 12:21:47 local) while showing four manual
+  runs the same day.
 
-  **Two fixes, because the parse error was the smaller half.**  now
-  refuses a line starting with ,  or  and says why, so the editor catches
-  it at save time; an  *inside* a line is a legitimate cmd chain and is left
-  alone. And a fire-and-forget command no longer reports success the instant
-   returns — that was true of the shell and said nothing about the
-  command. It now gets a 600 ms grace period: still alive means launched, already
-  dead with a non-zero code means . A clean instant
-  exit still counts as a launch, because a launcher that hands off is not a
-  failure.
+  **Two fixes, because the parse error was the smaller half.** `validate()` now
+  refuses a line starting with `&`, `|` or `;` and says why, so the editor
+  catches it at save time; an `&` *inside* a line is a legitimate cmd chain and
+  is left alone. And a fire-and-forget command no longer reports success the
+  instant `spawn` returns — that was true of the SHELL and said nothing about the
+  command, which is why this survived for days with every press looking fine. It
+  now gets a 600 ms grace period: still alive means launched, already dead with a
+  non-zero code means `failed immediately (exit N)`. A clean instant exit still
+  counts as a launch, because a launcher that hands off is not a failure.
 
   **My own doing.** The command string came from the Mode reconstruction on
-  2026-09-04, copied out of a log line that included the . The same mistake
-  as  and the preset name: transcribing what a log printed instead
-  of checking what the code consumes.  is
-  corrected ()
+  2026-09-04, copied out of a log line that printed the `&`. The same mistake as
+  `moza-pedals` and the preset name: transcribing what a log showed instead of
+  checking what the code consumes. `config/profiles.recovered.yaml` is corrected
+  (`done`)
 
 - `[bug][deep-link-steals-focus]` **Mine, introduced with `ace-driver` on
   2026-09-07.** Activating a rig profile brings the Stream Deck app window to the
