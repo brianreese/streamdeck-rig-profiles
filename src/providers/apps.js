@@ -126,31 +126,39 @@ export default {
   },
 
   validate(cfg) {
-    const commands = parseCommands(cfg?.commands);
-    if (!commands.length) return ['apps & scripts is enabled but has no commands'];
+    return parseCommands(cfg?.commands).length ? [] : ['apps & scripts is enabled but has no commands'];
+  },
 
-    // A leading shell operator cannot work, and fails in a way nobody sees.
-    //
-    // Commands run through `spawn(..., { shell: true })`, and on Windows that
-    // shell is cmd.exe. In PowerShell `&` is the call operator and a quoted path
-    // needs it; in cmd it is the command SEPARATOR, so `& thing.bat` asks cmd to
-    // run an empty command and it answers "& was unexpected at this time" with
-    // exit 1.
-    //
-    // This is not hypothetical. The AI Mode key ran
-    // `& C:\Users\brian\Development\pc-mode\ai-mode.bat` for days and reported
-    // "launched 1" every time while nothing happened — cmd started, cmd failed,
-    // and a fire-and-forget command was not watching. Structural rather than
-    // environmental, so it belongs here where the editor shows it, not in
-    // apply() where only the log would.
-    const bad = commands.filter((c) => /^[&|;]/.test(c));
-    if (bad.length) {
-      return [
-        `"${bad[0].slice(0, 40)}" starts with "${bad[0][0]}", which cmd.exe reads as a `
-        + 'command separator rather than a call. Remove it — a path on its own line is enough.',
-      ];
-    }
-    return [];
+  /**
+   * Advice, not a verdict. Nothing here can stop a save.
+   *
+   * A leading shell operator almost certainly does not do what was intended:
+   * commands run through `spawn(..., { shell: true })`, and on Windows that
+   * shell is cmd.exe, where `&` is the command SEPARATOR rather than
+   * PowerShell's call operator. `& thing.bat` asks cmd to run an empty command
+   * and gets "& was unexpected at this time", exit 1.
+   *
+   * This was briefly a validate() rule and that was wrong twice over. It blocked
+   * the ENTIRE save — profiles and Modes are saved as one document, so one bad
+   * line in Flatscreen mode stopped AI Mode being fixed, which is the same shape
+   * as the stale MOZA preset that once blocked saving every profile. And it
+   * asserted certainty this provider does not have: a shell is whatever the OS
+   * says it is, a line may be doing something clever, and refusing to store a
+   * string is a strong move to make on a guess.
+   *
+   * The real safety net is at runtime, where apply() reports
+   * "failed immediately (exit N)" instead of claiming a launch. This just gets
+   * the news to whoever is typing, sooner.
+   */
+  warn(cfg) {
+    const bad = parseCommands(cfg?.commands).filter((c) => /^[&|;]/.test(c));
+    if (!bad.length) return [];
+    return [
+      `"${bad[0].slice(0, 44)}" starts with "${bad[0][0]}". Commands run through `
+      + 'cmd.exe, which reads that as a command separator rather than a call, and answers '
+      + '"& was unexpected at this time". If you copied this from PowerShell, drop the leading '
+      + 'character — a path on its own line is enough.',
+    ];
   },
 
   describe(cfg) {

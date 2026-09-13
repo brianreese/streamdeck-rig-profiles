@@ -853,3 +853,43 @@ describe('the YAML export carries every declared setting', () => {
     }
   });
 });
+
+describe('warnings ride back on a successful save', () => {
+  // A warning that could stop a save would be a validation rule wearing a
+  // softer word. The whole point is that the document still stores.
+  it('saves, and reports the advice against the block it is about', async () => {
+    const settings = fakeSettings({});
+    const reply = await handlePiRequest({
+      request: 'saveProfiles',
+      profiles: [{ ...validProfile(), id: 'kai', providers: { apps: { commands: '& C:/x.bat' } } }],
+      modes: [],
+      settings: {},
+    }, { settings, logger: silent });
+
+    expect(reply.ok).toBe(true);
+    expect(settings.written().profiles).toHaveLength(1);
+    expect(reply.warnings).toHaveLength(1);
+    expect(reply.warnings[0]).toMatchObject({ recordId: 'kai', providerKey: 'apps' });
+  });
+
+  it('is silent when there is nothing to say', async () => {
+    const reply = await handlePiRequest({
+      request: 'saveProfiles',
+      profiles: [{ ...validProfile(), providers: { apps: { commands: 'C:/x.bat' } } }],
+      modes: [],
+      settings: {},
+    }, { settings: fakeSettings({}), logger: silent });
+    expect(reply.warnings).toEqual([]);
+  });
+
+  it('covers Modes as well as profiles', async () => {
+    const reply = await handlePiRequest({
+      request: 'saveProfiles',
+      profiles: [validProfile()],
+      modes: [{ id: 'ai', name: 'AI Mode', color: '#7744CC', providers: { apps: { commands: '& x.bat' } } }],
+      settings: {},
+    }, { settings: fakeSettings({}), logger: silent });
+    expect(reply.ok).toBe(true);
+    expect(reply.warnings[0].recordId).toBe('ai');
+  });
+});

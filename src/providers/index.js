@@ -144,6 +144,22 @@ export function isReversible(id) {
  * knowing it exists. Each field is tagged with the provider that declared it,
  * because two providers may both reasonably want a field called `apiKey`.
  */
+/**
+ * Non-blocking advice about one provider's stored config.
+ *
+ * Deliberately separate from validate(). A validation failure refuses the whole
+ * document; a warning is shown beside the field and changes nothing else.
+ */
+export function warningsFor(key, cfg) {
+  const provider = getProvider(key);
+  try {
+    return provider?.warn?.(cfg) ?? [];
+  } catch {
+    // Advice that throws is not worth failing a save over.
+    return [];
+  }
+}
+
 export function allSettingsFields() {
   return allProviders().flatMap((p) =>
     (p.settingsSchema?.() ?? []).map((f) => ({ ...f, providerId: p.id, providerLabel: p.label })),

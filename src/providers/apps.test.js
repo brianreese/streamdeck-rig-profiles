@@ -112,33 +112,42 @@ describe('schema', () => {
   });
 });
 
-describe('a leading shell operator, which cmd.exe cannot parse', () => {
+describe('a leading shell operator: advice, not a verdict', () => {
   // The AI Mode key ran `& C:\...\ai-mode.bat` for days and reported
   // "launched 1" every time while nothing happened. Commands go through
   // spawn(..., { shell: true }), and on Windows that shell is cmd.exe, where `&`
   // is the command SEPARATOR — so cmd was asked to run an empty command and
   // answered "& was unexpected at this time" with exit 1. In PowerShell the same
   // `&` is the call operator and correct, which is how it got written down.
-  it('is refused at save time, where the editor can show it', () => {
-    const errors = apps.validate({ commands: '& C:\Users\brian\pc-mode\ai-mode.bat' });
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatch(/command separator/);
+  //
+  // This WAS a validate() rule for one commit and that was wrong: profiles and
+  // Modes save as one document, so a bad line in Flatscreen mode blocked fixing
+  // AI Mode. Same shape as the stale MOZA preset that once blocked saving every
+  // profile.
+  it('does not block the save', () => {
+    expect(apps.validate({ commands: '& C:\Users\brian\pc-mode\ai-mode.bat' })).toEqual([]);
   });
 
-  it('names the offending line so a long list can be fixed', () => {
-    const errors = apps.validate({ commands: 'notepad\n& C:\thing.bat' });
-    expect(errors[0]).toContain('C:\thing.bat');
+  it('warns instead, and says what cmd.exe will do with it', () => {
+    const warnings = apps.warn({ commands: '& C:\Users\brian\pc-mode\ai-mode.bat' });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/command separator/);
+    expect(warnings[0]).toMatch(/ai-mode.bat/);
   });
 
-  it('catches the other separators too', () => {
-    expect(apps.validate({ commands: '| foo' })).toHaveLength(1);
-    expect(apps.validate({ commands: '; foo' })).toHaveLength(1);
+  it('catches the other separators', () => {
+    expect(apps.warn({ commands: '| foo' })).toHaveLength(1);
+    expect(apps.warn({ commands: '; foo' })).toHaveLength(1);
   });
 
-  it('leaves an ordinary command alone', () => {
-    expect(apps.validate({ commands: 'C:\Users\brian\pc-mode\ai-mode.bat' })).toEqual([]);
+  it('says nothing about an ordinary command', () => {
+    expect(apps.warn({ commands: 'C:\Users\brian\pc-mode\ai-mode.bat' })).toEqual([]);
     // An & INSIDE a line is a legitimate cmd chain and none of our business.
-    expect(apps.validate({ commands: 'start foo.exe & start bar.exe' })).toEqual([]);
+    expect(apps.warn({ commands: 'start foo.exe & start bar.exe' })).toEqual([]);
+  });
+
+  it('still refuses a block with no commands at all, which is structural', () => {
+    expect(apps.validate({ commands: '' })).toHaveLength(1);
   });
 });
 

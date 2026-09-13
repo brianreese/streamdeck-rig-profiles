@@ -348,6 +348,15 @@
          The profile still saves and the value is still exactly what it was.
          What has gone is the ability to edit it meaningfully. */
       .hw.locked::before { background: var(--amber); }
+      /* Advice, not a problem. Amber like the locked banner because it is the
+         same register — something is worth your attention and nothing is
+         broken — but without the heavy left border a locked block carries. */
+      .warnbanner {
+        background: rgba(227, 179, 65, 0.06); border: 1px solid #4a3c1a;
+        border-radius: 8px; padding: 8px 11px; margin: 0 0 12px;
+        color: #ddc99c; font-size: 12.5px; line-height: 1.5;
+      }
+      .warnbanner b { color: var(--amber); }
       .lostbanner {
         background: rgba(227, 179, 65, 0.08); border: 1px solid #5f4c1f;
         border-left-width: 3px; border-radius: 8px; padding: 9px 12px; margin: 0 0 14px;
@@ -930,6 +939,10 @@
           </div>`).join('');
       }
 
+      // Advice from the last successful save. NEVER blocks anything — see
+      // apps.js#warn for why this stopped being a validation rule.
+      let saveWarnings = [];
+
       let pendingRestore = null;
       let dismissedOffer = false;
       let offered = null;
@@ -1289,6 +1302,7 @@
         }
 
         saving = false;
+        saveWarnings = reply?.warnings ?? [];
         saveErrors = problems;
         broken = nextBroken;
 
@@ -1709,6 +1723,14 @@
                 : 'A value on this block could not be checked'}">${
                 locked ? 'unavailable' : 'unchecked'}</span>`
             : '';
+          // Advice attached to THIS block, from the last save. It sits above the
+          // locked banner when both are present, because "this will not run" is
+          // more actionable than "this value is gone".
+          const advice = saveWarnings
+            .filter((w) => w.recordId === (p?.id ?? null) && w.providerKey === key)
+            .map((w) => `<div class="warnbanner"><b>This probably will not run.</b> ${esc(w.text)}</div>`)
+            .join('');
+
           const banner = locked
             ? `<div class="lostbanner"><b>This block is locked</b>
                  ${esc(unknowns.filter((u) => u.why === 'missing').map((u) => u.label).join(', '))}
@@ -1748,7 +1770,7 @@
               <button class="icon rm" data-rmprov="${esc(key)}"
                       title="Remove this ${esc(prov.label)} block from this profile">✕</button>
             </div>
-            <div class="hw-body">${banner}${blankNote}${
+            <div class="hw-body">${advice}${banner}${blankNote}${
               (prov.fields ?? []).map((f) => fieldHtml(prov, f, cfg, { locked, key })).join('')}</div>
           </div>`;
         }).join('');

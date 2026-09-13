@@ -28,7 +28,7 @@ import {
 import { checkpointNow } from './backupSchedule.js';
 import {
   getProvider, allProviders, reportsState, providerIdOf, isRepeatable, STATUS,
-  allSettingsFields, secretSettingKeys,
+  allSettingsFields, secretSettingKeys, warningsFor,
 } from './providers/index.js';
 import { saveAvatar, loadAvatarDataUri, deleteAvatar } from './avatars.js';
 // buttonRenderer's half of the rename has landed.
@@ -62,6 +62,30 @@ function secretsMissingHere(labels) {
     const field = allSettingsFields().find((f) => f.label === label);
     return field ? !set.includes(field.key) : true;
   });
+}
+
+/**
+ * Non-blocking advice about what was just saved.
+ *
+ * Rides back on a SUCCESSFUL save, deliberately. A warning that could stop a
+ * save would be a validation rule wearing a softer word, and this codebase has
+ * already learned what an over-eager validation costs: one stale MOZA preset
+ * reference blocked saving every profile, and a leading "&" in one Mode blocked
+ * fixing a different one.
+ *
+ * Keyed by record id and config key so the editor can put each one against the
+ * block it is about rather than in a list at the top.
+ */
+export function collectWarnings(records) {
+  const out = [];
+  for (const record of records ?? []) {
+    for (const [key, cfg] of Object.entries(record?.providers ?? {})) {
+      for (const text of warningsFor(key, cfg)) {
+        out.push({ recordId: record.id, providerKey: key, text });
+      }
+    }
+  }
+  return out;
 }
 
 /** Turn a stored profile list into the legacy-shaped YAML we can re-import. */
@@ -400,7 +424,13 @@ export async function handlePiRequest(msg, { settings, logger = console, onChang
         // backup taken then still restores byte-for-byte.
         importedFrom: current?.importedFrom ?? null,
       });
-      return { request, ok: true, count: msg.profiles.length, modeCount: modes.length };
+      return {
+        request,
+        ok: true,
+        count: msg.profiles.length,
+        modeCount: modes.length,
+        warnings: collectWarnings([...msg.profiles, ...modes]),
+      };
     }
 
     case 'uploadAvatar': {
