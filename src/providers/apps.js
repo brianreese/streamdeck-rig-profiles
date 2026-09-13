@@ -29,7 +29,15 @@ export function parseCommands(text) {
  * `wait` decides the contract: a script we wait on can be verified by its exit
  * code; an app we fire and forget can only be reported as launched.
  */
-function run(command, { wait, spawnFn = spawn }) {
+/**
+ * How long a fire-and-forget command gets to prove it did not die on the spot.
+ *
+ * Long enough that cmd.exe has reported a parse error, short enough to be
+ * unnoticeable next to the rest of a profile switch.
+ */
+export const GRACE_MS = 600;
+
+function run(command, { wait, spawnFn = spawn, graceMs = GRACE_MS }) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -50,7 +58,35 @@ function run(command, { wait, spawnFn = spawn }) {
     if (!wait) {
       // Let it outlive the plugin; a launched app must not die with us.
       child.unref?.();
-      return resolve({ command, ok: true, detail: 'launched' });
+
+      // But give it a moment to fall over first.
+      //
+      // "Launched" used to be resolved the instant spawn returned, which is true
+      // of the SHELL and says nothing about the command. A mistyped path or a
+      // line cmd.exe cannot parse starts a shell that exits non-zero
+      // milliseconds later, and the key reported success every time.
+      //
+      // A process still alive after the grace period is the most a
+      // fire-and-forget command can honestly claim. One that is already dead
+      // with a non-zero code did not start, and saying so is the whole point.
+      // The delay is paid once per command and is invisible beside a profile
+      // switch that talks to a wheelbase.
+      const settled = setTimeout(() => {
+        resolve({ command, ok: true, detail: 'launched' });
+      }, graceMs);
+      settled.unref?.();
+
+      child.on('exit', (code) => {
+        clearTimeout(settled);
+        resolve(
+          code === 0
+            // Exited cleanly and at once: a launcher that handed off, which is
+            // a success and not worth alarming anybody about.
+            ? { command, ok: true, detail: 'launched' }
+            : { command, ok: false, detail: `failed immediately (exit ${code})` },
+        );
+      });
+      return undefined;
     }
 
     child.on('exit', (code) =>
@@ -90,7 +126,31 @@ export default {
   },
 
   validate(cfg) {
-    return parseCommands(cfg?.commands).length ? [] : ['apps & scripts is enabled but has no commands'];
+    const commands = parseCommands(cfg?.commands);
+    if (!commands.length) return ['apps & scripts is enabled but has no commands'];
+
+    // A leading shell operator cannot work, and fails in a way nobody sees.
+    //
+    // Commands run through `spawn(..., { shell: true })`, and on Windows that
+    // shell is cmd.exe. In PowerShell `&` is the call operator and a quoted path
+    // needs it; in cmd it is the command SEPARATOR, so `& thing.bat` asks cmd to
+    // run an empty command and it answers "& was unexpected at this time" with
+    // exit 1.
+    //
+    // This is not hypothetical. The AI Mode key ran
+    // `& C:\Users\brian\Development\pc-mode\ai-mode.bat` for days and reported
+    // "launched 1" every time while nothing happened — cmd started, cmd failed,
+    // and a fire-and-forget command was not watching. Structural rather than
+    // environmental, so it belongs here where the editor shows it, not in
+    // apply() where only the log would.
+    const bad = commands.filter((c) => /^[&|;]/.test(c));
+    if (bad.length) {
+      return [
+        `"${bad[0].slice(0, 40)}" starts with "${bad[0][0]}", which cmd.exe reads as a `
+        + 'command separator rather than a call. Remove it — a path on its own line is enough.',
+      ];
+    }
+    return [];
   },
 
   describe(cfg) {
@@ -111,7 +171,7 @@ export default {
     // Sequential: these often depend on each other (start the service, then the
     // app that talks to it). Parallel would be faster and wrong.
     for (const command of commands) {
-      results.push(await run(command, { wait, spawnFn: ctx.spawnFn }));
+      results.push(await run(command, { wait, spawnFn: ctx.spawnFn, graceMs: ctx.graceMs }));
     }
     lastRun.set(key, results);
   },

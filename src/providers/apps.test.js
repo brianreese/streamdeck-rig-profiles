@@ -111,3 +111,75 @@ describe('schema', () => {
     expect(apps.schema()[1].type).toBe('boolean');
   });
 });
+
+describe('a leading shell operator, which cmd.exe cannot parse', () => {
+  // The AI Mode key ran `& C:\...\ai-mode.bat` for days and reported
+  // "launched 1" every time while nothing happened. Commands go through
+  // spawn(..., { shell: true }), and on Windows that shell is cmd.exe, where `&`
+  // is the command SEPARATOR — so cmd was asked to run an empty command and
+  // answered "& was unexpected at this time" with exit 1. In PowerShell the same
+  // `&` is the call operator and correct, which is how it got written down.
+  it('is refused at save time, where the editor can show it', () => {
+    const errors = apps.validate({ commands: '& C:\Users\brian\pc-mode\ai-mode.bat' });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/command separator/);
+  });
+
+  it('names the offending line so a long list can be fixed', () => {
+    const errors = apps.validate({ commands: 'notepad\n& C:\thing.bat' });
+    expect(errors[0]).toContain('C:\thing.bat');
+  });
+
+  it('catches the other separators too', () => {
+    expect(apps.validate({ commands: '| foo' })).toHaveLength(1);
+    expect(apps.validate({ commands: '; foo' })).toHaveLength(1);
+  });
+
+  it('leaves an ordinary command alone', () => {
+    expect(apps.validate({ commands: 'C:\Users\brian\pc-mode\ai-mode.bat' })).toEqual([]);
+    // An & INSIDE a line is a legitimate cmd chain and none of our business.
+    expect(apps.validate({ commands: 'start foo.exe & start bar.exe' })).toEqual([]);
+  });
+});
+
+describe('a fire-and-forget command that dies on the spot', () => {
+  const spawnStub = (behaviour) => () => {
+    const handlers = {};
+    const child = {
+      on: (ev, fn) => { handlers[ev] = fn; return child; },
+      unref: () => {},
+    };
+    behaviour(handlers);
+    return child;
+  };
+
+  it('is reported as a failure rather than as a launch', async () => {
+    // "Launched" used to be resolved the instant spawn returned, which is true
+    // of the shell and says nothing about the command.
+    const spawnFn = spawnStub((h) => setTimeout(() => h.exit?.(1), 1));
+    const out = await apps.apply(
+      { commands: 'bad.bat', wait: false },
+      { spawnFn, graceMs: 200, profileId: 'p' },
+    );
+    const results = apps.lastResults?.('p') ?? out;
+    const verdict = await apps.verify({ commands: 'bad.bat', wait: false }, { profileId: 'p' });
+    expect(verdict.detail).toMatch(/failed immediately \(exit 1\)/);
+  });
+
+  it('still calls a clean immediate exit a launch — a handoff is not a failure', async () => {
+    const spawnFn = spawnStub((h) => setTimeout(() => h.exit?.(0), 1));
+    await apps.apply({ commands: 'launcher.exe', wait: false }, { spawnFn, graceMs: 200, profileId: 'q' });
+    const verdict = await apps.verify({ commands: 'launcher.exe', wait: false }, { profileId: 'q' });
+    expect(verdict.detail).toMatch(/launched/);
+  });
+
+  it('calls a process still alive after the grace period a launch', async () => {
+    // Never exits. This is the normal case: an app that stays open.
+    const spawnFn = spawnStub(() => {});
+    const started = Date.now();
+    await apps.apply({ commands: 'notepad', wait: false }, { spawnFn, graceMs: 50, profileId: 'r' });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(45);
+    const verdict = await apps.verify({ commands: 'notepad', wait: false }, { profileId: 'r' });
+    expect(verdict.detail).toMatch(/launched/);
+  });
+});
