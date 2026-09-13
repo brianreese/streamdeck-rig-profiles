@@ -170,7 +170,7 @@ export function planRetention(files, { now = () => new Date(), retention = RETEN
  * configured here" arrived as the same value — and the caller treated that value
  * as permission to seed example profiles over the top.
  *
- * That is the original data-loss bug (docs/BACKLOG.md §8) one level down:
+ * That is the original data-loss bug (docs/backlog.md §8) one level down:
  * absence of evidence read as evidence of absence. It cost a restored config on
  * 2026-09-04, when the plugin started a minute after a reboot, reported
  * "first run", and re-imported profiles.yaml over four recovered profiles —

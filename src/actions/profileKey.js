@@ -29,7 +29,7 @@
 //
 // were the only surviving record of what four lost profiles contained after
 // the 2026-09-02 wipe, and every one of them was reconstructed from these
-// lines. That was an accident rather than a design — docs/BACKLOG.md §8 keeps
+// lines. That was an accident rather than a design — docs/backlog.md §8 keeps
 // it as an open question — but until something deliberate replaces it, this is
 // the durable record of what the hardware was actually set to, and it stays
 // where a person can read it.

@@ -422,4 +422,4 @@ Community investigation (via the `pithouse2boxflat` converter project) confirms 
 
 ---
 
-**Current status (2026-09-03):** Implemented. The provider is `src/providers/moza.js` and the serial protocol lives in `src/moza/` — see `docs/BACKLOG.md` §6, §7 and §9. The `src/moza.js` stub this section described was deleted once nothing imported it.
+**Current status (2026-09-03):** Implemented. The provider is `src/providers/moza.js` and the serial protocol lives in `src/moza/` — see `docs/backlog.md` §6, §7 and §9. The `src/moza.js` stub this section described was deleted once nothing imported it.

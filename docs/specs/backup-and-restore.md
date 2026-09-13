@@ -6,7 +6,7 @@
 - **Date:** 2026-09-02
 - **Revised:** 2026-09-02 — secrets excluded from backups entirely; restore is
   always prompted; adds the secret-field contract that makes both structural
-- **Prompted by:** the second total loss of global settings, `docs/BACKLOG.md` §8
+- **Prompted by:** the second total loss of global settings, `docs/backlog.md` §8
 
 ## Delivered
 

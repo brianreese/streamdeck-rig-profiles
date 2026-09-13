@@ -1,5 +1,110 @@
 # Backlog
 
+**The single tracking surface for this repository.** Bugs, feature requests and
+chores in one file, so there is one place to look and one place to update. Same
+convention as `openlap/docs/backlog.md` and
+`streamdeck-race-launcher/docs/backlog.md`.
+
+## How this file is kept
+
+**Updating it is part of finishing the work, not a separate chore** — in the same
+commit as the change.
+
+**Status vocabulary is exactly five words:** `open`, `in progress`, `in review`,
+`done`, `parked`. `parked` means deliberately not now, with a reason and a
+trigger.
+
+**IDs are stable and never reused.** A short slug, kept if an item moves.
+
+Investigations live in [`docs/spikes/`](spikes/README.md) and are referenced from
+here rather than duplicated. Reviewed designs live in
+[`docs/specs/`](specs/).
+
+---
+
+## Release gate
+
+This plugin is going to a wider audience than one rig. These items block that,
+and nothing else currently does.
+
+- `[fr][provider-discovery]` **Release blocking.** A provider that depends on
+  another Stream Deck plugin must not appear as though it works when that plugin
+  is absent. `ace-driver` hardcodes `com.race.launcher`; with the Race Launcher
+  uninstalled it still validates, still reports *applied-unverified*, and does
+  nothing — a deep link has no reply, so it cannot notice. Sibling plugins ARE
+  detectable (verified: six on this machine, by `UUID` and `Name` from each
+  `*.sdPlugin/manifest.json`). Options and the A/B hybrid Brian proposed are in
+  [spike 02](spikes/02-provider-discovery-and-enablement.md); the decision is
+  which mechanism, not whether. Brian: *"I won't release with the hardcoded
+  racelauncher stuff that will look broken"* (`open`)
+
+- `[fr][provider-enablement]` **Release blocking.** A user on Philips Hue sees
+  the Govee provider and cannot use it; most users will want neither. Nothing is
+  detectable here — there is no Govee plugin to find — so the only signal is the
+  user's intent. Sketch is a Settings pane listing every provider with a search
+  and a toggle. **May be the same mechanism as `[fr][provider-discovery]`**: one
+  list of toggles whose defaults are pre-set by the requirement check, which a
+  user can override. Brian: *"Maybe this works with the A/B hybrid above, maybe
+  it replaces. We can decide later."* One thing already settled by precedent — a
+  disabled provider's stored config is **kept and shown greyed, never dropped**,
+  because config outlives code; otherwise disabling Govee silently destroys four
+  profiles' lighting. See [spike 02](spikes/02-provider-discovery-and-enablement.md)
+  (`open`)
+
+## Open
+
+- `[chore][pinned-provider-list]` Two tests in `piBridge.test.js` enumerate every
+  provider (`contextsOf`, `reportsStateOf`), so **every new provider breaks the
+  suite until both are edited**. That is the pinning working as intended — it
+  caught `ace-driver`'s contexts and state-reporting — but it is a recurring tax
+  and the failure reads as a regression rather than as a checklist. Worth
+  deciding whether the assertion should be "every registered provider declares
+  both" rather than "the set is exactly this" (`open`)
+
+- `[chore][openlap-backlog-migration]` The sections below predate this
+  convention and are mostly **not backlog items**: §6, §7, §9 and §10 are
+  research findings and §8 is an incident record, which in the openlap layout
+  would be spikes and a post-mortem. §1–§5 are real items and should become
+  slugged entries above. Deferred rather than done blind, because the detail in
+  §6–§10 is hard-won and a careless migration would lose it (`open`)
+
+- `[chore][rigstate-uncommitted]` `src/rigState.js` carries a comment-only
+  correction from another session, uncommitted across several days. Left alone
+  deliberately — it is not this session's change to land (`open`)
+
+## Parked
+
+- `[fr][ab9-shifter-mode]` Switching the MOZA AB9 between shifter and
+  flight-stick mode. Blocked on a USBPcap capture taken at the rig: change only
+  that setting in Pit House, then `node scripts/moza-decode-capture.mjs <file>`.
+  AB9 is PID `1000` (the throttle panel is `1100`; they were confidently
+  swapped once, see §10). **Trigger:** Brian at the rig with time to capture.
+  Brian, 2026-09-05: *"The ab9 capture will need to wait"* (`parked`)
+
+## Done
+
+- `[chore][screensaver-per-profile]` **Declined — not achievable.** A rig profile
+  cannot change the deck's screensaver. No SDK API, and — the part that kills the
+  workaround — it is not a profile property either, so `switchToProfile` does not
+  reach it. It is per-device state in a Qt binary blob in the registry. Two
+  triggers would reopen it, both cheap to re-check on a Stream Deck release:
+  [spike 01](spikes/01-screensaver-per-profile.md) (`done`)
+
+- `[bug][race-launcher-deep-link]` **Fixed upstream.** The Race Launcher's
+  `read()` took `url.query` — a **string** from the SDK — and indexed it as an
+  object, so every real deep link was dropped while its tests passed by building
+  `URLSearchParams`. Reported 2026-09-07 from this side; `read()` has since
+  gained a string branch and Brian confirmed the integration working on
+  2026-09-13. Recorded because the shape recurs: **a test helper that constructs
+  a different type than the runtime delivers** (`done`)
+
+---
+
+# Historical sections
+
+Everything below predates the convention above and is kept verbatim. See
+`[chore][openlap-backlog-migration]`.
+
 Captured 2026-08-27, after phase 2 landed.
 
 ## 1. Property inspector feels cramped

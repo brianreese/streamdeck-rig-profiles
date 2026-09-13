@@ -7,7 +7,7 @@
 // way out, and it is the wrong way — the guarantee would only ever be as strong
 // as the stripper, and every future path that serialises settings (an export, a
 // debug dump, a log line) would have to remember. Forgetting exactly that kind
-// of thing is why docs/BACKLOG.md §8 exists.
+// of thing is why docs/backlog.md §8 exists.
 //
 // So secrets never enter the global settings blob at all. The backup mirrors
 // that blob verbatim and CANNOT contain a secret, because there is not one

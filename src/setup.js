@@ -9,7 +9,7 @@
 // wheelbase setup slot, a Govee scene by name — so a canned one cannot be
 // right for anybody, and it was never possible to know what hardware a person
 // has. What the seed did reliably was overwrite real configuration: all three
-// losses recorded in docs/BACKLOG.md §8 ran through that importer.
+// losses recorded in docs/backlog.md §8 ran through that importer.
 //
 // A fresh install now starts empty, and the editor asks for the first profile.
 //
