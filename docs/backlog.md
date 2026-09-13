@@ -53,6 +53,45 @@ and nothing else currently does.
 
 ## Open
 
+- `[bug][deep-link-steals-focus]` **Mine, introduced with `ace-driver` on
+  2026-09-07.** Activating a rig profile brings the Stream Deck app window to the
+  foreground. Brian, from the seat: *"Something in my profile is causing the
+  stream deck app to open and focus when I activate a profile."*
+
+  **Cause.** `streamdeck://` is an OS protocol owned by the app —
+  `HKCR\streamdeck\shell\open\command` is `"…\StreamDeck.exe" "%1"`. The SDK's
+  `openUrl` sends an `openUrl` event to the app, which asks the OS to open the
+  URL, and Windows activates the already-running `StreamDeck.exe` and raises its
+  window. Correlated twice in the logs, within milliseconds:
+
+  | rig-profiles | Stream Deck app | gap |
+  |---|---|---|
+  | `07:50:09.583Z` ACE Driver applied | `07:50:09.677Z` `MainWindow::showEvent` | 94 ms |
+  | `07:50:36.453Z` ACE Driver applied | `07:50:36.464Z` `MainWindow::showEvent` | 11 ms |
+
+  It is not specific to this rig and will happen to every user, so it is
+  **release relevant** as well as annoying — and it is worst exactly where the
+  plugin is used, mid-session, in a game, where raising a window can mode-switch
+  a full-screen display. The race launcher hit the same class of problem with
+  toasts and fixed it with `SuppressPopup`.
+
+  **Not a defect in the race launcher's ADR-0002, but a cost it did not
+  anticipate.** That record lists three costs (no enumeration, silent drops,
+  reachable by anything) and three reopening triggers; window activation is
+  none of them. Worth adding there regardless of what we do here.
+
+  **Options, none chosen.** (a) Accept it. (b) Send only when the driver actually
+  changes — reduces frequency, does not fix it, and the driver legitimately
+  changes on most switches. (c) A command file instead of a URL: this repo
+  already talks to the Playnite plugin that way (`active-profile.json`,
+  `rig-flags.json`) with no focus cost, and ADR-0002 rejected a *published state
+  file for verification* and a *local server for commands* — a command file was
+  not among the options it weighed. (d) Ask Elgato for a non-activating way to
+  message a sibling plugin.
+
+  Spans both repositories, so the decision is Brian's rather than either
+  session's (`open`)
+
 - `[chore][pinned-provider-list]` Two tests in `piBridge.test.js` enumerate every
   provider (`contextsOf`, `reportsStateOf`), so **every new provider breaks the
   suite until both are edited**. That is the pinning working as intended — it
