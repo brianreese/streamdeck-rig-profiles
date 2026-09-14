@@ -53,6 +53,30 @@ and nothing else currently does.
 
 ## Open
 
+- `[chore][npm-restart]` **Added 2026-09-13.** `npm run restart` errored with
+  *"Missing script: start"*. There was no `restart` script, so npm fell back to
+  its built-in `restart` lifecycle — `npm stop --if-present && npm start` — and
+  there is no `start` either. `tools/reload.js` now exists and
+  `"restart": "node tools/reload.js"` overrides the built-in.
+
+  Adapted from `streamdeck-race-launcher/tools/reload.js`, which had it first and
+  encodes the lesson this repo learned separately: **`streamdeck restart <uuid>`
+  prints "Restarted" and does nothing** for a linked plugin — the process keeps
+  its pid and goes on running the code it started with. So it kills the plugin's
+  node process, lets Stream Deck respawn it, and verifies the new process started
+  AFTER the code did.
+
+  One difference from the sibling: this plugin is **buildless** — the manifest's
+  CodePath is `src/plugin.js`, with no bundle — so there is no single artifact
+  whose mtime means "the current code". It uses the newest file under `src/` and
+  `ui/` instead, excluding tests, since editing a test does not change what the
+  plugin runs.
+
+  It also says what it cannot do: a `manifest.json` change needs the Stream Deck
+  **application** restarted, because actions and their inspectors are read when
+  the app loads the plugin. Claiming a reload that did half the job is the same
+  failure as the Elgato CLI's (`done`)
+
 - `[bug][ampersand-commands]` **Fixed 2026-09-13.** The AI Mode key reported
   *"launched 1, not waiting for them"* on every press and the script never ran.
   Commands go through `spawn(..., { shell: true })`, and on Windows that shell is

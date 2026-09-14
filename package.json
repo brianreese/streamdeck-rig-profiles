@@ -8,6 +8,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "node src/state.integration.test.js",
+    "restart": "node tools/reload.js",
     "link": "streamdeck link"
   },
   "keywords": [
